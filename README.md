@@ -66,30 +66,50 @@ server {
 }
 ```
 
-## Docker
+## Docker Compose
 
-可用 PHP 官方镜像快速部署：
+项目已内置可直接使用的 `Dockerfile`、`docker-compose.yml` 和 Nginx 配置，默认监听宿主机 `8080` 端口。
 
-```dockerfile
-FROM php:8.3-fpm-alpine
-RUN docker-php-ext-install pdo_sqlite
-WORKDIR /var/www/html
-COPY . .
-RUN mkdir -p data && chown -R www-data:www-data data
+启动：
+
+```bash
+docker compose up -d --build
 ```
 
-配合 Nginx 反代 PHP-FPM，并在 Nginx 中禁止访问 `/data/`。
+访问：
+
+```text
+http://127.0.0.1:8080/install.php
+```
+
+初始化完成后访问：
+
+```text
+http://127.0.0.1:8080/
+http://127.0.0.1:8080/admin.php
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
+数据保存在 Docker volume `bbs1org-data`，升级容器不会丢数据。Nginx 配置已默认禁止访问 `/data/`、隐藏文件和非入口文件。
 
 ## 目录
 
 ```text
-index.php      前台入口
-admin.php      后台入口
-function.php   公共函数与页面逻辑
-install.php    全新安装
-update.php     结构更新与缓存刷新
-style.css      全站样式
-data/          SQLite 数据与缓存
+index.php           前台入口
+admin.php           后台入口
+function.php        公共函数与页面逻辑
+install.php         全新安装
+update.php          结构更新与缓存刷新
+style.css           全站样式
+Dockerfile          PHP-FPM 镜像
+docker-compose.yml  Compose 部署
+docker/             Nginx 配置
+data/               SQLite 数据与缓存
 ```
 
 ## 后台设置

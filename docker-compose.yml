@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - bbs1org-data:/var/www/html/data
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html:ro
+      - bbs1org-data:/var/www/html/data:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  bbs1org-data:
