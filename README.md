@@ -26,15 +26,59 @@
 
 1. 上传项目文件到站点目录
 2. 确保 `data/` 目录可写
-3. 访问 `install.php` 完成初始化
-4. 创建管理员账号后，将账号用户组设为“管理员”
-5. 访问 `admin.php` 配置站点
+3. 确保 Web 服务器无法直接访问 `data/`
+4. 访问 `install.php` 完成初始化
+5. 创建管理员账号后，将账号用户组设为“管理员”
+6. 访问 `admin.php` 配置站点
 
 本地预览：
 
 ```bash
 php -S 127.0.0.1:8000
 ```
+
+## 安全
+
+`data/` 目录保存 SQLite 数据库、缓存和安装锁，必须禁止公网访问。生产环境不要把站点根目录直接暴露为整个项目目录，建议只允许访问 PHP、CSS 等入口文件，并拦截 `/data/`。
+
+Nginx 示例：
+
+```nginx
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/bbs1org;
+    index index.php;
+
+    location ^~ /data/ {
+        deny all;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+}
+```
+
+## Docker
+
+可用 PHP 官方镜像快速部署：
+
+```dockerfile
+FROM php:8.3-fpm-alpine
+RUN docker-php-ext-install pdo_sqlite
+WORKDIR /var/www/html
+COPY . .
+RUN mkdir -p data && chown -R www-data:www-data data
+```
+
+配合 Nginx 反代 PHP-FPM，并在 Nginx 中禁止访问 `/data/`。
 
 ## 目录
 
