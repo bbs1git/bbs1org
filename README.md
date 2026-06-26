@@ -72,9 +72,11 @@ server {
 
 项目已内置可直接使用的 `Dockerfile`、`docker-compose.yml` 和 Nginx 配置，默认监听宿主机 `8080` 端口。
 
-启动：
+部署：
 
 ```bash
+git clone https://github.com/bbs1org/bbs1org.git
+cd bbs1org
 docker compose up -d --build
 ```
 
