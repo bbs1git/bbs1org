@@ -18,6 +18,20 @@
 - SQLite WAL 与关键索引，适合轻量高并发场景
 - 响应式界面，PC 与移动端均可用
 
+## 预览
+
+首页
+
+![首页](docs/screenshots/home.png)
+
+版块
+
+![版块](docs/screenshots/forum.png)
+
+主题查看
+
+![主题查看](docs/screenshots/topic.png)
+
 ## 环境
 
 - PHP 8.1+
