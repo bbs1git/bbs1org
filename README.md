@@ -24,11 +24,18 @@
 - PDO SQLite 扩展
 - Web 服务器支持 PHP
 
-## 安装
+## 自建 Nginx/PHP 安装
 
-1. 上传项目文件到站点目录
-2. 确保 `data/` 目录可写
-3. 确保 Web 服务器无法直接访问 `data/`
+```bash
+git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
+cd /var/www/bbs1org
+mkdir -p data
+chown -R www-data:www-data data
+```
+
+1. 安装 PHP、PHP-FPM、PDO SQLite 扩展
+2. 将 Nginx 站点根目录指向 `/var/www/bbs1org`
+3. 按下方 Nginx 示例禁止访问 `/data/`
 4. 访问 `install.php` 完成初始化
 5. 创建管理员账号后，将账号用户组设为“管理员”
 6. 访问 `admin.php` 配置站点
