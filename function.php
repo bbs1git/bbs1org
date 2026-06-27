@@ -38,7 +38,7 @@ function db(): PDO
     foreach ($db->query("PRAGMA table_info(groups)") as $col) $group_cols[(string)$col['name']] = true;
     if (!isset($group_cols['allow_manage'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_manage INTEGER NOT NULL DEFAULT 0");
     if (!isset($group_cols['allow_admin'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_admin INTEGER NOT NULL DEFAULT 0");
-    $db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
+    if (isset($group_cols['is_admin'])) $db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
     $notify_cols = [];
     foreach ($db->query("PRAGMA table_info(notifications)") as $col) $notify_cols[(string)$col['name']] = $col;
     $notify_mismatch = isset($notify_cols['topic_id']) && ((int)$notify_cols['topic_id']['notnull'] === 1 || (string)($notify_cols['topic_id']['dflt_value'] ?? '') === '0');
@@ -62,6 +62,8 @@ function db(): PDO
     }
     $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
+    $db->exec("CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id,created_at DESC)");
     return $db;
 }
 function h($s): string
@@ -97,6 +99,7 @@ function default_settings(): array
         'default_group_id' => '2',
         'topics_per_page' => '30',
         'replies_per_page' => '50',
+        'mail_from' => '',
     ];
 }
 function settings_cache(bool $refresh = false): array
@@ -139,6 +142,7 @@ function save_settings(): void
         'default_group_id' => (string)$gid,
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
+        'mail_from' => post('mail_from', 120),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
     settings_cache(true);
@@ -179,7 +183,7 @@ function groups_cache(bool $refresh = false): array
         $cached = include GROUP_CACHE_FILE;
         if (is_array($cached)) return $groups = $cached;
     }
-    $groups = q("SELECT id,name,is_admin,is_banned,is_muted,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
+    $groups = q("SELECT id,name,is_banned,is_muted,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
     if (!is_dir(dirname(GROUP_CACHE_FILE))) mkdir(dirname(GROUP_CACHE_FILE), 0755, true);
     file_put_contents(GROUP_CACHE_FILE, "<?php\nreturn " . var_export($groups, true) . ";\n", LOCK_EX);
     return $groups;
@@ -268,7 +272,7 @@ function notification_link(array $n): string
 {
     if ((int)($n['topic_id'] ?? 0) > 0) {
         $url = 'index.php?a=topic&id=' . (int)$n['topic_id'];
-        if ((int)($n['reply_id'] ?? 0) > 0) $url .= '#post-' . (int)$n['reply_id'];
+        if ((int)($n['reply_id'] ?? 0) > 0) $url .= '&replyid=' . (int)$n['reply_id'];
         return $url;
     }
     if ((int)($n['sender_id'] ?? 0) > 0) return 'index.php?a=user&id=' . (int)$n['sender_id'];
@@ -279,9 +283,13 @@ function notification_row_html(array $n): string
     $sender_id = (int)($n['sender_id'] ?? 0);
     $sender_name = trim((string)($n['sender_username'] ?? '')) ?: '系统';
     $body = (string)($n['content'] ?? '');
+    $content_html = markdown_html($body);
+    if ((string)($n['kind'] ?? '') === 'mention' && (int)($n['topic_id'] ?? 0) > 0 && preg_match('/^在主题《(.+?)》中提到你：(.*)$/us', $body, $m)) {
+        $content_html = '在主题《<a href="' . h(notification_link($n)) . '">' . h($m[1]) . '</a>》中提到你：' . markdown_html(trim((string)$m[2]));
+    }
     $kind = notification_kind_label((string)($n['kind'] ?? ''));
     $unread = (int)($n['read_at'] ?? 0) === 0;
-    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head"><a class="post-title" href="index.php?a=user&id=' . $sender_id . '">' . h($sender_name) . '</a><span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . h($body) . '</div></div><a class="post-tag post-forum-badge" href="' . h(notification_link($n)) . '">查看</a></li>';
+    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head"><a class="post-title" href="index.php?a=user&id=' . $sender_id . '">' . h($sender_name) . '</a><span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div><a class="post-tag post-forum-badge" href="' . h(notification_link($n)) . '">查看</a></li>';
 }
 function admin_user_form_data(int $id): array
 {
@@ -379,6 +387,22 @@ function quick_forums_html(): string
     foreach (recent_forums() as $f) $html .= '<li><a href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a></li>';
     return $html . '</ul></div></div>';
 }
+function sidebar_notice_card_html(string $title, array $items): string
+{
+    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">' . h($title) . '</div><ul class="quick-links notice-links">';
+    foreach ($items as $item) $html .= '<li>' . h($item) . '</li>';
+    return $html . '</ul></div></div>';
+}
+function markdown_help_card_html(): string
+{
+    return sidebar_notice_card_html('Markdown 说明', [
+        '**粗体**，*斜体*',
+        '`代码`',
+        '- 列表项',
+        '[链接文字](https://example.com)',
+        '![图片描述](https://example.com/a.jpg)',
+    ]);
+}
 function shell_html(string $main, string $sidebar): string
 {
     return '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . '</div></div>' . $sidebar . '</div></div>';
@@ -394,6 +418,13 @@ function tab_bar_html(array $items, string $active, string $class = ''): string
     }
     return $html . '</div>';
 }
+function auth_tabs_html(string $active): string
+{
+    return tab_bar_html([
+        'login' => ['label' => '登录', 'href' => 'index.php?a=login'],
+        'register' => ['label' => '注册', 'href' => 'index.php?a=register'],
+    ], $active, 'auth-tabs');
+}
 function sidebar_stack_html(array $parts): string
 {
     $html = '<aside class="sidebar">';
@@ -408,9 +439,9 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
     $prefix = $is_self ? '我的' : 'TA的';
     $unread = $is_self ? (int)($m['unread_notifications'] ?? 0) : 0;
     $links = '<a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . $prefix . '主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . $prefix . '回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . $prefix . '收藏</a>';
-    if ($is_self) $links .= '<a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=notifications">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '');
+    if ($is_self) $links .= '<a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=notifications">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '');
     else $links .= '<a href="index.php?a=notify&id=' . (int)$m['id'] . '" onclick="openNotify(this.href);return false">' . svg_icon('notify') . '私信TA</a>';
-    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . ($is_self ? notification_badge_html($unread) : '') . '</div><div class="user-rank">' . h($m['group_name'] ?? '用户') . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
+    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name'] ?? '用户') . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
     if (can_speak()) $html .= '<a class="btn-post' . ($is_self ? '' : ' notify-link') . '" href="' . ($reply_button ? '#reply' : ($is_self ? 'index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') : 'index.php?a=notify&id=' . (int)$m['id'])) . '"' . ($is_self || $reply_button ? '' : ' onclick="openNotify(this.href);return false"') . '>' . ($reply_button ? '回帖' : ($is_self ? '+ 发帖' : '私信TA')) . '</a>';
     return $html . '</div>';
 }
@@ -447,6 +478,10 @@ function form_shell(string $body, ?array $m = null): string
 {
     return shell_html($body, sidebar_stack_html([sidebar_user_card_html($m)]));
 }
+function topic_form_shell(string $body): string
+{
+    return shell_html($body, sidebar_stack_html([sidebar_user_card_html(), markdown_help_card_html()]));
+}
 function stats_cache(bool $refresh = false): array
 {
     static $stats = null;
@@ -480,32 +515,27 @@ function me(): ?array
     $u = one("SELECT * FROM users WHERE id=?", [uid()]);
     if (!$u) return null;
     $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
-    return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'is_admin' => (int)$g['is_admin'], 'is_banned' => (int)$g['is_banned'], 'is_muted' => (int)$g['is_muted'], 'allow_manage' => (int)($g['allow_manage'] ?? $g['is_admin']), 'allow_admin' => (int)($g['allow_admin'] ?? $g['is_admin'])];
-}
-function is_admin(): bool
-{
-    $u = me();
-    return $u && (int)$u['is_admin'] === 1;
+    return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'is_banned' => (int)$g['is_banned'], 'is_muted' => (int)$g['is_muted'], 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
 }
 function can_manage(): bool
 {
     $u = me();
-    return $u && ((int)$u['is_admin'] === 1 || (int)($u['allow_manage'] ?? 0) === 1);
+    return $u && (int)($u['allow_manage'] ?? 0) === 1;
 }
 function can_access_admin(): bool
 {
     $u = me();
-    return $u && ((int)$u['is_admin'] === 1 || (int)($u['allow_admin'] ?? 0) === 1);
+    return $u && (int)($u['allow_admin'] ?? 0) === 1;
 }
 function is_banned(): bool
 {
     $u = me();
-    return $u && !is_admin() && (int)$u['is_banned'] === 1;
+    return $u && !can_access_admin() && (int)$u['is_banned'] === 1;
 }
 function is_muted(): bool
 {
     $u = me();
-    return $u && !is_admin() && (int)$u['is_muted'] === 1;
+    return $u && !can_access_admin() && (int)$u['is_muted'] === 1;
 }
 function can_speak(): bool
 {
@@ -534,7 +564,7 @@ function need_site_access(): void
 {
     if (is_banned() && ($_GET['a'] ?? '') !== 'logout') err('禁止访问');
     $a = $_GET['a'] ?? 'home';
-    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout'], true)) err('网站已关闭');
+    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password'], true)) err('网站已关闭');
 }
 function token(): string
 {
@@ -558,12 +588,18 @@ function ajax_error(string $m): never
 }
 function go(string $u): never
 {
+    if (ajax_request()) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => 1, 'redirect' => $u], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     header("Location: $u");
     exit;
 }
 function err(string $m): never
 {
-    page('错误', '<div class="box"><h2>错误</h2><p>' . h($m) . '</p></div>');
+    if (ajax_request()) ajax_error($m);
+    page('错误', shell_html('<div class="form-panel"><h2>错误</h2><p>' . h($m) . '</p></div>', sidebar_stack_html([sidebar_user_card_html()])));
     exit;
 }
 function cut(string $v, int $max): string
@@ -722,6 +758,54 @@ function avatar_tag(int $uid, string $name, string $style = '', string $class = 
     $classes = trim('avatar-img ' . $class);
     return '<img class="' . h($classes) . '" src="' . h(avatar_url($uid, $style, $seed)) . '" alt="' . h($name) . '" loading="lazy">';
 }
+function markdown_inline(string $text): string
+{
+    $text = h($text);
+    $codes = [];
+    $text = preg_replace_callback('/`([^`\n]+)`/u', function ($m) use (&$codes) {
+        $key = "\x1A" . count($codes) . "\x1A";
+        $codes[$key] = '<code>' . $m[1] . '</code>';
+        return $key;
+    }, $text) ?? $text;
+    $text = preg_replace('/\*\*([^*\n]+)\*\*/u', '<strong>$1</strong>', $text) ?? $text;
+    $text = preg_replace('/(?<!\*)\*([^*\n]+)\*(?!\*)/u', '<em>$1</em>', $text) ?? $text;
+    $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
+        $key = "\x1A" . count($codes) . "\x1A";
+        $codes[$key] = '<img src="' . h($m[2]) . '" alt="' . $m[1] . '" loading="lazy">';
+        return $key;
+    }, $text) ?? $text;
+    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) {
+        return '<a href="' . h($m[2]) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
+    }, $text) ?? $text;
+    $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
+        $url = rtrim($m[1], '.,;:!?');
+        $tail = substr($m[1], strlen($url));
+        return '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . h($url) . '</a>' . h($tail);
+    }, $text) ?? $text;
+    return strtr($text, $codes);
+}
+function markdown_html(string $text): string
+{
+    $text = str_replace(["\r\n", "\r"], "\n", trim($text));
+    if ($text === '') return '';
+    $blocks = preg_split("/\n{2,}/", $text) ?: [];
+    $html = [];
+    foreach ($blocks as $block) {
+        $lines = explode("\n", $block);
+        if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
+            $items = '';
+            foreach ($lines as $line) {
+                if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
+            }
+            if ($items !== '') {
+                $html[] = '<ul>' . $items . '</ul>';
+                continue;
+            }
+        }
+        $html[] = '<p>' . str_replace("\n", '<br>', markdown_inline($block)) . '</p>';
+    }
+    return implode('', $html);
+}
 function avatar_picker_html(array $u): string
 {
     $uid = (int)$u['id'];
@@ -739,7 +823,11 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $has_title = $title !== '';
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
     $avatar = avatar_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
-    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title post-author" href="index.php?a=user&id=' . (int)$row['user_id'] . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . h($body) . '</div></li>';
+    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title post-author" href="index.php?a=user&id=' . (int)$row['user_id'] . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . markdown_html($body) . '</div></li>';
+}
+function quote_reply_action(array $row): string
+{
+    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" title="引用回复"><span>引用回复</span></a>';
 }
 function topic_list_row(array $t, string $sort, string $url_prefix = 'index.php'): string
 {
@@ -824,6 +912,22 @@ document.addEventListener("click", e => {
 document.addEventListener("click", e => {
     if (e.target?.closest("[data-modal-close]") || e.target === modal) closeModal();
 });
+document.addEventListener("click", e => {
+    const quote = e.target.closest(".quote-reply");
+    if (!quote) return;
+    e.preventDefault();
+    const textarea = document.querySelector("#reply textarea[name=body]");
+    const panel = document.getElementById("reply");
+    if (!textarea || !panel) {
+        window.location.href = quote.href;
+        return;
+    }
+    const mention = "@" + (quote.dataset.username || "").trim() + " ";
+    if (!textarea.value.includes(mention)) textarea.value = mention + textarea.value;
+    panel.scrollIntoView({block:"center"});
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+});
 document.addEventListener("submit", async e => {
     const replyForm = e.target.closest(".ajax-reply-form");
     if (replyForm) {
@@ -857,23 +961,46 @@ document.addEventListener("submit", async e => {
         return;
     }
     const notifyForm = e.target.closest(".notify-form");
-    if (!notifyForm) return;
+    if (notifyForm) {
+        e.preventDefault();
+        const button = notifyForm.querySelector("button");
+        const status = notifyForm.querySelector(".notify-status");
+        button.disabled = true;
+        if (status) status.textContent = "发送中";
+        try {
+            const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.message || "发送失败");
+            closeModal();
+            showToast(data.message || "已发送");
+        } catch (err) {
+            showToast(err?.message || "发送失败");
+        } finally {
+            button.disabled = false;
+            if (status) status.textContent = "";
+        }
+        return;
+    }
+    const form = e.target.closest("form");
+    if (!form || (form.method || "").toLowerCase() !== "post") return;
     e.preventDefault();
-    const button = notifyForm.querySelector("button");
-    const status = notifyForm.querySelector(".notify-status");
-    button.disabled = true;
-    if (status) status.textContent = "发送中";
+    const button = form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
+    if (button) button.disabled = true;
     try {
-        const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.message || "发送失败");
-        closeModal();
-        showToast(data.message || "已发送");
+        const response = await fetch(form.action || window.location.href, {method: "POST", body: new FormData(form), headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (_) {
+            throw new Error("操作失败");
+        }
+        if (!data.ok) throw new Error(data.message || "操作失败");
+        if (data.redirect) window.location.href = data.redirect;
+        else showToast(data.message || "操作成功");
     } catch (err) {
-        showToast(err?.message || "发送失败");
-    } finally {
-        button.disabled = false;
-        if (status) status.textContent = "";
+        showToast(err?.message || "操作失败");
+        if (button) button.disabled = false;
     }
 });
 </script>
@@ -898,13 +1025,13 @@ function page(string $title, string $body): void
     echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . $mine_link . '">' . $mine_label . '</a></div></div>';
     echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Copyright © 2022 - 2026 All rights Reserved</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong>私信TA</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div>' . (string)$settings['footer_html'] . app_script_html() . '</body></html>';
 }
-function input(string $label, string $name, $value = '', string $type = 'text'): string
+function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
 {
-    return '<label class="grid"><span>' . h($label) . '</span><input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"></label>';
+    return '<label class="grid"><span>' . h($label) . '</span><input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
 }
-function textarea(string $label, string $name, $value = ''): string
+function textarea(string $label, string $name, $value = '', bool $required = false): string
 {
-    return '<label class="grid"><span>' . h($label) . '</span><textarea name="' . h($name) . '">' . h($value) . '</textarea></label>';
+    return '<label class="grid"><span>' . h($label) . '</span><textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
 }
 function select_group(int $gid): string
 {
@@ -986,7 +1113,7 @@ function user_notifications_page(): void
         foreach ($rows as $n) $main .= notification_row_html($n);
     }
     $main .= '</ul><div class="pagination-bar">' . paginate($total, $p, $size, 'index.php?a=user&id=' . uid() . '&tab=notifications') . '</div>';
-    page('我的通知', shell_html($main, sidebar_stack_html([sidebar_user_card_html($me, false), quick_forums_html(), sidebar_stats_card_html()])));
+    page('我的通知', shell_html($main, sidebar_stack_html([sidebar_user_card_html($me, false)])));
 }
 function user_notify_page(): void
 {
@@ -1007,7 +1134,7 @@ function user_notify_page(): void
         go('index.php?a=user&id=' . (int)$target['id'] . '&tab=notifications');
     }
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="index.php?a=notify&id=' . (int)$target['id'] . '">' . form_token() . '<textarea name="content" placeholder="输入私信内容"></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="index.php?a=notify&id=' . (int)$target['id'] . '">' . form_token() . '<textarea name="content" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -1017,6 +1144,87 @@ function user_notify_page(): void
 function user_notify_link_html(int $uid): string
 {
     return '<a class="notify-link" href="index.php?a=notify&id=' . $uid . '" data-user-id="' . $uid . '">私信TA</a>';
+}
+function base_url(): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+    $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
+    $dir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'))), '/');
+    return ($https ? 'https' : 'http') . '://' . $host . ($dir === '' ? '' : $dir);
+}
+function send_mail_text(string $to, string $subject, string $body): bool
+{
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
+    $site = trim(setting('site_name')) ?: 'PHPLite Forum';
+    $from = trim(setting('mail_from'));
+    if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) $from = 'no-reply@' . preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+    $encoded_site = '=?UTF-8?B?' . base64_encode($site) . '?=';
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . $encoded_site . ' <' . $from . '>',
+    ];
+    return mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $body, implode("\r\n", $headers));
+}
+function create_password_reset(array $user): string
+{
+    q("UPDATE password_resets SET used_at=? WHERE user_id=? AND used_at=0", [now(), (int)$user['id']]);
+    $token = bin2hex(random_bytes(32));
+    q("INSERT INTO password_resets(user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)", [(int)$user['id'], hash('sha256', $token), now() + 3600, now()]);
+    return $token;
+}
+function password_reset_notice_sidebar(string $mode): string
+{
+    $items = $mode === 'reset'
+        ? ['重置链接有效期为 1 小时。', '请设置一个新的安全密码。', '重置成功后旧链接会立即失效。']
+        : ['邮箱保密，仅忘记密码时可用。', '需要用户名和邮箱同时匹配。', '重置邮件可能会进入垃圾邮件箱。'];
+    return sidebar_stack_html([sidebar_notice_card_html($mode === 'reset' ? '重置密码说明' : '找回密码说明', $items)]);
+}
+function forgot_password_page(): void
+{
+    if (uid()) go('index.php');
+    $sent = false;
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $username = post('username', 40);
+        $email = post('email', 120);
+        $u = one("SELECT id,username,email FROM users WHERE username=? AND email=?", [$username, $email]);
+        if (!$u || !filter_var((string)$u['email'], FILTER_VALIDATE_EMAIL)) err('用户名和邮箱不匹配');
+        $token = create_password_reset($u);
+        $link = base_url() . '/index.php?a=reset_password&token=' . $token;
+        $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'PHPLite Forum');
+        $body = "你好，" . $u['username'] . "\n\n请打开以下链接重置密码：\n" . $link . "\n\n链接有效期为 1 小时。如果不是你本人操作，请忽略本邮件。";
+        if (!send_mail_text((string)$u['email'], $subject, $body)) err('邮件发送失败，请稍后再试');
+        if (ajax_request()) go('index.php?a=login');
+        $sent = true;
+    }
+    $body = '<div class="form-panel auth-panel"><h2>忘记密码</h2>';
+    if ($sent) {
+        $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
+    } else {
+        $body .= '<form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
+    }
+    page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
+}
+function reset_password_page(): void
+{
+    if (uid()) go('index.php');
+    $token = trim((string)($_GET['token'] ?? $_POST['token'] ?? ''));
+    if ($token === '') err('重置链接无效');
+    $row = one("SELECT pr.*,u.username FROM password_resets pr JOIN users u ON u.id=pr.user_id WHERE pr.token_hash=? AND pr.used_at=0 AND pr.expires_at>=?", [hash('sha256', $token), now()]);
+    if (!$row) err('重置链接无效或已过期');
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $pwd = (string)($_POST['password'] ?? '');
+        $pwd2 = (string)($_POST['password2'] ?? '');
+        if ($pwd === '') err('密码不能为空');
+        if ($pwd !== $pwd2) err('两次密码不一致');
+        q("UPDATE users SET password=? WHERE id=?", [password_hash($pwd, PASSWORD_DEFAULT), (int)$row['user_id']]);
+        q("UPDATE password_resets SET used_at=? WHERE id=?", [now(), (int)$row['id']]);
+        if (ajax_request()) go('index.php?a=login');
+        page('密码已重置', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>密码已重置</h2><p class="muted">请使用新密码登录。</p><p class="auth-extra"><a href="index.php?a=login">去登录</a></p></div>', password_reset_notice_sidebar('reset')));
+        return;
+    }
+    $form = '<div class="form-panel auth-panel"><h2>重置密码</h2><form method="post">' . form_token() . '<input type="hidden" name="token" value="' . h($token) . '">' . input('新密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . '<button>保存新密码</button></form></div>';
+    page('重置密码', shell_html(auth_tabs_html('login') . $form, password_reset_notice_sidebar('reset')));
 }
 function save_forum(): void
 {
@@ -1030,16 +1238,11 @@ function save_group(): void
 {
     $name = post('name', 60);
     if ($name === '') err('组名不能为空');
-    $is = isset($_POST['is_admin']) ? 1 : 0;
     $allow_manage = isset($_POST['allow_manage']) ? 1 : 0;
     $allow_admin = isset($_POST['allow_admin']) ? 1 : 0;
     $banned = isset($_POST['is_banned']) ? 1 : 0;
     $muted = isset($_POST['is_muted']) ? 1 : 0;
-    if ($is) {
-        $allow_manage = 1;
-        $allow_admin = 1;
-    }
-    id() ? q("UPDATE groups SET name=?,is_admin=?,allow_manage=?,allow_admin=?,is_banned=?,is_muted=? WHERE id=?", [$name, $is, $allow_manage, $allow_admin, $banned, $muted, id()]) : q("INSERT INTO groups(name,is_admin,allow_manage,allow_admin,is_banned,is_muted) VALUES(?,?,?,?,?,?)", [$name, $is, $allow_manage, $allow_admin, $banned, $muted]);
+    id() ? q("UPDATE groups SET name=?,allow_manage=?,allow_admin=?,is_banned=?,is_muted=? WHERE id=?", [$name, $allow_manage, $allow_admin, $banned, $muted, id()]) : q("INSERT INTO groups(name,allow_manage,allow_admin,is_banned,is_muted) VALUES(?,?,?,?,?)", [$name, $allow_manage, $allow_admin, $banned, $muted]);
     groups_cache(true);
 }
 function save_topic(): int
@@ -1119,6 +1322,7 @@ function del(string $table, int $id): void
 }
 function login_page(): void
 {
+    if (uid()) go('index.php');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
@@ -1128,17 +1332,24 @@ function login_page(): void
         }
         err('用户名或密码错误');
     }
-    page('登录', '<div class="form-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username') . input('密码', 'password', '', 'password') . '<button>登录</button></form></div>');
+    $sidebar = sidebar_stack_html([
+        sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
+    ]);
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . '<button>登录</button></form><p class="auth-extra"><a href="index.php?a=forgot_password">忘记密码？</a></p></div>', $sidebar));
 }
 function register_page(): void
 {
+    if (uid()) go('index.php');
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false);
         $_SESSION['uid'] = (int)db()->lastInsertId();
         go('index.php');
     }
-    page('注册', '<div class="form-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username') . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '<button>注册</button></form></div>');
+    $sidebar = sidebar_stack_html([
+        sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
+    ]);
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
@@ -1149,7 +1360,7 @@ function profile_page(): void
         save_user(false);
         go('index.php?a=profile');
     }
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username']) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit"><a href="index.php?a=logout"><span>安全退出</span><small>退出当前登录状态</small></a></div></div>', $u));
 }
 function user_page(): void
 {
@@ -1241,7 +1452,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             'favorites' => ['label' => $prefix . '收藏', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites')],
         ];
         if ($own_profile) $tab_items['notifications'] = ['label' => $prefix . '通知', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=notifications')];
-        $main .= tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="index.php?a=profile">设置</a>' . (is_admin() ? '<a href="admin.php">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="index.php?a=notify&id=' . $profile_uid . '" onclick="openNotify(this.href);return false">私信TA</a></span>');
+        $main .= '<div class="profile-toolbar">' . tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="index.php?a=profile">设置</a>' . (can_access_admin() ? '<a href="admin.php">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="index.php?a=notify&id=' . $profile_uid . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
     } else {
         $tab_items = [
             'comment' => ['label' => '新评论', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment')],
@@ -1290,23 +1501,43 @@ function topic_page(): void
         q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;
     }
-    $p = max(1, (int)($_GET['p'] ?? 1));
     $size = max(1, (int)setting('replies_per_page', '50'));
+    $replyid = id('replyid');
+    if ($replyid > 0) {
+        $reply = one("SELECT id,created_at FROM replies WHERE id=? AND topic_id=?", [$replyid, (int)$t['id']]);
+        if ($reply) {
+            $before = (int)q("SELECT COUNT(*) FROM replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<=?))", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
+            $_GET['p'] = (string)max(1, (int)ceil($before / $size));
+        }
+    }
+    $p = max(1, (int)($_GET['p'] ?? 1));
     $off = ($p - 1) * $size;
     $replies = q("SELECT r.*,u.username,u.avatar_style,u.avatar_seed,u.group_id FROM replies r JOIN users u ON u.id=r.user_id WHERE r.topic_id=? ORDER BY r.created_at,r.id LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll();
     $fav = uid() ? one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), (int)$t['id']]) : null;
     $topic_ops = '';
+    if (uid()) $topic_ops .= quote_reply_action($t);
     if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="index.php?a=favorite&id=' . (int)$t['id'] . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
     if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="index.php?a=topic_edit&id=' . (int)$t['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=topics&id=' . (int)$t['id'] . '&back=home" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a>';
     $main = '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
     $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
     foreach ($replies as $r) {
-        $reply_ops = can_manage_reply($r) ? '<div class="post-ops"><a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$r['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$r['id'] . '&back=topic&tid=' . (int)$t['id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>' : '';
+        $reply_ops = uid() ? quote_reply_action($r) : '';
+        if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$r['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$r['id'] . '&back=topic&tid=' . (int)$t['id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a>';
+        $reply_ops = $reply_ops !== '' ? '<div class="post-ops">' . $reply_ops . '</div>' : '';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
     $main .= '</ul><div class="pagination-bar">' . paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']) . '</div>';
-    if (can_speak()) $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3><span class="reply-status">说两句</span></div><form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body') . '<button>回复</button></form></div>';
+    $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3><span class="reply-status">' . (uid() ? (can_speak() ? '说两句' : '禁止发言') : '登录后回复') . '</span></div>';
+    if (can_speak()) {
+        $main .= '<form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . '<button>回复</button></form>';
+    } elseif (!uid()) {
+        $main .= '<div class="reply-login-box"><a href="index.php?a=login">登录后回复</a></div>';
+    } else {
+        $main .= '<div class="reply-login-box disabled">当前用户组禁止发言</div>';
+    }
+    $main .= '</div>';
+    if ($replyid > 0) $main .= '<script>window.addEventListener("load",function(){const target=document.getElementById("post-' . $replyid . '");if(!target)return;const imgs=[...document.images].filter(img=>!img.complete);let done=false;const scroll=()=>{if(done)return;done=true;target.scrollIntoView({block:"center"});};if(!imgs.length){scroll();return;}let left=imgs.length;imgs.forEach(img=>{const next=()=>{left--;if(left<=0)scroll();};img.addEventListener("load",next,{once:true});img.addEventListener("error",next,{once:true});});setTimeout(scroll,3000);});</script>';
     page($t['title'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html(), sidebar_stats_card_html()])));
 }
 function topic_edit_page(): void
@@ -1319,7 +1550,7 @@ function topic_edit_page(): void
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST') go('index.php?a=topic&id=' . save_topic());
     $title = id() ? '编辑主题' : '发表主题';
-    page($title, form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title']) . textarea('内容', 'body', $t['body']) . '<button>保存</button></form></div>'));
+    page($title, topic_form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . '<button>保存</button></form></div>'));
 }
 function reply_edit_page(): void
 {
@@ -1330,16 +1561,20 @@ function reply_edit_page(): void
         if (!can_manage_reply($r)) err('无权限');
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $editing = id() > 0;
         $saved = save_reply();
+        if (ajax_request() && $editing) go('index.php?a=topic&id=' . $saved['topic_id'] . '&replyid=' . $saved['reply_id']);
         if (ajax_request()) {
             $row = one("SELECT r.*,u.username,u.avatar_style,u.avatar_seed,u.group_id FROM replies r JOIN users u ON u.id=r.user_id WHERE r.id=?", [$saved['reply_id']]) ?: err('回复不存在');
-            $ops = can_manage_reply($row) ? '<div class="post-ops"><a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$row['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$row['id'] . '&back=topic&tid=' . (int)$saved['topic_id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>' : '';
+            $ops = quote_reply_action($row);
+            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$row['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$row['id'] . '&back=topic&tid=' . (int)$saved['topic_id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a>';
+            $ops = '<div class="post-ops">' . $ops . '</div>';
             $topic = one("SELECT view_count,reply_count FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0];
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        go('index.php?a=topic&id=' . $saved['topic_id']);
+        go('index.php?a=topic&id=' . $saved['topic_id'] . '&replyid=' . $saved['reply_id']);
     }
-    page('编辑回复', form_shell('<div class="form-panel"><h2>编辑回复</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body']) . '<button>保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel"><h2>编辑回复</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . '<button>保存</button></form></div>'));
 }

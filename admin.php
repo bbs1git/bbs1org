@@ -34,7 +34,7 @@ function admin_page(): void
         $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
         foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
         $group_select .= '</select></label>';
-        $html .= '<div class="form-panel settings-form"><h2>站点设置</h2><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name']) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number') . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number') . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<button>保存</button></form></div>';
+        $html .= '<div class="form-panel settings-form"><h2>站点设置</h2><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<button>保存</button></form></div>';
     } elseif ($tab === 'users') {
         $html .= '<div class="row"><h2 class="grow">用户</h2>' . ($manageable ? '<a class="btn" href="admin.php?a=edit&type=user">添加</a>' : '') . '</div>' . admin_search_form('users', $q);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
@@ -43,8 +43,8 @@ function admin_page(): void
         $html .= '</table>';
         if ($manageable) $html .= admin_bulk_delete_bar() . '</form>';
     } elseif ($tab === 'groups') {
-        $html .= '<div class="row"><h2 class="grow">用户组</h2><a class="btn" href="admin.php?a=edit&type=group">添加</a></div><table class="list"><tr><th>ID</th><th>名称</th><th>管理员</th><th>用户和内容管理</th><th>后台管理</th><th>禁访</th><th>禁言</th><th>操作</th></tr>';
-        foreach (groups_cache() as $g) $html .= '<tr><td>' . (int)$g['id'] . '</td><td>' . h($g['name']) . '</td><td>' . ((int)$g['is_admin'] ? '是' : '否') . '</td><td>' . ((int)($g['allow_manage'] ?? 0) ? '是' : '否') . '</td><td>' . ((int)($g['allow_admin'] ?? 0) ? '是' : '否') . '</td><td>' . ((int)$g['is_banned'] ? '是' : '否') . '</td><td>' . ((int)$g['is_muted'] ? '是' : '否') . '</td><td class="ops"><a href="admin.php?a=edit&type=group&id=' . (int)$g['id'] . '">编辑</a> <a href="admin.php?a=delete&type=groups&id=' . (int)$g['id'] . '&tab=groups" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+        $html .= '<div class="row"><h2 class="grow">用户组</h2><a class="btn" href="admin.php?a=edit&type=group">添加</a></div><table class="list"><tr><th>ID</th><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th>禁访</th><th>禁言</th><th>操作</th></tr>';
+        foreach (groups_cache() as $g) $html .= '<tr><td>' . (int)$g['id'] . '</td><td>' . h($g['name']) . '</td><td>' . ((int)($g['allow_manage'] ?? 0) ? '是' : '否') . '</td><td>' . ((int)($g['allow_admin'] ?? 0) ? '是' : '否') . '</td><td>' . ((int)$g['is_banned'] ? '是' : '否') . '</td><td>' . ((int)$g['is_muted'] ? '是' : '否') . '</td><td class="ops"><a href="admin.php?a=edit&type=group&id=' . (int)$g['id'] . '">编辑</a> <a href="admin.php?a=delete&type=groups&id=' . (int)$g['id'] . '&tab=groups" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
         $html .= '<div class="row"><h2 class="grow">版块</h2><a class="btn" href="admin.php?a=edit&type=forum">添加</a></div><table class="list"><tr><th>ID</th><th>名称</th><th>排序</th><th>操作</th></tr>';
@@ -82,16 +82,17 @@ function admin_edit_page(): void
     if ($type === 'user') {
         $u = admin_user_form_data(id());
         $tab = 'users';
-        $body = input('用户名', 'username', $u['username']) . input('邮箱', 'email', $u['email'], 'email') . input(id() ? '新密码' : '密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . select_group((int)$u['group_id']) . textarea('简介', 'bio', $u['bio']);
+        $is_new = id() === 0;
+        $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . textarea('简介', 'bio', $u['bio']);
     } elseif ($type === 'group') {
-        $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'is_admin' => 0, 'allow_manage' => 0, 'allow_admin' => 0, 'is_banned' => 0, 'is_muted' => 0];
+        $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0, 'is_banned' => 0, 'is_muted' => 0];
         $tab = 'groups';
-        $body = input('名称', 'name', $g['name']) . '<label class="grid"><span>管理员</span><input type="checkbox" name="is_admin" value="1"' . ((int)$g['is_admin'] ? ' checked' : '') . '></label><label class="grid"><span>允许用户和内容管理</span><input type="checkbox" name="allow_manage" value="1"' . ((int)($g['allow_manage'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>允许后台管理</span><input type="checkbox" name="allow_admin" value="1"' . ((int)($g['allow_admin'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>禁止访问</span><input type="checkbox" name="is_banned" value="1"' . ((int)$g['is_banned'] ? ' checked' : '') . '></label><label class="grid"><span>禁止发言</span><input type="checkbox" name="is_muted" value="1"' . ((int)$g['is_muted'] ? ' checked' : '') . '></label>';
+        $body = input('名称', 'name', $g['name'], 'text', true) . '<label class="grid"><span>允许用户和内容管理</span><input type="checkbox" name="allow_manage" value="1"' . ((int)($g['allow_manage'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>允许后台管理</span><input type="checkbox" name="allow_admin" value="1"' . ((int)($g['allow_admin'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>禁止访问</span><input type="checkbox" name="is_banned" value="1"' . ((int)$g['is_banned'] ? ' checked' : '') . '></label><label class="grid"><span>禁止发言</span><input type="checkbox" name="is_muted" value="1"' . ((int)$g['is_muted'] ? ' checked' : '') . '></label>';
     } elseif ($type === 'forum') {
         $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0];
         if (!$f) err('版块不存在');
         $tab = 'forums';
-        $body = input('名称', 'name', $f['name']) . input('排序', 'sort', $f['sort'], 'number') . textarea('描述', 'description', $f['description']);
+        $body = input('名称', 'name', $f['name'], 'text', true) . input('排序', 'sort', $f['sort'], 'number', true) . textarea('描述', 'description', $f['description']);
     } else err('参数错误');
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }

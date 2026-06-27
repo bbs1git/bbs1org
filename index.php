@@ -9,6 +9,8 @@ $a = $_GET['a'] ?? 'home';
 try {
     if ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
+    elseif ($a === 'forgot_password') forgot_password_page();
+    elseif ($a === 'reset_password') reset_password_page();
     elseif ($a === 'logout') {
         session_destroy();
         go('index.php');

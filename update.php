@@ -39,7 +39,7 @@ $group_cols = [];
 foreach ($db->query("PRAGMA table_info(groups)") as $col) $group_cols[(string)$col['name']] = true;
 if (!isset($group_cols['allow_manage'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_manage INTEGER NOT NULL DEFAULT 0");
 if (!isset($group_cols['allow_admin'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_admin INTEGER NOT NULL DEFAULT 0");
-$db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
+if (isset($group_cols['is_admin'])) $db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
 $tables = array_map('strval', $db->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN));
 if (!in_array('notifications', $tables, true)) {
     $db->exec("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
@@ -59,8 +59,9 @@ if (!in_array('notifications', $tables, true)) {
         }
     }
 }
-$db->exec("INSERT OR IGNORE INTO groups(id,name,is_admin,allow_manage,allow_admin,is_banned,is_muted) VALUES(1,'管理员',1,1,1,0,0),(2,'会员',0,0,0,0,0)");
+$db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin,is_banned,is_muted) VALUES(1,'管理员',1,1,0,0),(2,'会员',0,0,0,0)");
 $db->exec("CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '')");
+$db->exec("CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 $settings = [
     'site_name' => 'PHPLite Forum',
     'site_keywords' => '',
@@ -71,6 +72,7 @@ $settings = [
     'allow_register' => '1',
     'reserved_usernames' => 'admin,administrator,root,system',
     'default_group_id' => '2',
+    'mail_from' => '',
 ];
 $stmt = $db->prepare("INSERT OR IGNORE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
@@ -85,6 +87,7 @@ $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_topic_created ON replies(topic
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user_id ON replies(user_id,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id,created_at DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_users_created ON users(id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_favorites_user_created ON favorites(user_id,created_at DESC)");
 $db->exec("DROP INDEX IF EXISTS idx_topics_forum_time");
@@ -95,7 +98,7 @@ $forums = $db->query("SELECT id,name,description,sort,last_topic_id,last_topic_t
 if (!is_dir(dirname(FORUM_CACHE_FILE))) mkdir(dirname(FORUM_CACHE_FILE), 0755, true);
 file_put_contents(FORUM_CACHE_FILE, "<?php\nreturn " . var_export($forums, true) . ";\n", LOCK_EX);
 
-$groups = $db->query("SELECT id,name,is_admin,is_banned,is_muted,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
+$groups = $db->query("SELECT id,name,is_banned,is_muted,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
 if (!is_dir(dirname(GROUP_CACHE_FILE))) mkdir(dirname(GROUP_CACHE_FILE), 0755, true);
 file_put_contents(GROUP_CACHE_FILE, "<?php\nreturn " . var_export($groups, true) . ";\n", LOCK_EX);
 
