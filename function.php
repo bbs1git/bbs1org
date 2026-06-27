@@ -25,6 +25,9 @@ function db(): PDO
             'PRAGMA temp_store=MEMORY',
             'PRAGMA busy_timeout=5000',
             'PRAGMA foreign_keys=ON',
+            'PRAGMA cache_size=-16000',
+            'PRAGMA mmap_size=134217728',
+            'PRAGMA wal_autocheckpoint=400',
         ] as $sql
     ) $db->exec($sql);
     return $db;
@@ -60,6 +63,8 @@ function default_settings(): array
         'allow_register' => '1',
         'reserved_usernames' => 'admin,administrator,root,system',
         'default_group_id' => '2',
+        'topics_per_page' => '30',
+        'replies_per_page' => '50',
     ];
 }
 function settings_cache(bool $refresh = false): array
@@ -100,6 +105,8 @@ function save_settings(): void
         'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
         'reserved_usernames' => post('reserved_usernames', 2000),
         'default_group_id' => (string)$gid,
+        'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
+        'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
     settings_cache(true);
@@ -166,16 +173,24 @@ function recent_forums(): array
     }
     return $list ?: forums_cache();
 }
+function mark_viewed(int $tid): bool
+{
+    $seen = $_SESSION['viewed_topics'] ?? [];
+    if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
+    $seen[$tid] = time();
+    $_SESSION['viewed_topics'] = array_slice($seen, -200, null, true);
+    return true;
+}
 function quick_forums_html(): string
 {
     $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">最近浏览版块</div><ul class="quick-links">';
-    foreach (recent_forums() as $f) $html .= '<li><a href="?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a></li>';
+    foreach (recent_forums() as $f) $html .= '<li><a href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a></li>';
     return $html . '</ul></div></div>';
 }
 function guest_auth_html(): string
 {
     $allow = setting('allow_register', '1') === '1';
-    return '<div class="side-auth' . ($allow ? '' : ' single') . '"><a href="?a=login">登录</a>' . ($allow ? '<a href="?a=register">注册</a>' : '') . '</div>';
+    return '<div class="side-auth' . ($allow ? '' : ' single') . '"><a href="index.php?a=login">登录</a>' . ($allow ? '<a href="index.php?a=register">注册</a>' : '') . '</div>';
 }
 function user_card_html(?array $m = null, bool $reply_button = false, int $fid = 0): string
 {
@@ -183,8 +198,8 @@ function user_card_html(?array $m = null, bool $reply_button = false, int $fid =
         $m = me();
     }
     if (!$m) return '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big visitor-avatar">P</div><div><div class="user-name">访客</div><div class="user-rank">请登录后发帖</div></div></div></div>' . guest_auth_html() . '</div></div>';
-    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
-    if (can_speak()) $html .= '<a class="btn-post" href="' . ($reply_button ? '#reply' : '?a=topic_edit' . ($fid ? '&fid=' . $fid : '')) . '">' . ($reply_button ? '回帖' : '+ 发帖') . '</a>';
+    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
+    if (can_speak()) $html .= '<a class="btn-post" href="' . ($reply_button ? '#reply' : 'index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '')) . '">' . ($reply_button ? '回帖' : '+ 发帖') . '</a>';
     return $html . '</div>';
 }
 function form_shell(string $body, ?array $m = null): string
@@ -293,7 +308,7 @@ function go(string $u): never
 }
 function err(string $m): never
 {
-    page('错误', '<div class="box"><h2>错误</h2><p>' . h($m) . '</p><p><a href="?">返回首页</a></p></div>');
+    page('错误', '<div class="box"><h2>错误</h2><p>' . h($m) . '</p><p><a href="index.php">返回首页</a></p></div>');
     exit;
 }
 function cut(string $v, int $max): string
@@ -335,6 +350,25 @@ function paginate(int $total, int $page, int $size, string $url): string
     $h .= '</ul></div>';
     return $h;
 }
+function topic_page_links(int $topic_id, int $reply_count): string
+{
+    $size = max(1, (int)setting('replies_per_page', '50'));
+    $pages = (int)ceil($reply_count / $size);
+    if ($pages <= 1) return '';
+    $base = 'index.php?a=topic&id=' . $topic_id;
+    $nums = [];
+    foreach ([2, 3, $pages - 2, $pages - 1, $pages] as $n) if ($n >= 2 && $n <= $pages) $nums[$n] = true;
+    $nums = array_keys($nums);
+    sort($nums);
+    $h = '<span class="topic-pages">' . svg_icon('pages');
+    $prev = 1;
+    foreach ($nums as $i) {
+        if ($i - $prev > 1) $h .= '<span class="topic-pages-sep">…</span>';
+        $h .= '<a href="' . $base . '&p=' . $i . '">' . $i . '</a>';
+        $prev = $i;
+    }
+    return $h . '</span>';
+}
 function post(string $k, int $max = 0): string
 {
     $v = trim((string)($_POST[$k] ?? ''));
@@ -360,6 +394,7 @@ function svg_icon(string $name): string
         'favorite_fill' => '<svg class="meta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>',
         'settings' => '<svg class="meta-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.5 3.5-.9-.5c-.3-.2-.4-.6-.3-.9l.8-1.4-1.8-1.8-1.4.8c-.3.2-.7.1-.9-.3l-.5-.9h-2l-.5.9c-.2.4-.6.5-.9.3l-1.4-.8-1.8 1.8.8 1.4c.2.3.1.7-.3.9l-.9.5v2l.9.5c.3.2.4.6.3.9l-.8 1.4 1.8 1.8 1.4-.8c.3-.2.7-.1.9.3l.5.9h2l.5-.9c.2-.4.6-.5.9-.3l1.4.8 1.8-1.8-.8-1.4c-.2-.3-.1-.7.3-.9l.9-.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
         'admin' => '<svg class="meta-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.4 7.8 8 9 4.6-1.2 8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        'pages' => '<svg class="meta-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.5 9h6M9.5 12.5h6M9.5 16h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
     ];
     return $icons[$name] ?? '';
 }
@@ -448,7 +483,7 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $has_title = $title !== '';
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
     $avatar = avatar_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
-    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title" href="?a=user&id=' . (int)$row['user_id'] . '">' . h($row['username']) . '</a>' . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . h($body) . '</div></li>';
+    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title" href="index.php?a=user&id=' . (int)$row['user_id'] . '">' . h($row['username']) . '</a>' . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . h($body) . '</div></li>';
 }
 function topic_stats_html(int $view_count, int $reply_count): string
 {
@@ -468,9 +503,12 @@ function page(string $title, string $body): void
     $q = trim((string)($_GET['q'] ?? ''));
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
     echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="stylesheet" href="style.css"></head><body>';
+    $mine = me();
+    $mine_link = $mine ? 'index.php?a=user&id=' . (int)$mine['id'] : 'index.php?a=login';
+    $mine_label = $mine ? '我的' : '登录';
     echo '<div class="top"><div class="bar"><a class="brand" href="index.php">' . h($site_name) . '</a><nav class="forum-nav">';
     foreach (array_slice(forums_cache(), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a>';
-    echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form></div></div>';
+    echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . $mine_link . '">' . $mine_label . '</a></div></div>';
     echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Copyright © 2022 - 2026 All rights Reserved</footer>' . (string)$settings['footer_html'] . '<script>function avatarPickerUrl(p,seed){const s=p?.querySelector("select[name=avatar_style]");return "https://api.dicebear.com/10.x/"+encodeURIComponent(s?.value||"dylan")+"/svg?seed="+encodeURIComponent(seed||p.dataset.seed||"0")}function refreshAvatarPicker(p){const k=p?.querySelector("input[name=avatar_seed]"),v=k?.value||"",i=p?.querySelector(".avatar-picker-preview img");if(i)i.src=avatarPickerUrl(p,v);p?.querySelectorAll(".avatar-option").forEach(b=>{const seed=b.dataset.seed||"",img=b.querySelector("img");if(img)img.src=avatarPickerUrl(p,seed);b.classList.toggle("active",seed===v)})}document.addEventListener("change",e=>{const p=e.target.closest(".avatar-picker");if(p)refreshAvatarPicker(p)});document.addEventListener("click",e=>{const b=e.target.closest(".avatar-option");if(!b)return;const p=b.closest(".avatar-picker"),k=p?.querySelector("input[name=avatar_seed]");if(k){k.value=b.dataset.seed||"";refreshAvatarPicker(p)}});document.addEventListener("submit",async e=>{const f=e.target.closest(".ajax-reply-form");if(!f)return;e.preventDefault();const b=f.querySelector("button"),s=f.querySelector(".reply-status"),l=document.querySelector(".topic-post-list");b.disabled=true;if(s)s.textContent="提交中";try{const r=await fetch(f.action,{method:"POST",body:new FormData(f),headers:{"X-Requested-With":"XMLHttpRequest"}}),d=await r.json();if(!d.ok)throw new Error(d.message||"提交失败");l?.querySelector(".empty-state")?.remove();l?.insertAdjacentHTML("beforeend",d.html);const t=document.querySelector(".post-topic-title"),st=t?.querySelector(".post-content-stats");if(t){if(d.stats_html){if(st)st.outerHTML=d.stats_html;else t.insertAdjacentHTML("beforeend",d.stats_html)}else if(st)st.remove()}f.reset();if(s)s.textContent="已回复"}catch(_){if(s)s.textContent="提交失败"}finally{b.disabled=false}});</script></body></html>';
 }
 function input(string $label, string $name, $value = '', string $type = 'text'): string
@@ -503,7 +541,7 @@ function can_reply(array $r): bool
 }
 function refresh_topic_stats(int $tid): void
 {
-    q("UPDATE topics SET reply_count=(SELECT COUNT(*) FROM replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT MAX(created_at) FROM replies WHERE topic_id=?),0) WHERE id=?", [$tid, $tid, $tid]);
+    q("UPDATE topics SET reply_count=(SELECT COUNT(*) FROM replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT MAX(created_at) FROM replies WHERE topic_id=?),created_at) WHERE id=?", [$tid, $tid, $tid]);
 }
 function save_user(bool $admin = false): void
 {
@@ -570,7 +608,7 @@ function save_topic(): int
         forums_cache(true);
         return id();
     }
-    q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at) VALUES(?,?,?,?,?,?)", [$fid, uid(), $title, $body, now(), now()]);
+    q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, uid(), $title, $body, now(), now(), now()]);
     $tid = (int)db()->lastInsertId();
     q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$tid, $title, $fid]);
     forums_cache(true);
@@ -635,11 +673,11 @@ function login_page(): void
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             session_regenerate_id(true);
             $_SESSION['uid'] = (int)$u['id'];
-            go('?');
+            go('index.php');
         }
         err('用户名或密码错误');
     }
-    page('登录', '<div class="box form-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username') . input('密码', 'password', '', 'password') . '<button>登录</button></form></div>');
+    page('登录', '<div class="form-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username') . input('密码', 'password', '', 'password') . '<button>登录</button></form></div>');
 }
 function register_page(): void
 {
@@ -647,9 +685,9 @@ function register_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false);
         $_SESSION['uid'] = (int)db()->lastInsertId();
-        go('?');
+        go('index.php');
     }
-    page('注册', '<div class="box form-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username') . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '<button>注册</button></form></div>');
+    page('注册', '<div class="form-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username') . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '<button>注册</button></form></div>');
 }
 function profile_page(): void
 {
@@ -658,9 +696,9 @@ function profile_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_POST['id'] = uid();
         save_user(false);
-        go('?a=profile');
+        go('index.php?a=profile');
     }
-    page('个人资料', form_shell('<div class="box form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username']) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username']) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form></div>', $u));
 }
 function user_page(): void
 {
@@ -678,24 +716,24 @@ function favorite_page(): void
     one("SELECT id FROM topics WHERE id=?", [$tid]) ?: err('主题不存在');
     if (one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), $tid])) q("DELETE FROM favorites WHERE user_id=? AND topic_id=?", [uid(), $tid]);
     else q("INSERT INTO favorites(user_id,topic_id,created_at) VALUES(?,?,?)", [uid(), $tid, now()]);
-    go('?a=topic&id=' . $tid);
+    go('index.php?a=topic&id=' . $tid);
 }
 function topic_index_page(?array $filter_forum = null, ?array $filter_user = null): void
 {
     $fid = (int)($filter_forum['id'] ?? 0);
     $profile_uid = (int)($filter_user['id'] ?? 0);
     $own_profile = $profile_uid && uid() === $profile_uid;
-    $base = $profile_uid ? '?a=user&id=' . $profile_uid : ($fid ? '?a=forum&id=' . $fid : '?');
+    $base = $profile_uid ? 'index.php?a=user&id=' . $profile_uid : ($fid ? 'index.php?a=forum&id=' . $fid : 'index.php');
     $url = function (string $query) use ($base): string {
         return $base . (str_contains($base, '?') ? '&' : '?') . $query;
     };
     $p = max(1, (int)($_GET['p'] ?? 1));
-    $size = 30;
+    $size = max(1, (int)setting('topics_per_page', '30'));
     $off = ($p - 1) * $size;
     $profile_tab = $_GET['tab'] ?? 'topics';
     if (!in_array($profile_tab, ['topics', 'replies', 'favorites'], true)) $profile_tab = 'topics';
     $sort = $profile_uid ? 'post' : (($_GET['sort'] ?? 'comment') === 'post' ? 'post' : 'comment');
-    $order = $sort === 'post' ? 't.created_at DESC,t.id DESC' : 'COALESCE(NULLIF(t.last_reply_at,0),t.created_at) DESC,t.id DESC';
+    $order = $sort === 'post' ? 't.created_at DESC,t.id DESC' : 't.last_reply_at DESC,t.id DESC';
     $q = trim((string)($_GET['q'] ?? ''));
     $where_parts = [];
     $params = [];
@@ -734,9 +772,9 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $html = '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel">';
     if ($profile_uid) {
         $prefix = $own_profile ? '我的' : 'TA的';
-        $html .= '<div class="tab-bar"><a class="tab' . ($profile_tab === 'topics' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=topics') . '">' . $prefix . '主题</a><a class="tab' . ($profile_tab === 'replies' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=replies') . '">' . $prefix . '回帖</a><a class="tab' . ($profile_tab === 'favorites' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites') . '">' . $prefix . '收藏</a></div>';
+        $html .= '<div class="tab-bar"><a class="tab' . ($profile_tab === 'topics' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=topics') . '">' . $prefix . '主题</a><a class="tab' . ($profile_tab === 'replies' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=replies') . '">' . $prefix . '回帖</a><a class="tab' . ($profile_tab === 'favorites' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites') . '">' . $prefix . '收藏</a>' . ($own_profile ? '<span class="tab-actions"><a href="index.php?a=profile">设置</a>' . (is_admin() ? '<a href="admin.php">后台</a>' : '') . '</span>' : '') . '</div>';
     } else {
-        $html .= '<div class="tab-bar"><a class="tab' . ($sort === 'comment' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment') . '">新评论</a><a class="tab' . ($sort === 'post' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=post') . '">新帖子</a></div>';
+        $html .= '<div class="tab-bar"><a class="tab' . ($sort === 'comment' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment') . '">新评论</a><a class="tab' . ($sort === 'post' ? ' active' : '') . '" href="' . $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=post') . '">新帖子</a>' . (can_speak() ? '<a class="tab-post" href="index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>' : '') . '</div>';
     }
     $html .= '<ul class="post-list">';
     if (!$rows) {
@@ -746,10 +784,10 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         foreach ($rows as $t) {
             $time = (int)($t['my_reply_at'] ?? $t['favorite_at'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
             $forum = forum_by_id((int)$t['forum_id']) ?: ['id' => 0, 'name' => ''];
-            $user_link = '<a href="?a=user&id=' . (int)$t['user_id'] . '">' . svg_icon('user') . h($t['username']) . '</a>';
-            $forum_link = '<a href="?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a>';
+            $user_link = '<a href="index.php?a=user&id=' . (int)$t['user_id'] . '">' . svg_icon('user') . h($t['username']) . '</a>';
+            $forum_link = '<a href="index.php?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a>';
             $meta = '<span>' . $user_link . '</span><span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span><span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span><span>' . human_time($time) . '</span>';
-            $html .= '<li class="post-item"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><a class="post-title" href="?a=topic&id=' . (int)$t['id'] . '">' . h($t['title']) . '</a><div class="post-meta">' . $meta . '</div></div><a class="post-tag post-forum-badge" href="?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a></li>';
+            $html .= '<li class="post-item"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row"><a class="post-title" href="index.php?a=topic&id=' . (int)$t['id'] . '">' . h($t['title']) . '</a>' . topic_page_links((int)$t['id'], (int)$t['reply_count']) . '</div><div class="post-meta">' . $meta . '</div></div><a class="post-tag post-forum-badge" href="index.php?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a></li>';
         }
     }
     $page_query = ($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . ($profile_uid ? 'tab=' . $profile_tab : 'sort=' . $sort);
@@ -758,12 +796,12 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     if ($profile_uid) {
         $m = $filter_user;
         $prefix = $own_profile ? '我的' : 'TA的';
-        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name'] ?? '用户') . '</div></div></div></div><div class="user-links"><a href="?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . $prefix . '主题</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . $prefix . '回帖</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . $prefix . '收藏</a>' . ($own_profile ? '<a href="?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') : '') . '</div></div>';
-        if (can_speak()) $html .= '<a class="btn-post" href="?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>';
+        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name'] ?? '用户') . '</div></div></div></div><div class="user-links"><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . $prefix . '主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . $prefix . '回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . $prefix . '收藏</a>' . ($own_profile ? '<a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') : '') . '</div></div>';
+        if (can_speak()) $html .= '<a class="btn-post" href="index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>';
     } elseif (uid()) {
         $m = me();
-        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
-        if (can_speak()) $html .= '<a class="btn-post" href="?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>';
+        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
+        if (can_speak()) $html .= '<a class="btn-post" href="index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>';
     } else {
         $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">P</div><div><div class="user-name">访客</div><div class="user-rank">请登录后发帖</div></div></div></div>' . guest_auth_html() . '</div>';
     }
@@ -773,7 +811,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     }
     if (!$profile_uid) {
         $html .= quick_forums_html() . '<div class="card sidebar-card stats-card"><div class="stats-wrap"><div class="stats-title">站点统计</div><div class="stats-sub">主题 ' . (int)$stats['topics'] . ' · 回复 ' . (int)$stats['replies'] . ' · 用户 ' . (int)$stats['users'] . '</div><div class="new-users-title">最新用户</div><div class="new-users">';
-        foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="?a=user&id=' . (int)$u['id'] . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
+        foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="index.php?a=user&id=' . (int)$u['id'] . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
         $html .= '</div></div></div>';
     }
     $html .= '</aside></div></div>';
@@ -794,36 +832,38 @@ function topic_page(): void
 {
     $t = one("SELECT t.*,u.username,u.avatar_style,u.avatar_seed FROM topics t JOIN users u ON u.id=t.user_id WHERE t.id=?", [id()]) ?: err('主题不存在');
     remember_forum((int)$t['forum_id']);
-    q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
-    $t['view_count'] = (int)$t['view_count'] + 1;
+    if (mark_viewed((int)$t['id'])) {
+        q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
+        $t['view_count'] = (int)$t['view_count'] + 1;
+    }
     $p = max(1, (int)($_GET['p'] ?? 1));
-    $size = 50;
+    $size = max(1, (int)setting('replies_per_page', '50'));
     $off = ($p - 1) * $size;
     $replies = q("SELECT r.*,u.username,u.avatar_style,u.avatar_seed FROM replies r JOIN users u ON u.id=r.user_id WHERE r.topic_id=? ORDER BY r.created_at,r.id LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll();
     $fav = uid() ? one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), (int)$t['id']]) : null;
     $topic_ops = '';
-    if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="?a=favorite&id=' . (int)$t['id'] . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
-    if (can_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="?a=topic_edit&id=' . (int)$t['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="?a=delete&type=topics&id=' . (int)$t['id'] . '&back=home" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a>';
-    $html = '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel"><ul class="post-list topic-post-list">';
-    $html .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '', $t['title'], topic_stats_html((int)$t['view_count'], (int)$t['reply_count']));
+    if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="index.php?a=favorite&id=' . (int)$t['id'] . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
+    if (can_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="index.php?a=topic_edit&id=' . (int)$t['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=topics&id=' . (int)$t['id'] . '&back=home" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a>';
+    $html = '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel"><div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
+    $html .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
     foreach ($replies as $r) {
-        $reply_ops = can_reply($r) ? '<div class="post-ops"><a class="icon-action icon-edit" href="?a=reply_edit&id=' . (int)$r['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="?a=delete&type=replies&id=' . (int)$r['id'] . '&back=topic&tid=' . (int)$t['id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>' : '';
+        $reply_ops = can_reply($r) ? '<div class="post-ops"><a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$r['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$r['id'] . '&back=topic&tid=' . (int)$t['id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>' : '';
         $html .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $html .= '<li class="empty-state">暂无回复</li>';
-    $html .= '</ul><div class="pagination-bar">' . paginate((int)$t['reply_count'], $p, $size, '?a=topic&id=' . (int)$t['id']) . '</div>';
-    if (can_speak()) $html .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3><span class="reply-status">说两句</span></div><form class="ajax-reply-form" method="post" action="?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body') . '<button>回复</button></form></div>';
+    $html .= '</ul><div class="pagination-bar">' . paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']) . '</div>';
+    if (can_speak()) $html .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3><span class="reply-status">说两句</span></div><form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body') . '<button>回复</button></form></div>';
     $html .= '</div></div><aside class="sidebar"><div class="card sidebar-card user-card">';
     if (uid()) {
         $m = me();
-        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
+        $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</div><div><div class="user-name">' . h($m['username']) . '</div><div class="user-rank">' . h($m['group_name']) . '</div></div></div></div><div class="user-links"><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . '我的主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . '我的回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . '我的收藏</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (is_admin() ? '<a href="admin.php">' . svg_icon('admin') . '后台面板</a>' : '') . '</div></div>';
         if (can_speak()) $html .= '<a class="btn-post" href="#reply">回帖</a>';
     } else {
         $html .= '<div class="user-wrap"><div class="user-header"><div class="user-header-info"><div class="user-avatar-big">P</div><div><div class="user-name">访客</div><div class="user-rank">请登录后发帖</div></div></div></div>' . guest_auth_html() . '</div>';
     }
     $stats = stats_cache();
     $html .= '</div>' . quick_forums_html() . '<div class="card sidebar-card stats-card"><div class="stats-wrap"><div class="stats-title">站点统计</div><div class="stats-sub">主题 ' . (int)$stats['topics'] . ' · 回复 ' . (int)$stats['replies'] . ' · 用户 ' . (int)$stats['users'] . '</div><div class="new-users-title">最新用户</div><div class="new-users">';
-    foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="?a=user&id=' . (int)$u['id'] . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
+    foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="index.php?a=user&id=' . (int)$u['id'] . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
     $html .= '</div></div></div></aside></div></div>';
     page($t['title'], $html);
 }
@@ -835,9 +875,9 @@ function topic_edit_page(): void
         $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
         if (!can_topic($t)) err('无权限');
     }
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') go('?a=topic&id=' . save_topic());
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') go('index.php?a=topic&id=' . save_topic());
     $title = id() ? '编辑主题' : '发表主题';
-    page($title, form_shell('<div class="box form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title']) . textarea('内容', 'body', $t['body']) . '<button>保存</button></form></div>'));
+    page($title, form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title']) . textarea('内容', 'body', $t['body']) . '<button>保存</button></form></div>'));
 }
 function reply_edit_page(): void
 {
@@ -851,13 +891,13 @@ function reply_edit_page(): void
         $saved = save_reply();
         if (ajax_request()) {
             $row = one("SELECT r.*,u.username,u.avatar_style,u.avatar_seed FROM replies r JOIN users u ON u.id=r.user_id WHERE r.id=?", [$saved['reply_id']]) ?: err('回复不存在');
-            $ops = '<div class="post-ops"><a class="icon-action icon-edit" href="?a=reply_edit&id=' . (int)$row['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="?a=delete&type=replies&id=' . (int)$row['id'] . '&back=topic&tid=' . (int)$saved['topic_id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>';
+            $ops = '<div class="post-ops"><a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$row['id'] . '" title="编辑"><span>编辑</span></a><a class="icon-action icon-delete" href="index.php?a=delete&type=replies&id=' . (int)$row['id'] . '&back=topic&tid=' . (int)$saved['topic_id'] . '" onclick="return confirm(\'确定删除？\')" title="删除"><span>删除</span></a></div>';
             $topic = one("SELECT view_count,reply_count FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0];
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        go('?a=topic&id=' . $saved['topic_id']);
+        go('index.php?a=topic&id=' . $saved['topic_id']);
     }
-    page('编辑回复', form_shell('<div class="box form-panel"><h2>编辑回复</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body']) . '<button>保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel"><h2>编辑回复</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body']) . '<button>保存</button></form></div>'));
 }

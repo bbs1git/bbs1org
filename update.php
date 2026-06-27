@@ -48,17 +48,20 @@ $settings = [
 ];
 $stmt = $db->prepare("INSERT OR IGNORE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
-$db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_time ON topics(forum_id,updated_at DESC,id DESC)");
+$db->exec("UPDATE topics SET last_reply_at=created_at WHERE last_reply_at=0");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_user ON topics(user_id,id DESC)");
-$db->exec("CREATE INDEX IF NOT EXISTS idx_topics_updated ON topics(updated_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_created ON topics(created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_last_reply ON topics(last_reply_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_user_updated ON topics(user_id,updated_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_created ON topics(forum_id,created_at DESC,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_last_reply ON topics(forum_id,last_reply_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_topic_created ON replies(topic_id,created_at,id)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user_id ON replies(user_id,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_users_created ON users(id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_favorites_user_created ON favorites(user_id,created_at DESC)");
+$db->exec("DROP INDEX IF EXISTS idx_topics_forum_time");
+$db->exec("DROP INDEX IF EXISTS idx_topics_forum_updated");
+$db->exec("DROP INDEX IF EXISTS idx_topics_updated");
 
 $forums = $db->query("SELECT id,name,description,sort,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
 if (!is_dir(dirname(FORUM_CACHE_FILE))) mkdir(dirname(FORUM_CACHE_FILE), 0755, true);

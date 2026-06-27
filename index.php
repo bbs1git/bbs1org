@@ -11,7 +11,7 @@ try {
     elseif ($a === 'register') register_page();
     elseif ($a === 'logout') {
         session_destroy();
-        go('?');
+        go('index.php');
     } elseif ($a === 'profile') profile_page();
     elseif ($a === 'user') user_page();
     elseif ($a === 'favorite') favorite_page();
@@ -29,8 +29,8 @@ try {
         else if (!$row && !in_array($type, ['users', 'groups', 'forums'], true)) err('参数错误');
         del($type, id());
         $back = $_GET['back'] ?? '';
-        if ($back === 'topic') go('?a=topic&id=' . (int)($_GET['tid'] ?? 0));
-        go('?');
+        if ($back === 'topic') go('index.php?a=topic&id=' . (int)($_GET['tid'] ?? 0));
+        go('index.php');
     } else home_page();
 } catch (Throwable $e) {
     err('操作失败');

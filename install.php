@@ -41,17 +41,14 @@ CREATE TABLE IF NOT EXISTS favorites(user_id INTEGER NOT NULL,topic_id INTEGER N
 CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id);
 CREATE INDEX IF NOT EXISTS idx_forums_sort ON forums(sort,id);
-CREATE INDEX IF NOT EXISTS idx_topics_forum_time ON topics(forum_id,updated_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_user ON topics(user_id,id DESC);
 CREATE INDEX IF NOT EXISTS idx_replies_topic_time ON replies(topic_id,created_at,id);
 CREATE INDEX IF NOT EXISTS idx_replies_user ON replies(user_id,id DESC);
-CREATE INDEX IF NOT EXISTS idx_topics_updated ON topics(updated_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_created ON topics(created_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_last_reply ON topics(last_reply_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_user_updated ON topics(user_id,updated_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_forum_created ON topics(forum_id,created_at DESC,id DESC);
-CREATE INDEX IF NOT EXISTS idx_replies_topic_created ON replies(topic_id,created_at,id);
-CREATE INDEX IF NOT EXISTS idx_replies_user_id ON replies(user_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_topics_forum_last_reply ON topics(forum_id,last_reply_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_users_created ON users(id DESC);
 CREATE INDEX IF NOT EXISTS idx_favorites_user_created ON favorites(user_id,created_at DESC);
 ");

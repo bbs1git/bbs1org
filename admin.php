@@ -5,14 +5,18 @@ require __DIR__ . '/function.php';
 
 function admin_nav(string $tab): string
 {
-    $items = ['settings' => '站点设置', 'users' => '用户', 'groups' => '用户组', 'forums' => '版块', 'topics' => '主题', 'replies' => '回帖'];
-    $h = '<aside class="sidebar"><div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">后台功能模块</div><ul class="quick-links">';
-    foreach ($items as $k => $v) $h .= '<li><a class="' . ($tab === $k ? 'active' : '') . '" href="admin.php?tab=' . $k . '">' . $v . '</a></li>';
-    return $h . '</ul></div></div></aside>';
+    return '<aside class="sidebar">' . user_card_html() . '</aside>';
+}
+function admin_tabs(string $tab): string
+{
+    $items = ['settings' => '设置', 'users' => '用户', 'groups' => '用户组', 'forums' => '版块', 'topics' => '主题', 'replies' => '回帖'];
+    $h = '<div class="tab-bar admin-tabs">';
+    foreach ($items as $k => $v) $h .= '<a class="tab' . ($tab === $k ? ' active' : '') . '" href="admin.php?tab=' . $k . '">' . $v . '</a>';
+    return $h . '</div>';
 }
 function admin_layout(string $tab, string $body): string
 {
-    return '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $body . '</div></div>' . admin_nav($tab) . '</div></div>';
+    return '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . admin_tabs($tab) . $body . '</div></div>' . admin_nav($tab) . '</div></div>';
 }
 function admin_page(): void
 {
@@ -28,7 +32,7 @@ function admin_page(): void
         $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
         foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
         $group_select .= '</select></label>';
-        $html .= '<div class="box form-panel settings-form"><h2>站点设置</h2><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name']) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<button>保存</button></form></div>';
+        $html .= '<div class="form-panel settings-form"><h2>站点设置</h2><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name']) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number') . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number') . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<button>保存</button></form></div>';
     } elseif ($tab === 'users') {
         $html .= '<div class="row"><h2 class="grow">用户</h2><a class="btn" href="admin.php?a=edit&type=user">添加</a></div><table class="list"><tr><th>ID</th><th>用户名</th><th>组</th><th>邮箱</th><th>操作</th></tr>';
         foreach (q("SELECT * FROM users ORDER BY id DESC LIMIT 200") as $u) {
