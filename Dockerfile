@@ -6,4 +6,4 @@ COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 
 WORKDIR /var/www/html
 COPY . .
-RUN mkdir -p data && chown -R www-data:www-data data
+RUN mkdir -p data cache && chown -R www-data:www-data /var/www/html

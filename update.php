@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 define('DB_FILE', __DIR__ . '/data/forum.sqlite');
-define('FORUM_CACHE_FILE', __DIR__ . '/data/cache_forums.php');
-define('GROUP_CACHE_FILE', __DIR__ . '/data/cache_groups.php');
-define('STATS_CACHE_FILE', __DIR__ . '/data/cache_stats.php');
-define('SETTING_CACHE_FILE', __DIR__ . '/data/cache_settings.php');
+define('CACHE_DIR', __DIR__ . '/cache');
+define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
+define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
+define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
+define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 
 function db(): PDO
 {
@@ -33,7 +34,32 @@ $cols = [];
 foreach ($db->query("PRAGMA table_info(users)") as $col) $cols[(string)$col['name']] = true;
 if (!isset($cols['avatar_style'])) $db->exec("ALTER TABLE users ADD COLUMN avatar_style TEXT NOT NULL DEFAULT ''");
 if (!isset($cols['avatar_seed'])) $db->exec("ALTER TABLE users ADD COLUMN avatar_seed TEXT NOT NULL DEFAULT ''");
-$db->exec("INSERT OR IGNORE INTO groups(id,name,is_admin,is_banned,is_muted) VALUES(1,'管理员',1,0,0),(2,'会员',0,0,0)");
+if (!isset($cols['unread_notifications'])) $db->exec("ALTER TABLE users ADD COLUMN unread_notifications INTEGER NOT NULL DEFAULT 0");
+$group_cols = [];
+foreach ($db->query("PRAGMA table_info(groups)") as $col) $group_cols[(string)$col['name']] = true;
+if (!isset($group_cols['allow_manage'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_manage INTEGER NOT NULL DEFAULT 0");
+if (!isset($group_cols['allow_admin'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_admin INTEGER NOT NULL DEFAULT 0");
+$db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
+$tables = array_map('strval', $db->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN));
+if (!in_array('notifications', $tables, true)) {
+    $db->exec("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
+} else {
+    $ncols = [];
+    foreach ($db->query("PRAGMA table_info(notifications)") as $col) $ncols[(string)$col['name']] = $col;
+    if (isset($ncols['topic_id']) && (int)$ncols['topic_id']['notnull'] === 1) {
+        $count = (int)$db->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
+        if ($count === 0) {
+            $db->exec("DROP TABLE notifications");
+            $db->exec("CREATE TABLE notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
+        } else {
+            $db->exec("CREATE TABLE IF NOT EXISTS notifications_new(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
+            $db->exec("INSERT INTO notifications_new(id,recipient_id,sender_id,kind,content,topic_id,reply_id,read_at,created_at) SELECT id,recipient_id,NULLIF(sender_id,0),kind,content,NULLIF(topic_id,0),NULLIF(reply_id,0),read_at,created_at FROM notifications");
+            $db->exec("DROP TABLE notifications");
+            $db->exec("ALTER TABLE notifications_new RENAME TO notifications");
+        }
+    }
+}
+$db->exec("INSERT OR IGNORE INTO groups(id,name,is_admin,allow_manage,allow_admin,is_banned,is_muted) VALUES(1,'管理员',1,1,1,0,0),(2,'会员',0,0,0,0,0)");
 $db->exec("CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '')");
 $settings = [
     'site_name' => 'PHPLite Forum',
@@ -57,6 +83,8 @@ $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_created ON topics(forum_i
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_last_reply ON topics(forum_id,last_reply_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_topic_created ON replies(topic_id,created_at,id)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user_id ON replies(user_id,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_users_created ON users(id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_favorites_user_created ON favorites(user_id,created_at DESC)");
 $db->exec("DROP INDEX IF EXISTS idx_topics_forum_time");
@@ -67,7 +95,7 @@ $forums = $db->query("SELECT id,name,description,sort,last_topic_id,last_topic_t
 if (!is_dir(dirname(FORUM_CACHE_FILE))) mkdir(dirname(FORUM_CACHE_FILE), 0755, true);
 file_put_contents(FORUM_CACHE_FILE, "<?php\nreturn " . var_export($forums, true) . ";\n", LOCK_EX);
 
-$groups = $db->query("SELECT id,name,is_admin,is_banned,is_muted FROM groups ORDER BY id")->fetchAll();
+$groups = $db->query("SELECT id,name,is_admin,is_banned,is_muted,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
 if (!is_dir(dirname(GROUP_CACHE_FILE))) mkdir(dirname(GROUP_CACHE_FILE), 0755, true);
 file_put_contents(GROUP_CACHE_FILE, "<?php\nreturn " . var_export($groups, true) . ";\n", LOCK_EX);
 

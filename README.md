@@ -90,20 +90,20 @@ docker compose down        # 停止
 docker compose up -d        # 再次启动
 ```
 
-数据保存在 Docker volume `bbs1org-data`，升级或重建容器都不会丢数据。Nginx 已默认禁止访问 `/data/`、隐藏文件和非入口文件。
+数据库保存在 Docker volume `bbs1org-data`，升级或重建容器都不会丢数据。缓存保存在容器内 `cache/`，可随时删除并自动重建。Nginx 已默认禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件。
 
 ## 自建 Nginx/PHP 安装
 
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
 cd /var/www/bbs1org
-mkdir -p data
-chown -R www-data:www-data data
+mkdir -p data cache
+chown -R www-data:www-data data cache
 ```
 
 1. 安装 PHP、PHP-FPM、PDO SQLite 扩展
 2. 将 Nginx 站点根目录指向 `/var/www/bbs1org`
-3. 按下方 Nginx 示例禁止访问 `/data/`
+3. 按下方 Nginx 示例禁止访问 `/data/` 与 `/cache/`
 4. 访问 `install.php` 完成初始化
 5. 创建管理员账号后，将账号用户组设为“管理员”
 6. 访问 `admin.php` 配置站点
@@ -116,7 +116,7 @@ php -S 127.0.0.1:8000
 
 ## 安全
 
-`data/` 目录保存 SQLite 数据库、缓存和安装锁，必须禁止公网访问。生产环境不要把站点根目录直接暴露为整个项目目录，建议只允许访问 PHP、CSS 等入口文件，并拦截 `/data/`。
+`data/` 目录只保存 SQLite 数据库文件，必须禁止公网访问。`cache/` 目录保存可随时删除的 PHP 缓存文件，也必须禁止公网访问。生产环境不要把站点根目录直接暴露为整个项目目录，建议只允许访问 PHP、CSS 等入口文件，并拦截 `/data/` 与 `/cache/`。
 
 Nginx 示例：
 
@@ -128,6 +128,10 @@ server {
     index index.php;
 
     location ^~ /data/ {
+        deny all;
+    }
+
+    location ^~ /cache/ {
         deny all;
     }
 
@@ -149,7 +153,7 @@ server {
 
 - `Dockerfile` —— PHP 8.3-FPM 镜像，内置 `pdo_sqlite` 与 OPcache + JIT
 - `docker/opcache.ini` —— OPcache 调优配置
-- `docker/nginx.conf` —— Nginx 站点配置，已禁止访问 `/data/`、隐藏文件和非入口文件
+- `docker/nginx.conf` —— Nginx 站点配置，已禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件
 - `docker-compose.yml` —— 编排 app + nginx，数据持久化到 volume `bbs1org-data`
 
 修改端口、域名等可直接编辑 `docker-compose.yml` 与 `docker/nginx.conf`。
@@ -166,7 +170,8 @@ style.css           全站样式
 Dockerfile          PHP-FPM 镜像（含 OPcache）
 docker-compose.yml  Compose 部署
 docker/             Nginx 与 OPcache 配置
-data/               SQLite 数据与缓存
+data/               SQLite 数据库文件
+cache/              可删除的运行缓存
 ```
 
 ## 后台设置
@@ -175,4 +180,4 @@ data/               SQLite 数据与缓存
 
 ## 数据
 
-运行数据保存在 `data/`，数据库和缓存文件不会提交到 Git。迁移或备份时请单独处理 `data/forum.sqlite`。
+数据库保存在 `data/forum.sqlite`，缓存保存在 `cache/` 并可随时删除重建。迁移或备份时只需处理 `data/forum.sqlite`。

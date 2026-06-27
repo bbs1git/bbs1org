@@ -14,6 +14,7 @@ try {
         go('index.php');
     } elseif ($a === 'profile') profile_page();
     elseif ($a === 'user') user_page();
+    elseif ($a === 'notify') user_notify_page();
     elseif ($a === 'favorite') favorite_page();
     elseif ($a === 'forum') forum_page();
     elseif ($a === 'topic') topic_page();
@@ -22,10 +23,10 @@ try {
     elseif ($a === 'delete') {
         need_login();
         $type = $_GET['type'] ?? '';
-        $row = in_array($type, ['topics', 'replies'], true) ? one("SELECT * FROM $type WHERE id=?", [id()]) : null;
+        $row = deletable_post_row($type, id());
         if (in_array($type, ['users', 'groups', 'forums'], true)) err('无权限');
-        elseif ($type === 'topics' && (!$row || !can_topic($row))) err('无权限');
-        elseif ($type === 'replies' && (!$row || !can_reply($row))) err('无权限');
+        elseif ($type === 'topics' && (!$row || !can_manage_topic($row))) err('无权限');
+        elseif ($type === 'replies' && (!$row || !can_manage_reply($row))) err('无权限');
         else if (!$row && !in_array($type, ['users', 'groups', 'forums'], true)) err('参数错误');
         del($type, id());
         $back = $_GET['back'] ?? '';
