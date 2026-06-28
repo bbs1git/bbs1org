@@ -1099,7 +1099,8 @@ function user_notifications_page(): void
     } else {
         foreach ($rows as $n) $main .= notification_row_html($n);
     }
-    $main .= '</ul><div class="pagination-bar">' . paginate($total, $p, $size, 'index.php?a=user&id=' . uid() . '&tab=notifications') . '</div>';
+    $pagination = paginate($total, $p, $size, 'index.php?a=user&id=' . uid() . '&tab=notifications');
+    $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     page('我的通知', shell_html($main, sidebar_stack_html([sidebar_user_card_html($me, false)])));
 }
 function user_notify_page(): void
@@ -1486,7 +1487,8 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
     }
     $page_query = ($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . ($profile_uid ? 'tab=' . $profile_tab : 'sort=' . $sort);
-    $main .= '</ul><div class="pagination-bar">' . paginate($total, $p, $size, $url($page_query)) . '</div>';
+    $pagination = paginate($total, $p, $size, $url($page_query));
+    $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . sidebar_stats_card_html() : '')]);
     page($profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页'), shell_html($main, $sidebar));
@@ -1536,7 +1538,9 @@ function topic_page(): void
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
-    $main .= '</ul><div class="pagination-bar">' . paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']) . '</div>';
+    $pagination = paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']);
+    if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
+    else $main .= '</ul>';
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3><span class="reply-status">' . (uid() ? (can_speak() ? '说两句' : '禁止发言') : '登录后回复') . '</span></div>';
     if (can_speak()) {
         $main .= '<form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . '<button>回复</button></form>';
