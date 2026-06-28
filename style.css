@@ -235,6 +235,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .topic-form-panel textarea{min-height:240px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.settings-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .topic-avatar{width:36px;height:36px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:#e6f6ee;color:#17934d;font-size:15px;font-weight:700}
 .pagination{display:flex;justify-content:center;margin:10px 0;overflow-x:auto}
 .pagination ul{display:flex;gap:3px;min-width:max-content;list-style:none;margin:0;padding:0}

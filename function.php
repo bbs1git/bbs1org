@@ -129,6 +129,15 @@ function setting(string $key, string $default = ''): string
     $settings = settings_cache();
     return (string)($settings[$key] ?? $default);
 }
+function clear_opcache_cache(): bool
+{
+    if (!function_exists('opcache_reset')) return false;
+    try {
+        return (bool)opcache_reset();
+    } catch (Throwable $e) {
+        return false;
+    }
+}
 function save_settings(): void
 {
     $site_name = post('site_name', 80);
