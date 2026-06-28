@@ -60,8 +60,10 @@ sudo sh get-docker.sh
 
 ```bash
 cd /opt
+rm -rf bbs1org
 git clone https://github.com/bbs1org/bbs1org.git
 cd bbs1org
+docker compose down -v
 docker compose up -d --build
 ```
 
@@ -88,7 +90,7 @@ docker compose down        # 停止
 docker compose up -d        # 再次启动
 ```
 
-数据库保存在 Docker volume `bbs1org-data`，升级或重建容器都不会丢数据。缓存保存在容器内 `cache/`，可随时删除并自动重建。Nginx 已默认禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件。
+数据库保存在 Docker volume `data`，升级或重建容器都不会丢数据。缓存保存在容器内 `cache/`，可随时删除并自动重建。Nginx 已默认禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件。
 
 ## 自建 Nginx/PHP 安装
 
@@ -152,7 +154,7 @@ server {
 - `Dockerfile` —— PHP 8.3-FPM 镜像，内置 `pdo_sqlite` 与 OPcache + JIT
 - `docker/opcache.ini` —— OPcache 调优配置
 - `docker/nginx.conf` —— Nginx 站点配置，已禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件
-- `docker-compose.yml` —— 编排 php + nginx，数据持久化到 volume `bbs1org-data`
+- `docker-compose.yml` —— 编排 php + nginx，数据持久化到 volume `data`
 
 修改端口、域名等可直接编辑 `docker-compose.yml` 与 `docker/nginx.conf`。
 

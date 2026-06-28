@@ -58,6 +58,10 @@ function db_schema_ready(): bool
 {
     return is_file(INSTALL_LOCK_FILE);
 }
+function ensure_installed(): void
+{
+    if (!db_schema_ready()) simple_error_page('请先安装');
+}
 function default_settings(): array
 {
     return [
@@ -637,6 +641,7 @@ function need_manage(): void
 }
 function need_site_access(): void
 {
+    ensure_installed();
     if (is_banned() && ($_GET['a'] ?? '') !== 'logout') err('禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password'], true)) err('网站已关闭');
@@ -1683,6 +1688,7 @@ function admin_edit_page(): void
 }
 
 check();
+if (!db_schema_ready()) simple_error_page('请先安装');
 try {
     $a = $_GET['a'] ?? 'home';
     $do = $_GET['do'] ?? '';
