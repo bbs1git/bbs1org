@@ -1,6 +1,6 @@
-# BBS1org
+# bbs1org
 
-极其轻量级的纯原生 PHP 论坛系统。BBS1org 使用 PHP + SQLite 构建，不依赖框架、不依赖构建工具，核心入口仅约 100KB，单个文件实现论坛全部功能，小巧、高效、易部署，适合个人社区、小团队论坛、内容讨论站和二次开发。
+极其轻量级的纯原生 PHP 论坛系统。bbs1org 使用 PHP + SQLite 构建，不依赖框架、不依赖构建工具，核心入口仅约 100KB，单个文件实现论坛全部功能，小巧、高效、易部署，适合个人社区、小团队论坛、内容讨论站和二次开发。
 
 ## 特性
 
@@ -60,8 +60,8 @@ sudo sh get-docker.sh
 
 ```bash
 cd /opt
-git clone https://github.com/BBS1org/BBS1org.git
-cd BBS1org
+git clone https://github.com/bbs1org/bbs1org.git
+cd bbs1org
 docker compose up -d --build
 ```
 
@@ -88,19 +88,19 @@ docker compose down        # 停止
 docker compose up -d        # 再次启动
 ```
 
-数据库保存在 Docker volume `BBS1org-data`，升级或重建容器都不会丢数据。缓存保存在容器内 `cache/`，可随时删除并自动重建。Nginx 已默认禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件。
+数据库保存在 Docker volume `bbs1org-data`，升级或重建容器都不会丢数据。缓存保存在容器内 `cache/`，可随时删除并自动重建。Nginx 已默认禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件。
 
 ## 自建 Nginx/PHP 安装
 
 ```bash
-git clone https://github.com/BBS1org/BBS1org.git /var/www/BBS1org
-cd /var/www/BBS1org
+git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
+cd /var/www/bbs1org
 mkdir -p data cache
 chown -R www-data:www-data data cache
 ```
 
 1. 安装 PHP、PHP-FPM、PDO SQLite 扩展
-2. 将 Nginx 站点根目录指向 `/var/www/BBS1org`
+2. 将 Nginx 站点根目录指向 `/var/www/bbs1org`
 3. 按下方 Nginx 示例禁止访问 `/data/` 与 `/cache/`
 4. 访问 `install.php` 完成初始化
 5. 安装完成后保存管理员用户名和随机密码
@@ -122,7 +122,7 @@ Nginx 示例：
 server {
     listen 80;
     server_name example.com;
-    root /var/www/BBS1org;
+    root /var/www/bbs1org;
     index index.php;
 
     location ^~ /data/ {
@@ -152,7 +152,7 @@ server {
 - `Dockerfile` —— PHP 8.3-FPM 镜像，内置 `pdo_sqlite` 与 OPcache + JIT
 - `docker/opcache.ini` —— OPcache 调优配置
 - `docker/nginx.conf` —— Nginx 站点配置，已禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件
-- `docker-compose.yml` —— 编排 php + nginx，数据持久化到 volume `BBS1org-data`
+- `docker-compose.yml` —— 编排 php + nginx，数据持久化到 volume `bbs1org-data`
 
 修改端口、域名等可直接编辑 `docker-compose.yml` 与 `docker/nginx.conf`。
 

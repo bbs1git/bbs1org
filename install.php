@@ -31,7 +31,7 @@ function i_readme_text(): string
     $text = is_file(__DIR__ . '/README.md') ? (string)file_get_contents(__DIR__ . '/README.md') : '';
     $text = preg_replace('/\A#.*?\n+/s', '', $text, 1) ?? $text;
     $text = trim($text);
-    return $text !== '' ? $text : '欢迎使用 BBS1org。';
+    return $text !== '' ? $text : '欢迎使用 bbs1org。';
 }
 function i_save_cache(PDO $db): void
 {
@@ -75,29 +75,29 @@ function i_result(string $title, string $admin_user, string $admin_pass, string 
 }
 function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, string $topic_title): void
 {
-    i_html('安装 BBS1org', '<div class="hero"><h1>安装 BBS1org</h1><p>一页完成初始化，创建管理员、默认版块和首个主题。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . i_h($site_name) . '" placeholder="我的论坛" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . i_h($admin_user) . '" placeholder="admin" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . i_h($admin_email) . '" placeholder="name@example.com" required><small>用于找回密码与通知。</small></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . i_h($admin_pass) . '" placeholder="请输入密码" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . i_h($admin_pass) . '" placeholder="再次输入密码" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . i_h($default_forum) . '" required></div><div class="row"><label>首个主题标题</label><input type="text" name="topic_title" value="' . i_h($topic_title) . '" required></div><div class="row"><label>首个主题内容</label><textarea name="topic_body" required>' . i_h(i_readme_text()) . '</textarea></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label><label class="check"><input type="checkbox" name="confirm_readme" value="1" required><span>我确认将 README 内容作为第一个主题发布。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>会创建默认用户组和默认版块</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li><li>README 将作为论坛首帖发布</li></ul></div></aside></div>');
+    i_html('安装 bbs1org', '<div class="hero"><h1>安装 bbs1org</h1><p>一页完成初始化，创建管理员、默认版块和首个主题。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . i_h($site_name) . '" placeholder="我的论坛" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . i_h($admin_user) . '" placeholder="admin" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . i_h($admin_email) . '" placeholder="name@example.com" required><small>用于找回密码与通知。</small></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . i_h($admin_pass) . '" placeholder="请输入密码" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . i_h($admin_pass) . '" placeholder="再次输入密码" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . i_h($default_forum) . '" required></div><div class="row"><label>首个主题标题</label><input type="text" name="topic_title" value="' . i_h($topic_title) . '" required></div><div class="row"><label>首个主题内容</label><textarea name="topic_body" required>' . i_h(i_readme_text()) . '</textarea></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label><label class="check"><input type="checkbox" name="confirm_readme" value="1" required><span>我确认将 README 内容作为第一个主题发布。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>会创建默认用户组和默认版块</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li><li>README 将作为论坛首帖发布</li></ul></div></aside></div>');
 }
 if (is_file(INSTALL_LOCK_FILE)) {
     $info = is_file(__DIR__ . '/data/install-admin.json') ? json_decode((string)file_get_contents(__DIR__ . '/data/install-admin.json'), true) : null;
     $admin_user = (string)($info['username'] ?? 'admin');
     $admin_pass = (string)($info['password'] ?? '已安装');
     $admin_email = (string)($info['email'] ?? '');
-    i_result('已安装', $admin_user, $admin_pass, $admin_email, 'BBS1org');
+    i_result('已安装', $admin_user, $admin_pass, $admin_email, 'bbs1org');
 }
 $step = (string)($_POST['step'] ?? '');
 if ($step !== 'install') {
-    i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 BBS1org');
+    i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 bbs1org');
 }
-if (!isset($_POST['confirm_clean'], $_POST['confirm_admin'], $_POST['confirm_readme'])) i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 BBS1org');
+if (!isset($_POST['confirm_clean'], $_POST['confirm_admin'], $_POST['confirm_readme'])) i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 bbs1org');
 $site_name = trim((string)($_POST['site_name'] ?? '我的论坛'));
 $admin_username = trim((string)($_POST['admin_username'] ?? 'admin'));
 $admin_email = trim((string)($_POST['admin_email'] ?? ''));
 $admin_password = (string)($_POST['admin_password'] ?? '');
 $admin_password2 = (string)($_POST['admin_password2'] ?? '');
 $forum_name = trim((string)($_POST['forum_name'] ?? '默认版块'));
-$topic_title = trim((string)($_POST['topic_title'] ?? '欢迎使用 BBS1org'));
+$topic_title = trim((string)($_POST['topic_title'] ?? '欢迎使用 bbs1org'));
 $topic_body = trim((string)($_POST['topic_body'] ?? ''));
-if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '' || $topic_title === '' || $topic_body === '') i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $topic_title ?: '欢迎使用 BBS1org');
+if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '' || $topic_title === '' || $topic_body === '') i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $topic_title ?: '欢迎使用 bbs1org');
 if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $topic_title);
 if (is_file(INSTALL_LOCK_FILE)) i_html('安装失败', '<div class="hero"><h1>安装失败</h1><p>已完成安装。</p></div><div class="card"><div class="bd"><div class="note warn">请先删除 `data/install.lock` 后再重新安装。</div></div></div>');
 $db = i_db();
