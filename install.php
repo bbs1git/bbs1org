@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 const INSTALL_FILE = __DIR__ . '/data/forum.sqlite';
+const INSTALL_LOCK_FILE = __DIR__ . '/data/install.lock';
 const INSTALL_CACHE_DIR = __DIR__ . '/cache';
 const INSTALL_FORUM_CACHE_FILE = INSTALL_CACHE_DIR . '/forums.php';
 const INSTALL_GROUP_CACHE_FILE = INSTALL_CACHE_DIR . '/groups.php';
@@ -84,7 +85,7 @@ function i_form(string $site_name, string $admin_user, string $default_forum, st
 {
     i_html('安装 BBS1Org', '<div class="hero"><h1>安装 BBS1Org</h1><p>一页完成初始化，创建管理员、默认版块和首个主题。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . i_h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . i_h($admin_user) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . i_h($default_forum) . '" required></div><div class="row"><label>首个主题标题</label><input type="text" name="topic_title" value="' . i_h($topic_title) . '" required></div><div class="row"><label>首个主题内容</label><textarea name="topic_body" required>' . i_h(i_readme_text()) . '</textarea></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_db" value="1" required><span>我确认这是全新安装，现有数据库文件若存在将阻止继续。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要自动创建第一个管理员，并保存随机密码。</span></label><label class="check"><input type="checkbox" name="confirm_readme" value="1" required><span>我确认将 README 内容作为第一个主题发布。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>会创建默认用户组和默认版块</li><li>第一个管理员将拥有全部权限</li><li>随机密码只显示一次并写入本地文件</li><li>README 将作为论坛首帖发布</li></ul><div style="height:12px"></div><div class="note warn">如果 `data/forum.sqlite` 已存在，安装将直接中止。</div></div></aside></div>');
 }
-if (file_exists(INSTALL_FILE)) {
+if (is_file(INSTALL_LOCK_FILE)) {
     $info = is_file(__DIR__ . '/data/install-admin.json') ? json_decode((string)file_get_contents(__DIR__ . '/data/install-admin.json'), true) : null;
     $admin_user = (string)($info['username'] ?? 'admin');
     $admin_pass = (string)($info['password'] ?? '已安装');
@@ -101,7 +102,7 @@ $forum_name = trim((string)($_POST['forum_name'] ?? '默认版块'));
 $topic_title = trim((string)($_POST['topic_title'] ?? '欢迎使用 BBS1Org'));
 $topic_body = trim((string)($_POST['topic_body'] ?? ''));
 if ($site_name === '' || $admin_username === '' || $forum_name === '' || $topic_title === '' || $topic_body === '') i_form($site_name ?: 'BBS1Org', $admin_username ?: 'admin', $forum_name ?: '默认版块', $topic_title ?: '欢迎使用 BBS1Org');
-if (file_exists(INSTALL_FILE)) i_html('安装失败', '<div class="hero"><h1>安装失败</h1><p>数据库文件已存在。</p></div><div class="card"><div class="bd"><div class="note warn">请先删除 `data/forum.sqlite` 后再重新安装。</div></div></div>');
+if (is_file(INSTALL_LOCK_FILE)) i_html('安装失败', '<div class="hero"><h1>安装失败</h1><p>已完成安装。</p></div><div class="card"><div class="bd"><div class="note warn">请先删除 `data/install.lock` 后再重新安装。</div></div></div>');
 $db = i_db();
 $db->exec("
 CREATE TABLE IF NOT EXISTS groups(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0);
@@ -157,4 +158,5 @@ $db->prepare("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=1")-
 if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);
 i_save_cache($db);
 file_put_contents(__DIR__ . '/data/install-admin.json', json_encode(['username' => $admin_username, 'password' => $admin_pass, 'created_at' => i_now(), 'topic_id' => $topic_id], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+file_put_contents(INSTALL_LOCK_FILE, (string)i_now(), LOCK_EX);
 i_result('安装完成', $admin_username, $admin_pass, $site_name);

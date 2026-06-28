@@ -3,6 +3,7 @@
 declare(strict_types=1);
 session_start();
 define('DB_FILE', __DIR__ . '/data/forum.sqlite');
+define('INSTALL_LOCK_FILE', __DIR__ . '/data/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
@@ -84,6 +85,10 @@ function one(string $sql, array $p = []): ?array
 function val(string $sql, array $p = [])
 {
     return q($sql, $p)->fetchColumn();
+}
+function db_schema_ready(): bool
+{
+    return is_file(INSTALL_LOCK_FILE);
 }
 function default_settings(): array
 {

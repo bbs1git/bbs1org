@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require __DIR__ . '/function.php';
 
-if (!is_file(DB_FILE)) {
+if (!is_file(INSTALL_LOCK_FILE)) {
     err('请先执行安装操作');
 }
 need_site_access();
