@@ -86,8 +86,8 @@ docker compose up -d --build
 
 等待构建完成后，按顺序打开下面两个地址即可：
 
-1. 打开 `http://127.0.0.1:8080/install.php`，确认安装表单后点击“开始安装”
-2. 安装完成后会直接显示管理员用户名和随机密码，先保存密码，再打开 `http://127.0.0.1:8080/admin.php` 进入后台
+1. 打开 `http://127.0.0.1/install.php`，确认安装表单后点击“开始安装”
+2. 安装完成后会直接显示管理员用户名和随机密码，先保存密码，再打开 `http://127.0.0.1/admin.php` 进入后台
 
 ## 一键配置 Docker 环境
 
@@ -97,7 +97,7 @@ docker compose up -d --build
 docker compose up -d --build
 ```
 
-然后打开 `http://127.0.0.1:8080/install.php`，按页面提示完成安装。
+然后打开 `http://127.0.0.1/install.php`，按页面提示完成安装。
 
 常用命令：
 
@@ -158,7 +158,7 @@ server {
 
     location ~ \.php$ {
         include fastcgi_params;
-        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_pass app:9000;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
     }
 }
@@ -166,7 +166,7 @@ server {
 
 ## Docker 构成
 
-「快速开始」用到的 Docker 部署由项目内置文件提供，开箱即用，默认监听宿主机 `8080` 端口：
+「快速开始」用到的 Docker 部署由项目内置文件提供，开箱即用，默认监听宿主机 `80` 端口：
 
 - `Dockerfile` —— PHP 8.3-FPM 镜像，内置 `pdo_sqlite` 与 OPcache + JIT
 - `docker/opcache.ini` —— OPcache 调优配置
