@@ -88,7 +88,7 @@ function val(string $sql, array $p = [])
 function default_settings(): array
 {
     return [
-        'site_name' => 'PHPLite Forum',
+        'site_name' => 'FORUM',
         'site_keywords' => '',
         'site_description' => '',
         'header_html' => '',
@@ -1049,7 +1049,7 @@ HTML;
 function page(string $title, string $body): void
 {
     $settings = settings_cache();
-    $site_name = trim((string)$settings['site_name']) ?: 'PHPLite Forum';
+    $site_name = trim((string)$settings['site_name']) ?: 'FORUM';
     $page_title = $title === '' || $title === $site_name ? $site_name : $title . ' - ' . $site_name;
     $meta = '';
     if ($settings['site_keywords'] !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords']) . '">';
@@ -1195,7 +1195,7 @@ function base_url(): string
 function send_mail_text(string $to, string $subject, string $body): bool
 {
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
-    $site = trim(setting('site_name')) ?: 'PHPLite Forum';
+    $site = trim(setting('site_name')) ?: 'FORUM';
     $from = trim(setting('mail_from'));
     if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) $from = 'no-reply@' . preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
     $encoded_site = '=?UTF-8?B?' . base64_encode($site) . '?=';
@@ -1231,7 +1231,7 @@ function forgot_password_page(): void
         if (!$u || !filter_var((string)$u['email'], FILTER_VALIDATE_EMAIL)) err('用户名和邮箱不匹配');
         $token = create_password_reset($u);
         $link = base_url() . '/index.php?a=reset_password&token=' . $token;
-        $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'PHPLite Forum');
+        $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'FORUM');
         $body = "你好，" . $u['username'] . "\n\n请打开以下链接重置密码：\n" . $link . "\n\n链接有效期为 1 小时。如果不是你本人操作，请忽略本邮件。";
         if (!send_mail_text((string)$u['email'], $subject, $body)) err('邮件发送失败，请稍后再试');
         if (ajax_request()) go('index.php?a=login');

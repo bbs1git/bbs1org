@@ -63,7 +63,7 @@ $db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin,is_bann
 $db->exec("CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '')");
 $db->exec("CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 $settings = [
-    'site_name' => 'PHPLite Forum',
+    'site_name' => 'FORUM',
     'site_keywords' => '',
     'site_description' => '',
     'header_html' => '',
