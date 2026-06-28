@@ -602,6 +602,15 @@ function ajax_request(): bool
 {
     return ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest';
 }
+function set_flash(string $message): void
+{
+    setcookie('__flash', $message, [
+        'expires' => time() + 30,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
 function ajax_error(string $m): never
 {
     header('Content-Type: application/json; charset=utf-8');
@@ -940,6 +949,11 @@ window.openNotify = async function (url) {
     }
     return false;
 };
+const runPageFlash = () => {
+    if (window.__pageFlash) showToast(window.__pageFlash);
+};
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runPageFlash);
+else runPageFlash();
 function avatarPickerUrl(p, seed) {
     const s = p?.querySelector("select[name=avatar_style]");
     return "https://api.dicebear.com/10.x/" + encodeURIComponent(s?.value || "dylan") + "/svg?seed=" + encodeURIComponent(seed || p.dataset.seed || "0");
@@ -1045,10 +1059,12 @@ document.addEventListener("submit", async e => {
     const form = e.target.closest("form");
     if (!form || (form.method || "").toLowerCase() !== "post") return;
     e.preventDefault();
-    const button = form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
+    const button = e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
     if (button) button.disabled = true;
     try {
-        const response = await fetch(form.action || window.location.href, {method: "POST", body: new FormData(form), headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const body = new FormData(form);
+        if (button?.name) body.append(button.name, button.value ?? "1");
+        const response = await fetch(form.action || window.location.href, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
         const text = await response.text();
         let data;
         try {
@@ -1077,6 +1093,8 @@ function page(string $title, string $body): void
     if ($settings['site_description'] !== '') $meta .= '<meta name="description" content="' . h($settings['site_description']) . '">';
     $q = trim((string)($_GET['q'] ?? ''));
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
+    $flash = trim((string)($_COOKIE['__flash'] ?? ''));
+    if ($flash !== '' && !headers_sent()) setcookie('__flash', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
     echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="stylesheet" href="style.css"></head><body>';
     $mine = me();
     $mine_link = $mine ? 'index.php?a=user&id=' . (int)$mine['id'] : 'index.php?a=login';
@@ -1084,7 +1102,7 @@ function page(string $title, string $body): void
     echo '<div class="top"><div class="bar"><a class="brand" href="index.php">' . h($site_name) . '</a><nav class="forum-nav">';
     foreach (array_slice(forums_cache(), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a>';
     echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . $mine_link . '">' . $mine_label . '</a></div></div>';
-    echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Copyright © 2022 - 2026 All rights Reserved</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong>私信TA</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div>' . (string)$settings['footer_html'] . app_script_html() . '</body></html>';
+    echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Copyright © 2022 - 2026 All rights Reserved</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong>私信TA</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script>' . (string)$settings['footer_html'] . app_script_html() . '</body></html>';
 }
 function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
 {

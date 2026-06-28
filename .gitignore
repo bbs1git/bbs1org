@@ -1,3 +1,4 @@
 data/*.sqlite
 data/*.sqlite-*
 cache/
+*.lock

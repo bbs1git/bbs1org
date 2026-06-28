@@ -235,7 +235,13 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .topic-form-panel textarea{min-height:240px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
-.settings-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.settings-actions{display:flex;justify-content:flex-end;margin-top:8px}
+.settings-opcache-box{display:grid;gap:4px;justify-items:start;justify-content:start;align-items:start;text-align:left;margin-top:10px;padding-top:10px;border-top:1px solid #f1f1f1}
+.settings-opcache-title{display:block;width:100%;align-self:start;min-height:0;padding:0;border:0;background:transparent;color:#6b7280;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;text-align:left;transition:color .15s ease,background-color .15s ease}
+.settings-opcache-title:hover{color:#2563eb;background:#f8fbff}
+.settings-opcache-title:focus-visible{color:#2563eb;background:#f8fbff;outline:0}
+.settings-opcache-sub{color:#a3aab5;font-size:11px;line-height:1.4;transition:color .15s ease}
+.settings-opcache-box:hover .settings-opcache-sub{color:#8f98a3}
 .topic-avatar{width:36px;height:36px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:#e6f6ee;color:#17934d;font-size:15px;font-weight:700}
 .pagination{display:flex;justify-content:center;margin:10px 0;overflow-x:auto}
 .pagination ul{display:flex;gap:3px;min-width:max-content;list-style:none;margin:0;padding:0}
