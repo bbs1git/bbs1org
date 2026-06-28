@@ -40,6 +40,9 @@ foreach ($db->query("PRAGMA table_info(groups)") as $col) $group_cols[(string)$c
 if (!isset($group_cols['allow_manage'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_manage INTEGER NOT NULL DEFAULT 0");
 if (!isset($group_cols['allow_admin'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_admin INTEGER NOT NULL DEFAULT 0");
 if (isset($group_cols['is_admin'])) $db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
+$db->exec("CREATE TABLE IF NOT EXISTS ip_logs(ip TEXT PRIMARY KEY,register_count INTEGER NOT NULL DEFAULT 0,register_at INTEGER NOT NULL DEFAULT 0,login_fail_count INTEGER NOT NULL DEFAULT 0,login_fail_at INTEGER NOT NULL DEFAULT 0,reset_fail_count INTEGER NOT NULL DEFAULT 0,reset_fail_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_ip_logs_updated ON ip_logs(updated_at DESC)");
+$db->exec("DELETE FROM ip_logs WHERE updated_at<" . (time() - 172800));
 $tables = array_map('strval', $db->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN));
 if (!in_array('notifications', $tables, true)) {
     $db->exec("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
@@ -73,6 +76,9 @@ $settings = [
     'reserved_usernames' => 'admin,administrator,root,system',
     'default_group_id' => '2',
     'mail_from' => '',
+    'register_per_hour' => '1',
+    'login_fail_per_hour' => '5',
+    'reset_fail_per_hour' => '5',
 ];
 $stmt = $db->prepare("INSERT OR IGNORE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);

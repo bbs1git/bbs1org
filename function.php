@@ -32,39 +32,6 @@ function db(): PDO
             'PRAGMA wal_autocheckpoint=400',
         ] as $sql
     ) $db->exec($sql);
-    $cols = [];
-    foreach ($db->query("PRAGMA table_info(users)") as $col) $cols[(string)$col['name']] = true;
-    if (!isset($cols['unread_notifications'])) $db->exec("ALTER TABLE users ADD COLUMN unread_notifications INTEGER NOT NULL DEFAULT 0");
-    $group_cols = [];
-    foreach ($db->query("PRAGMA table_info(groups)") as $col) $group_cols[(string)$col['name']] = true;
-    if (!isset($group_cols['allow_manage'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_manage INTEGER NOT NULL DEFAULT 0");
-    if (!isset($group_cols['allow_admin'])) $db->exec("ALTER TABLE groups ADD COLUMN allow_admin INTEGER NOT NULL DEFAULT 0");
-    if (isset($group_cols['is_admin'])) $db->exec("UPDATE groups SET allow_manage=1,allow_admin=1 WHERE is_admin=1");
-    $notify_cols = [];
-    foreach ($db->query("PRAGMA table_info(notifications)") as $col) $notify_cols[(string)$col['name']] = $col;
-    $notify_mismatch = isset($notify_cols['topic_id']) && ((int)$notify_cols['topic_id']['notnull'] === 1 || (string)($notify_cols['topic_id']['dflt_value'] ?? '') === '0');
-    $notify_mismatch = $notify_mismatch || (isset($notify_cols['reply_id']) && ((int)$notify_cols['reply_id']['notnull'] === 1 || (string)($notify_cols['reply_id']['dflt_value'] ?? '') === '0'));
-    $notify_mismatch = $notify_mismatch || (isset($notify_cols['sender_id']) && ((int)$notify_cols['sender_id']['notnull'] === 1 && (string)($notify_cols['sender_id']['dflt_value'] ?? '') === '0'));
-    if (!$notify_cols) {
-        $db->exec("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
-    } elseif ($notify_mismatch) {
-        $count = (int)val("SELECT COUNT(*) FROM notifications");
-        if ($count === 0) {
-            $db->exec("DROP TABLE IF EXISTS notifications");
-            $db->exec("CREATE TABLE notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
-        } else {
-            $db->exec("CREATE TABLE IF NOT EXISTS notifications_new(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
-            $db->exec("INSERT INTO notifications_new(id,recipient_id,sender_id,kind,content,topic_id,reply_id,read_at,created_at) SELECT id,recipient_id,NULLIF(sender_id,0),kind,content,NULLIF(topic_id,0),NULLIF(reply_id,0),read_at,created_at FROM notifications");
-            $db->exec("DROP TABLE notifications");
-            $db->exec("ALTER TABLE notifications_new RENAME TO notifications");
-        }
-    } else {
-        $db->exec("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(reply_id) REFERENCES replies(id) ON DELETE CASCADE)");
-    }
-    $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
-    $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
-    $db->exec("CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
-    $db->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id,created_at DESC)");
     return $db;
 }
 function h($s): string
@@ -105,6 +72,9 @@ function default_settings(): array
         'topics_per_page' => '30',
         'replies_per_page' => '50',
         'mail_from' => '',
+        'register_per_hour' => '1',
+        'login_fail_per_hour' => '5',
+        'reset_fail_per_hour' => '5',
     ];
 }
 function settings_cache(bool $refresh = false): array
@@ -128,6 +98,83 @@ function setting(string $key, string $default = ''): string
 {
     $settings = settings_cache();
     return (string)($settings[$key] ?? $default);
+}
+function ip_addr(): string
+{
+    $ip = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+    if ($ip !== '') $ip = trim(explode(',', $ip)[0]);
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) $ip = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
+}
+function rate_defaults(): array
+{
+    return [
+        'register_per_hour' => '1',
+        'login_fail_per_hour' => '5',
+        'reset_fail_per_hour' => '5',
+    ];
+}
+function rate_setting(string $key, string $default): int
+{
+    return max(1, (int)setting($key, $default));
+}
+function rate_log_row(string $ip): array
+{
+    $row = one("SELECT * FROM ip_logs WHERE ip=?", [$ip]);
+    if ($row) return $row;
+    $ts = time();
+    q("INSERT INTO ip_logs(ip,created_at,updated_at) VALUES(?,?,?)", [$ip, $ts, $ts]);
+    return one("SELECT * FROM ip_logs WHERE ip=?", [$ip]) ?: ['ip' => $ip];
+}
+function rate_reset_bucket(array $row, string $field, string $time_field, int $window): array
+{
+    $now = time();
+    if ((int)($row[$time_field] ?? 0) < $now - $window) {
+        $row[$field] = 0;
+    }
+    return $row;
+}
+function rate_allow_register(string $ip): bool
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'register_count', 'register_at', 3600);
+    return (int)($row['register_count'] ?? 0) < rate_setting('register_per_hour', '1');
+}
+function rate_hit_register(string $ip): void
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'register_count', 'register_at', 3600);
+    $count = (int)($row['register_count'] ?? 0) + 1;
+    $ts = time();
+    q("UPDATE ip_logs SET register_count=?,register_at=?,updated_at=? WHERE ip=?", [$count, $ts, $ts, $ip]);
+}
+function rate_allow_login_fail(string $ip): bool
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'login_fail_count', 'login_fail_at', 3600);
+    return (int)($row['login_fail_count'] ?? 0) < rate_setting('login_fail_per_hour', '5');
+}
+function rate_hit_login_fail(string $ip): void
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'login_fail_count', 'login_fail_at', 3600);
+    $count = (int)($row['login_fail_count'] ?? 0) + 1;
+    $ts = time();
+    q("UPDATE ip_logs SET login_fail_count=?,login_fail_at=?,updated_at=? WHERE ip=?", [$count, $ts, $ts, $ip]);
+}
+function rate_allow_reset_fail(string $ip): bool
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'reset_fail_count', 'reset_fail_at', 3600);
+    return (int)($row['reset_fail_count'] ?? 0) < rate_setting('reset_fail_per_hour', '5');
+}
+function rate_hit_reset_fail(string $ip): void
+{
+    $row = rate_log_row($ip);
+    $row = rate_reset_bucket($row, 'reset_fail_count', 'reset_fail_at', 3600);
+    $count = (int)($row['reset_fail_count'] ?? 0) + 1;
+    $ts = time();
+    q("UPDATE ip_logs SET reset_fail_count=?,reset_fail_at=?,updated_at=? WHERE ip=?", [$count, $ts, $ts, $ip]);
 }
 function clear_opcache_cache(): bool
 {
@@ -157,6 +204,9 @@ function save_settings(): void
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
         'mail_from' => post('mail_from', 120),
+        'register_per_hour' => (string)min(100, max(1, (int)($_POST['register_per_hour'] ?? 1))),
+        'login_fail_per_hour' => (string)min(100, max(1, (int)($_POST['login_fail_per_hour'] ?? 5))),
+        'reset_fail_per_hour' => (string)min(100, max(1, (int)($_POST['reset_fail_per_hour'] ?? 5))),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
     settings_cache(true);
@@ -1146,6 +1196,8 @@ function refresh_topic_stats(int $tid): void
 }
 function save_user(bool $admin = false): void
 {
+    $ip = ip_addr();
+    if (!$admin && !id() && !rate_allow_register($ip)) err('同一IP 1小时内注册次数已达上限');
     $username = post('username', 40);
     $email = post('email', 120);
     $bio = post('bio', 1000);
@@ -1172,6 +1224,7 @@ function save_user(bool $admin = false): void
     } else {
         if ($pwd === '') err('密码不能为空');
         q("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,created_at) VALUES(?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $email, $bio, $avatar_style, $avatar_seed, $gid, now()]);
+        if (!$admin && !id()) rate_hit_register($ip);
     }
     stats_cache(true);
 }
@@ -1264,10 +1317,15 @@ function forgot_password_page(): void
     if (uid()) go('index.php');
     $sent = false;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $ip = ip_addr();
+        if (!rate_allow_reset_fail($ip)) err('同一IP 1小时内密码错误次数已达上限');
         $username = post('username', 40);
         $email = post('email', 120);
         $u = one("SELECT id,username,email FROM users WHERE username=? AND email=?", [$username, $email]);
-        if (!$u || !filter_var((string)$u['email'], FILTER_VALIDATE_EMAIL)) err('用户名和邮箱不匹配');
+        if (!$u || !filter_var((string)$u['email'], FILTER_VALIDATE_EMAIL)) {
+            rate_hit_reset_fail($ip);
+            err('用户名和邮箱不匹配');
+        }
         $token = create_password_reset($u);
         $link = base_url() . '/index.php?a=reset_password&token=' . $token;
         $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'FORUM');
@@ -1403,12 +1461,15 @@ function login_page(): void
 {
     if (uid()) go('index.php');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $ip = ip_addr();
+        if (!rate_allow_login_fail($ip)) err('同一IP 1小时内密码错误次数已达上限');
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             session_regenerate_id(true);
             $_SESSION['uid'] = (int)$u['id'];
             go('index.php');
         }
+        rate_hit_login_fail($ip);
         err('用户名或密码错误');
     }
     $sidebar = sidebar_stack_html([

@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS topics(id INTEGER PRIMARY KEY,forum_id INTEGER NOT NU
 CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY,topic_id INTEGER NOT NULL,user_id INTEGER NOT NULL,body TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS favorites(user_id INTEGER NOT NULL,topic_id INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,topic_id),FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS ip_logs(ip TEXT PRIMARY KEY,register_count INTEGER NOT NULL DEFAULT 0,register_at INTEGER NOT NULL DEFAULT 0,login_fail_count INTEGER NOT NULL DEFAULT 0,login_fail_at INTEGER NOT NULL DEFAULT 0,reset_fail_count INTEGER NOT NULL DEFAULT 0,reset_fail_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
 ");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id)");
@@ -120,6 +121,7 @@ $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user ON replies(user_id,id DES
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id,created_at DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_ip_logs_updated ON ip_logs(updated_at DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_created ON topics(created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_last_reply ON topics(last_reply_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_user_updated ON topics(user_id,updated_at DESC,id DESC)");
@@ -142,6 +144,9 @@ $settings = [
     'topics_per_page' => '30',
     'replies_per_page' => '50',
     'mail_from' => '',
+    'register_per_hour' => '1',
+    'login_fail_per_hour' => '5',
+    'reset_fail_per_hour' => '5',
 ];
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
