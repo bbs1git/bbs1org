@@ -69,34 +69,36 @@ function i_html(string $title, string $body): void
     </style></head><body><main class="wrap">' . $body . '</main></body></html>';
     exit;
 }
-function i_result(string $title, string $admin_user, string $admin_pass, string $site_name): void
+function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name): void
 {
-    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员信息已保存。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="admin.php">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码已保存到 `data/install-admin.json`</li></ul></div></aside></div><div class="footer">请妥善保存管理员密码。</div>');
+    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员信息已保存。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . i_h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="admin.php">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码已保存到 `data/install-admin.json`</li></ul></div></aside></div><div class="footer">请妥善保存管理员密码。</div>');
 }
-function i_form(string $site_name, string $admin_user, string $admin_pass, string $default_forum, string $topic_title): void
+function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, string $topic_title): void
 {
-    i_html('安装 BBS1Org', '<div class="hero"><h1>安装 BBS1Org</h1><p>一页完成初始化，创建管理员、默认版块和首个主题。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . i_h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . i_h($admin_user) . '" required></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . i_h($admin_pass) . '" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . i_h($admin_pass) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . i_h($default_forum) . '" required></div><div class="row"><label>首个主题标题</label><input type="text" name="topic_title" value="' . i_h($topic_title) . '" required></div><div class="row"><label>首个主题内容</label><textarea name="topic_body" required>' . i_h(i_readme_text()) . '</textarea></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label><label class="check"><input type="checkbox" name="confirm_readme" value="1" required><span>我确认将 README 内容作为第一个主题发布。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>会创建默认用户组和默认版块</li><li>第一个管理员将拥有全部权限</li><li>管理员密码由你手工设置</li><li>README 将作为论坛首帖发布</li></ul></div></aside></div>');
+    i_html('安装 BBS1Org', '<div class="hero"><h1>安装 BBS1Org</h1><p>一页完成初始化，创建管理员、默认版块和首个主题。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . i_h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . i_h($admin_user) . '" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . i_h($admin_email) . '" required></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . i_h($admin_pass) . '" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . i_h($admin_pass) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . i_h($default_forum) . '" required></div><div class="row"><label>首个主题标题</label><input type="text" name="topic_title" value="' . i_h($topic_title) . '" required></div><div class="row"><label>首个主题内容</label><textarea name="topic_body" required>' . i_h(i_readme_text()) . '</textarea></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label><label class="check"><input type="checkbox" name="confirm_readme" value="1" required><span>我确认将 README 内容作为第一个主题发布。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>会创建默认用户组和默认版块</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li><li>README 将作为论坛首帖发布</li></ul></div></aside></div>');
 }
 if (is_file(INSTALL_LOCK_FILE)) {
     $info = is_file(__DIR__ . '/data/install-admin.json') ? json_decode((string)file_get_contents(__DIR__ . '/data/install-admin.json'), true) : null;
     $admin_user = (string)($info['username'] ?? 'admin');
     $admin_pass = (string)($info['password'] ?? '已安装');
-    i_result('已安装', $admin_user, $admin_pass, 'BBS1Org');
+    $admin_email = (string)($info['email'] ?? '');
+    i_result('已安装', $admin_user, $admin_pass, $admin_email, 'BBS1Org');
 }
 $step = (string)($_POST['step'] ?? '');
 if ($step !== 'install') {
-    i_form('我的论坛', 'admin', '', '默认版块', '欢迎使用 BBS1Org');
+    i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 BBS1Org');
 }
-if (!isset($_POST['confirm_admin'], $_POST['confirm_readme'])) i_form('我的论坛', 'admin', '', '默认版块', '欢迎使用 BBS1Org');
+if (!isset($_POST['confirm_clean'], $_POST['confirm_admin'], $_POST['confirm_readme'])) i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 BBS1Org');
 $site_name = trim((string)($_POST['site_name'] ?? '我的论坛'));
 $admin_username = trim((string)($_POST['admin_username'] ?? 'admin'));
+$admin_email = trim((string)($_POST['admin_email'] ?? ''));
 $admin_password = (string)($_POST['admin_password'] ?? '');
 $admin_password2 = (string)($_POST['admin_password2'] ?? '');
 $forum_name = trim((string)($_POST['forum_name'] ?? '默认版块'));
 $topic_title = trim((string)($_POST['topic_title'] ?? '欢迎使用 BBS1Org'));
 $topic_body = trim((string)($_POST['topic_body'] ?? ''));
-if ($site_name === '' || $admin_username === '' || $admin_password === '' || $forum_name === '' || $topic_title === '' || $topic_body === '') i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_password, $forum_name ?: '默认版块', $topic_title ?: '欢迎使用 BBS1Org');
-if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $admin_password, $forum_name, $topic_title);
+if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '' || $topic_title === '' || $topic_body === '') i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $topic_title ?: '欢迎使用 BBS1Org');
+if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $topic_title);
 if (is_file(INSTALL_LOCK_FILE)) i_html('安装失败', '<div class="hero"><h1>安装失败</h1><p>已完成安装。</p></div><div class="card"><div class="bd"><div class="note warn">请先删除 `data/install.lock` 后再重新安装。</div></div></div>');
 $db = i_db();
 $db->exec("
@@ -144,7 +146,7 @@ $settings = [
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
 $admin_pass = $admin_password;
-$db->prepare("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,created_at) VALUES(?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), '', '站点管理员', '', '', 1, i_now()]);
+$db->prepare("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,created_at) VALUES(?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, i_now()]);
 $admin_id = (int)$db->lastInsertId();
 $readme = i_readme_text();
 $db->prepare("INSERT INTO topics(forum_id,user_id,title,body,reply_count,view_count,last_reply_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)")->execute([1, $admin_id, $topic_title, $readme, 0, 0, i_now(), i_now(), i_now()]);
@@ -152,6 +154,6 @@ $topic_id = (int)$db->lastInsertId();
 $db->prepare("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=1")->execute([$topic_id, $topic_title]);
 if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);
 i_save_cache($db);
-file_put_contents(__DIR__ . '/data/install-admin.json', json_encode(['username' => $admin_username, 'password' => $admin_pass, 'created_at' => i_now(), 'topic_id' => $topic_id], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+file_put_contents(__DIR__ . '/data/install-admin.json', json_encode(['username' => $admin_username, 'password' => $admin_pass, 'email' => $admin_email, 'created_at' => i_now(), 'topic_id' => $topic_id], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
 file_put_contents(INSTALL_LOCK_FILE, (string)i_now(), LOCK_EX);
-i_result('安装完成', $admin_username, $admin_pass, $site_name);
+i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name);
