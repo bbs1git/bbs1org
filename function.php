@@ -1318,7 +1318,7 @@ function forgot_password_page(): void
     $sent = false;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
-        if (!rate_allow_reset_fail($ip)) err('同一IP 1小时内密码错误次数已达上限');
+        if (!rate_allow_reset_fail($ip)) err('同一IP 1小时内错误次数已达上限');
         $username = post('username', 40);
         $email = post('email', 120);
         $u = one("SELECT id,username,email FROM users WHERE username=? AND email=?", [$username, $email]);
@@ -1462,7 +1462,7 @@ function login_page(): void
     if (uid()) go('index.php');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
-        if (!rate_allow_login_fail($ip)) err('同一IP 1小时内密码错误次数已达上限');
+        if (!rate_allow_login_fail($ip)) err('同一IP 1小时内错误次数已达上限');
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             session_regenerate_id(true);
@@ -1470,7 +1470,7 @@ function login_page(): void
             go('index.php');
         }
         rate_hit_login_fail($ip);
-        err('用户名或密码错误');
+        err('用户名或错误');
     }
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
