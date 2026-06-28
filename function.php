@@ -599,6 +599,12 @@ function ajax_error(string $m): never
     echo json_encode(['ok' => 0, 'message' => $m], JSON_UNESCAPED_UNICODE);
     exit;
 }
+function simple_error_page(string $m): never
+{
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}h1{margin:0 0 10px;font-size:18px}p{margin:0;color:#666}</style></head><body><div class="box"><h1>' . h($m) . '</h1><p>请先执行安装操作</p></div></body></html>';
+    exit;
+}
 function go(string $u): never
 {
     if (ajax_request()) {
@@ -612,6 +618,7 @@ function go(string $u): never
 function err(string $m): never
 {
     if (ajax_request()) ajax_error($m);
+    if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
     page('错误', shell_html('<div class="form-panel"><h2>错误</h2><p>' . h($m) . '</p></div>', sidebar_stack_html([sidebar_user_card_html()])));
     exit;
 }
