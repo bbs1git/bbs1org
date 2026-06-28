@@ -78,6 +78,7 @@ sudo sh get-docker.sh
 只要装了 [Docker](https://docs.docker.com/get-docker/)，复制下面整段命令粘贴到终端回车，即可一键部署（自带 Nginx、PHP、OPcache，无需单独安装环境）：
 
 ```bash
+cd /opt
 git clone https://github.com/bbs1org/bbs1org.git
 cd bbs1org
 docker compose up -d --build

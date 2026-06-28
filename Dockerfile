@@ -1,8 +1,10 @@
-FROM php:8.3-fpm-alpine
+FROM php:8.3-fpm-bookworm
 
-RUN apk add --no-cache sqlite-dev pkgconf \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config \
     && docker-php-ext-install pdo_sqlite opcache \
-    && apk del pkgconf
+    && apt-get purge -y --auto-remove pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 
