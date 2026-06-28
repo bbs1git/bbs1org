@@ -1,5 +1,5 @@
 services:
-  app:
+  php:
     build: .
     restart: unless-stopped
     volumes:
@@ -9,7 +9,7 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
-      - app
+      - php
     ports:
       - "80:80"
     volumes:

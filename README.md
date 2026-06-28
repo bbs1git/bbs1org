@@ -139,7 +139,7 @@ server {
 
     location ~ \.php$ {
         include fastcgi_params;
-        fastcgi_pass app:9000;
+        fastcgi_pass php:9000;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
     }
 }
@@ -152,7 +152,7 @@ server {
 - `Dockerfile` —— PHP 8.3-FPM 镜像，内置 `pdo_sqlite` 与 OPcache + JIT
 - `docker/opcache.ini` —— OPcache 调优配置
 - `docker/nginx.conf` —— Nginx 站点配置，已禁止访问 `/data/`、`/cache/`、隐藏文件和非入口文件
-- `docker-compose.yml` —— 编排 app + nginx，数据持久化到 volume `bbs1org-data`
+- `docker-compose.yml` —— 编排 php + nginx，数据持久化到 volume `bbs1org-data`
 
 修改端口、域名等可直接编辑 `docker-compose.yml` 与 `docker/nginx.conf`。
 
