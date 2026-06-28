@@ -3,6 +3,9 @@
 declare(strict_types=1);
 require __DIR__ . '/function.php';
 
+if (!is_file(DB_FILE)) {
+    err('请先执行安装操作');
+}
 need_site_access();
 check();
 $a = $_GET['a'] ?? 'home';
