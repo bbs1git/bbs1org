@@ -508,6 +508,10 @@ function uid(): int
 {
     return (int)($_SESSION['uid'] ?? 0);
 }
+function is_super_user(): bool
+{
+    return uid() === 1;
+}
 function me(): ?array
 {
     if (!uid()) return null;
@@ -519,21 +523,25 @@ function me(): ?array
 }
 function can_manage(): bool
 {
+    if (is_super_user()) return true;
     $u = me();
     return $u && (int)($u['allow_manage'] ?? 0) === 1;
 }
 function can_access_admin(): bool
 {
+    if (is_super_user()) return true;
     $u = me();
     return $u && (int)($u['allow_admin'] ?? 0) === 1;
 }
 function is_banned(): bool
 {
+    if (is_super_user()) return false;
     $u = me();
     return $u && !can_access_admin() && (int)$u['is_banned'] === 1;
 }
 function is_muted(): bool
 {
+    if (is_super_user()) return false;
     $u = me();
     return $u && !can_access_admin() && (int)$u['is_muted'] === 1;
 }
@@ -788,22 +796,54 @@ function markdown_html(string $text): string
 {
     $text = str_replace(["\r\n", "\r"], "\n", trim($text));
     if ($text === '') return '';
-    $blocks = preg_split("/\n{2,}/", $text) ?: [];
     $html = [];
-    foreach ($blocks as $block) {
+    $paragraph = [];
+    $code = [];
+    $in_code = false;
+    $flush = function () use (&$html, &$paragraph) {
+        $block = trim(implode("\n", $paragraph));
+        $paragraph = [];
+        if ($block === '') return;
         $lines = explode("\n", $block);
+        if (count($lines) === 1 && preg_match('/^(#{1,6})\s+(.+)$/u', $lines[0], $m)) {
+            $level = strlen($m[1]);
+            $html[] = '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
+            return;
+        }
         if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
             $items = '';
-            foreach ($lines as $line) {
-                if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
-            }
+            foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
             if ($items !== '') {
                 $html[] = '<ul>' . $items . '</ul>';
-                continue;
+                return;
             }
         }
         $html[] = '<p>' . str_replace("\n", '<br>', markdown_inline($block)) . '</p>';
+    };
+    foreach (explode("\n", $text) as $line) {
+        if (preg_match('/^\s*```\s*[\w-]*\s*$/u', $line)) {
+            if ($in_code) {
+                $html[] = '<pre><code>' . h(rtrim(implode("\n", $code), "\n")) . '</code></pre>';
+                $code = [];
+                $in_code = false;
+            } else {
+                $flush();
+                $in_code = true;
+            }
+            continue;
+        }
+        if ($in_code) {
+            $code[] = $line;
+            continue;
+        }
+        if (trim($line) === '') {
+            $flush();
+            continue;
+        }
+        $paragraph[] = $line;
     }
+    if ($in_code) $html[] = '<pre><code>' . h(rtrim(implode("\n", $code), "\n")) . '</code></pre>';
+    else $flush();
     return implode('', $html);
 }
 function avatar_picker_html(array $u): string

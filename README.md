@@ -70,17 +70,10 @@ cd bbs1org
 docker compose up -d --build
 ```
 
-等待构建完成后，按顺序打开下面三个地址即可：
+等待构建完成后，按顺序打开下面两个地址即可：
 
-1. 打开 `http://127.0.0.1:8080/install.php` —— 看到“安装完成”说明初始化成功
-2. 打开 `http://127.0.0.1:8080/` —— 点右上角注册第一个账号（这就是你的管理员）
-3. 设为管理员：进入容器把刚注册账号的用户组改成“管理员”，复制粘贴执行：
-
-   ```bash
-   docker compose exec app php -d error_reporting=0 -r 'require "function.php"; q("UPDATE users SET group_id=1 WHERE id=(SELECT MIN(id) FROM users)"); echo "已将首个用户设为管理员\n";'
-   ```
-
-4. 打开 `http://127.0.0.1:8080/admin.php` —— 进入后台配置站点
+1. 打开 `http://127.0.0.1:8080/install.php`，确认安装表单后点击“开始安装”
+2. 安装完成后会直接显示管理员用户名和随机密码，先保存密码，再打开 `http://127.0.0.1:8080/admin.php` 进入后台
 
 常用命令：
 
@@ -105,7 +98,7 @@ chown -R www-data:www-data data cache
 2. 将 Nginx 站点根目录指向 `/var/www/bbs1org`
 3. 按下方 Nginx 示例禁止访问 `/data/` 与 `/cache/`
 4. 访问 `install.php` 完成初始化
-5. 创建管理员账号后，将账号用户组设为“管理员”
+5. 安装完成后保存管理员用户名和随机密码
 6. 访问 `admin.php` 配置站点
 
 本地预览：
