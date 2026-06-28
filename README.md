@@ -87,7 +87,7 @@ docker compose up -d --build
 等待构建完成后，按顺序打开下面两个地址即可：
 
 1. 打开 `http://127.0.0.1/install.php`，确认安装表单后点击“开始安装”
-2. 安装完成后会直接显示管理员用户名和随机密码，先保存密码，再打开 `http://127.0.0.1/admin.php` 进入后台
+2. 安装完成后会直接显示管理员用户名和密码，先保存密码，再打开 `http://127.0.0.1/index.php?a=admin` 进入后台
 
 ## 一键配置 Docker 环境
 
@@ -123,7 +123,7 @@ chown -R www-data:www-data data cache
 3. 按下方 Nginx 示例禁止访问 `/data/` 与 `/cache/`
 4. 访问 `install.php` 完成初始化
 5. 安装完成后保存管理员用户名和随机密码
-6. 访问 `admin.php` 配置站点
+6. 访问 `index.php?a=admin` 配置站点
 
 本地预览：
 
@@ -179,11 +179,10 @@ server {
 
 ```text
 index.php           前台入口
-admin.php           后台入口
-function.php        公共函数与页面逻辑
 install.php         全新安装
 update.php          结构更新与缓存刷新
-style.css           全站样式
+index.css           全站样式
+index.js            全站脚本
 Dockerfile          PHP-FPM 镜像（含 OPcache）
 docker-compose.yml  Compose 部署
 docker/             Nginx 与 OPcache 配置
