@@ -25,8 +25,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .muted{color:var(--muted)}
 .top{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
 .bar{max-width:1100px;height:44px;margin:auto;padding: 0 12px;display:flex;align-items:center;gap:16px}
-.brand{color:#111!important;font-size:15px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:8px}
-.brand:before{content:"";width:22px;height:22px;display:inline-block;border:1.5px solid #111;border-radius:50%;background:radial-gradient(circle,#fff 0 2px,#111 2px 5px,transparent 5px)}
+.brand{color:#111!important;font-size:15px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.brand:before{content:"";width:24px;height:24px;display:inline-block;flex:0 0 24px;border-radius:6px;background:url("logo.svg") center/contain no-repeat}
 .forum-nav{display:flex;align-items:center;gap:14px;min-width:0}
 .forum-link{color:#555;font-size:13px;white-space:nowrap}
 .forum-link.active{color:#111;font-weight:700}

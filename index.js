@@ -134,8 +134,12 @@ document.addEventListener("submit", async e => {
             const response = await fetch(replyForm.action, {method: "POST", body: new FormData(replyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
             if (!data.ok) throw new Error(data.message || "提交失败");
+            if (data.redirect) {
+                window.location.href = data.redirect;
+                return;
+            }
             list?.querySelector(".empty-state")?.remove();
-            list?.insertAdjacentHTML("beforeend", data.html);
+            if (data.html) list?.insertAdjacentHTML("beforeend", data.html);
             const title = document.querySelector(".post-topic-title");
             const stats = title?.querySelector(".post-content-stats");
             if (title) {
