@@ -3,13 +3,79 @@
 declare(strict_types=1);
 session_start();
 define('APP_VERSION', 'v1.1 beta');
-define('DB_FILE', __DIR__ . '/data/forum.sqlite');
-define('INSTALL_LOCK_FILE', __DIR__ . '/data/install.lock');
+define('DATA_DIR', __DIR__ . '/data');
+define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
+define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
+define('DB_FILE', db_file_path());
+define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
+function db_file_path(): string
+{
+    if (is_file(DB_CONFIG_FILE)) {
+        $config = include DB_CONFIG_FILE;
+        $name = is_array($config) ? basename((string)($config['db_file'] ?? '')) : '';
+        if ($name !== '' && preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*\.sqlite$/', $name)) return DATA_DIR . '/' . $name;
+    }
+    return DEFAULT_DB_FILE;
+}
+function set_route_params(array $params): void
+{
+    foreach ($params as $key => $value) {
+        if ($value === null || $value === '') continue;
+        $_GET[$key] = (string)$value;
+        $_REQUEST[$key] = (string)$value;
+    }
+}
+function route_first(?string ...$values): ?string
+{
+    foreach ($values as $value) if ($value !== null && $value !== '') return $value;
+    return null;
+}
+function apply_pretty_route(): void
+{
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    $path = parse_url($uri, PHP_URL_PATH);
+    if (!is_string($path) || $path === '') return;
+    $path = '/' . ltrim(str_replace('\\', '/', $path), '/');
+    $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
+    $base = rtrim(str_replace('\\', '/', dirname($script)), '/');
+    if ($script !== '' && $script !== '/' && ($path === $script || str_starts_with($path, $script . '/'))) {
+        $path = substr($path, strlen($script)) ?: '/';
+    } elseif ($base !== '' && $base !== '/' && ($path === $base || str_starts_with($path, $base . '/'))) {
+        $path = substr($path, strlen($base)) ?: '/';
+    }
+    $path = '/' . trim(rawurldecode($path), '/');
+    if ($path === '/' || $path === '/index.php') return;
+    if (preg_match('#^/(?:index|home)(?:\.html)?$#i', $path)) {
+        set_route_params(['a' => 'home']);
+    } elseif (preg_match('#^/(login|register|logout|profile)(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => strtolower($m[1])]);
+    } elseif (preg_match('#^/(forgot|reset)[-_]password(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => strtolower($m[1]) . '_password']);
+    } elseif (preg_match('#^/admin(?:/(settings|forums|groups|topics|replies|users|trash))?(?:\.html)?$#i', $path, $m) || preg_match('#^/admin-(settings|forums|groups|topics|replies|users|trash)(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'admin', 'tab' => $m[1] ?? null]);
+    } elseif (preg_match('#^/forum/(\d+)(?:/(?:page/)?(\d+))?(?:\.html)?$#i', $path, $m) || preg_match('#^/forum-(\d+)(?:-(\d+))?(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'forum', 'id' => $m[1], 'p' => $m[2] ?? null]);
+    } elseif (preg_match('#^/thread-(\d+)(?:-(\d+))?(?:-\d+)?(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'topic', 'id' => $m[1], 'p' => $m[2] ?? null]);
+    } elseif (preg_match('#^/(?:topic|thread)/(\d+)(?:/(?:page/)?(\d+))?(?:/reply/(\d+))?(?:\.html)?$#i', $path, $m) || preg_match('#^/(?:topic|thread)-(\d+)(?:-(\d+))?(?:-reply-(\d+))?(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'topic', 'id' => $m[1], 'p' => $m[2] ?? null, 'replyid' => $m[3] ?? null]);
+    } elseif (preg_match('#^/reply[/-](\d+)(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'topic', 'replyid' => $m[1]]);
+    } elseif (preg_match('#^/user/(\d+)(?:/(topics|replies|favorites|notifications))?(?:/(?:page/)?(\d+))?(?:\.html)?$#i', $path, $m) || preg_match('#^/user-(\d+)(?:-(topics|replies|favorites|notifications))?(?:-(\d+))?(?:\.html)?$#i', $path, $m) || preg_match('#^/space-uid-(\d+)(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'user', 'id' => $m[1], 'tab' => $m[2] ?? null, 'p' => $m[3] ?? null]);
+    } elseif (preg_match('#^/(notify|favorite)/(\d+)(?:\.html)?$#i', $path, $m) || preg_match('#^/(notify|favorite)-(\d+)(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => strtolower($m[1]), 'id' => $m[2]]);
+    } elseif (preg_match('#^/topic[-_]edit(?:/(?:id/)?(\d+)|-(\d+))?(?:/(?:fid|forum)/(\d+)|-fid-(\d+))?(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'topic_edit', 'id' => route_first($m[1] ?? null, $m[2] ?? null), 'fid' => route_first($m[3] ?? null, $m[4] ?? null)]);
+    } elseif (preg_match('#^/reply[-_]edit(?:/(?:id/)?(\d+)|-(\d+))?(?:\.html)?$#i', $path, $m)) {
+        set_route_params(['a' => 'reply_edit', 'id' => route_first($m[1] ?? null, $m[2] ?? null)]);
+    }
+}
 function db(): PDO
 {
     static $db;
@@ -96,6 +162,7 @@ function default_settings(): array
         'footer_html' => '',
         'site_closed' => '0',
         'allow_register' => '1',
+        'pretty_url' => '1',
         'reserved_usernames' => 'admin,administrator,root,system',
         'default_group_id' => '2',
         'topics_per_page' => '30',
@@ -246,6 +313,7 @@ function save_settings(): void
         'footer_html' => post('footer_html', 20000),
         'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
         'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
+        'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
         'reserved_usernames' => post('reserved_usernames', 2000),
         'default_group_id' => (string)$gid,
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
@@ -2065,7 +2133,7 @@ function admin_page(): void
         $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
         foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
         $group_select .= '</select></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="index.php?a=admin&tab=settings&clear_opcache=1" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="index.php?a=admin&tab=settings&clear_opcache=1" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
@@ -2147,6 +2215,7 @@ function admin_edit_page(): void
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
 
+if (db_schema_ready() && setting('pretty_url', '1') === '1') apply_pretty_route();
 check();
 need_site_access();
 if (!db_schema_ready()) simple_error_page('请先安装');

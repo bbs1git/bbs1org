@@ -9,6 +9,7 @@
 - 无框架、无构建流程、无复杂依赖
 - 主题列表支持新评论、新帖子排序
 - 主题、回帖、收藏、个人主页、个人资料
+- 支持伪静态访问，兼容 `/forum/1`、`/thread-1.html`、`/user/1/topics` 等路径
 - DiceBear 头像选择器，支持多风格头像网格
 - AJAX 回帖，回复体验更顺滑
 - 后台独立入口，支持用户、用户组、版块、主题、回帖管理
@@ -98,21 +99,44 @@ server {
 }
 ```
 
+伪静态路由默认启用，可在后台「设置」中关闭。启用后会由 `index.php` 自动转发到原有参数路由。常用格式：
+
+```text
+/forum/1
+/forum-1.html
+/topic/1
+/thread-1.html
+/thread-1-2.html
+/reply/10
+/user/1
+/user/1/topics
+/login
+/register
+/admin/topics
+```
+
+Apache 环境可直接使用项目根目录内置的 `.htaccess`，确保站点启用了 `mod_rewrite` 且允许读取 `.htaccess`：
+
+```apache
+AllowOverride All
+```
+
 ## 目录
 
 ```text
 index.php           PHP文件
 index.css           CSS样式
 index.js            JS脚本
+.htaccess           Apache 伪静态转发规则
 
 install.php         全新安装脚本
 Dockerfile          PHP-FPM 镜像（含 OPcache）
 docker-compose.yml  Compose 部署
 docker/             Nginx 与 OPcache 配置
-data/               SQLite 数据库文件
+data/               SQLite 数据库文件与数据库配置
 cache/              可删除的运行缓存
 ```
 
 ## 数据迁移或备份
 
-数据库保存在 `data/forum.sqlite`，缓存保存在 `cache/` 并可随时删除重建。迁移或备份时只需处理 `data/forum.sqlite`。
+数据库安装时会随机生成文件名，并由 `data/db.php` 记录当前使用的 SQLite 文件。缓存保存在 `cache/` 并可随时删除重建。迁移或备份时请同时保留 `data/db.php` 和对应的 `data/*.sqlite` 数据库文件。
