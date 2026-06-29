@@ -35,6 +35,17 @@ function route_first(?string ...$values): ?string
     foreach ($values as $value) if ($value !== null && $value !== '') return $value;
     return null;
 }
+function mark_route_not_found(string $kind = 'page'): void
+{
+    $_GET['__route_not_found'] = '1';
+    $_GET['__route_not_found_kind'] = $kind;
+    $_REQUEST['__route_not_found'] = '1';
+    $_REQUEST['__route_not_found_kind'] = $kind;
+}
+function pretty_route_not_found_kind(string $path): string
+{
+    return preg_match('#^/(?:topic|thread)(?:/|-)|^/reply(?:/|-)#i', $path) ? 'topic' : 'page';
+}
 function apply_pretty_route(): void
 {
     $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
@@ -74,6 +85,8 @@ function apply_pretty_route(): void
         set_route_params(['a' => 'topic_edit', 'id' => route_first($m[1] ?? null, $m[2] ?? null), 'fid' => route_first($m[3] ?? null, $m[4] ?? null)]);
     } elseif (preg_match('#^/reply[-_]edit(?:/(?:id/)?(\d+)|-(\d+))?(?:\.html)?$#i', $path, $m)) {
         set_route_params(['a' => 'reply_edit', 'id' => route_first($m[1] ?? null, $m[2] ?? null)]);
+    } else {
+        mark_route_not_found(pretty_route_not_found_kind($path));
     }
 }
 function db(): PDO
@@ -995,6 +1008,14 @@ function err(string $m): never
     if (ajax_request()) ajax_error($m);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
     page('错误', shell_html('<div class="form-panel"><h2>错误</h2><p>' . h($m) . '</p></div>', sidebar_stack_html([sidebar_user_card_html()])));
+    exit;
+}
+function not_found(string $m): never
+{
+    http_response_code(404);
+    if (ajax_request()) ajax_error($m);
+    if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
+    page('404', shell_html('<div class="form-panel"><h2>404</h2><p>' . h($m) . '</p><p class="auth-extra"><a href="' . h(route_url('home')) . '">返回首页</a></p></div>', sidebar_stack_html([sidebar_user_card_html()])));
     exit;
 }
 function cut(string $v, int $max): string
@@ -1934,7 +1955,7 @@ function profile_page(): void
 }
 function user_page(): void
 {
-    $user = one("SELECT id,username,bio,avatar_style,avatar_seed,group_id FROM users WHERE id=?", [id()]) ?: err('用户不存在');
+    $user = one("SELECT id,username,bio,avatar_style,avatar_seed,group_id FROM users WHERE id=?", [id()]) ?: not_found('你访问的页面不存在');
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
     $user['group_name'] = $g['name'];
     $tab = $_GET['tab'] ?? 'topics';
@@ -2089,7 +2110,7 @@ function home_page(): void
 function forum_page(): void
 {
     $fid = id();
-    $f = forum_by_id($fid) ?: err('版块不存在');
+    $f = forum_by_id($fid) ?: not_found('你访问的页面不存在');
     if (!forum_group_allowed($f, 'allow_view_groups')) err('无权限');
     remember_forum($fid);
     topic_index_page($f);
@@ -2097,12 +2118,12 @@ function forum_page(): void
 function topic_page(): void
 {
     if (!id() && id('replyid')) {
-        $reply = one("SELECT topic_id FROM replies WHERE id=?", [id('replyid')]) ?: err('回复不存在');
+        $reply = one("SELECT topic_id FROM replies WHERE id=?", [id('replyid')]) ?: not_found('你访问的帖子可能已经删除');
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
-    $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
+    $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: not_found('你访问的帖子可能已经删除');
     $t = attach_users([$t])[0];
-    $forum = forum_by_id((int)$t['forum_id']) ?: err('版块不存在');
+    $forum = forum_by_id((int)$t['forum_id']) ?: not_found('你访问的页面不存在');
     if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
     remember_forum((int)$t['forum_id']);
     if (mark_viewed((int)$t['id'])) {
@@ -2116,6 +2137,8 @@ function topic_page(): void
         if ($reply) {
             $before = (int)q("SELECT COUNT(*) FROM replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<=?))", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
             $_GET['p'] = (string)max(1, (int)ceil($before / $size));
+        } else {
+            not_found('你访问的帖子可能已经删除');
         }
     }
     $p = max(1, (int)($_GET['p'] ?? 1));
@@ -2295,7 +2318,7 @@ function admin_page(): void
         $html .= '</ul></div>';
         $phtml = paginate($total, $admin_page, $admin_size, $url);
         $html .= $phtml === '' ? '' : '<div class="pagination-bar">' . $phtml . '</div>';
-    } else err('参数错误');
+    } else not_found('你访问的页面不存在');
     page('后台', admin_layout($tab, $html));
 }
 function admin_edit_page(): void
@@ -2333,9 +2356,13 @@ check();
 need_site_access();
 if (!db_schema_ready()) simple_error_page('请先安装');
 try {
+    if (($_GET['__route_not_found'] ?? '') === '1') {
+        not_found(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '你访问的帖子可能已经删除' : '你访问的页面不存在');
+    }
     $a = $_GET['a'] ?? 'home';
     $do = $_GET['do'] ?? '';
-    if ($a === 'login') login_page();
+    if ($a === 'home') home_page();
+    elseif ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
     elseif ($a === 'forgot_password') forgot_password_page();
     elseif ($a === 'reset_password') reset_password_page();
@@ -2403,7 +2430,7 @@ try {
             go(admin_url(['tab' => $tab]));
         } else admin_page();
     }
-    else home_page();
+    else not_found('你访问的页面不存在');
 } catch (Throwable $e) {
     err('操作失败');
 }
