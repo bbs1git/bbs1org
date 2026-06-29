@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 session_start();
-define('APP_VERSION', 'v1.0.0');
+define('APP_VERSION', 'v1.0 alpha');
 define('DB_FILE', __DIR__ . '/data/forum.sqlite');
 define('INSTALL_LOCK_FILE', __DIR__ . '/data/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
