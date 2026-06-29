@@ -24,6 +24,12 @@ window.openNotify = async function (url) {
     try {
         const response = await fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}});
         const html = await response.text();
+        if ((response.headers.get("content-type") || "").includes("application/json")) {
+            const data = JSON.parse(html);
+            if (data.redirect) window.location.href = data.redirect;
+            else showToast(data.message || "打开失败");
+            return false;
+        }
         openModal("私信TA", html);
         const textarea = modalBody?.querySelector("form")?.querySelector("textarea");
         textarea?.focus();
@@ -170,6 +176,10 @@ document.addEventListener("submit", async e => {
             const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
             if (!data.ok) throw new Error(data.message || "发送失败");
+            if (data.redirect) {
+                window.location.href = data.redirect;
+                return;
+            }
             closeModal();
             showToast(data.message || "已发送");
         } catch (err) {

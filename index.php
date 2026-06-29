@@ -1759,8 +1759,7 @@ function user_page(): void
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
     $user['group_name'] = $g['name'];
     $tab = $_GET['tab'] ?? 'topics';
-    if ($tab === 'notifications' && uid() === (int)$user['id']) user_notifications_page();
-    else if ($tab === 'notify') user_notify_page();
+    if ($tab === 'notify') user_notify_page();
     else topic_index_page(null, $user);
 }
 function notification_page(): void
@@ -1793,6 +1792,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $off = ($p - 1) * $size;
     $profile_tab = $_GET['tab'] ?? 'topics';
     if (!in_array($profile_tab, ['topics', 'replies', 'favorites', 'notifications'], true)) $profile_tab = 'topics';
+    if ($profile_uid && !$own_profile && $profile_tab === 'notifications') $profile_tab = 'topics';
     $sort = $profile_uid ? 'post' : (($_GET['sort'] ?? 'comment') === 'post' ? 'post' : 'comment');
     $order = $sort === 'post' ? 't.created_at DESC,t.id DESC' : 't.last_reply_at DESC,t.id DESC';
     $q = trim((string)($_GET['q'] ?? ''));
@@ -1864,14 +1864,12 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     }
     $main = '';
     if ($profile_uid) {
-        $prefix = $own_profile ? '我的' : 'TA的';
-        if (!$own_profile && $profile_tab === 'notifications') $profile_tab = 'topics';
         $tab_items = [
-            'topics' => ['label' => $prefix . '主题', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=topics')],
-            'replies' => ['label' => $prefix . '回帖', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=replies')],
-            'favorites' => ['label' => $prefix . '收藏', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites')],
+            'topics' => ['label' => '主题', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=topics')],
+            'replies' => ['label' => '回帖', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=replies')],
+            'favorites' => ['label' => '收藏', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites')],
         ];
-        if ($own_profile) $tab_items['notifications'] = ['label' => $prefix . '通知', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=notifications')];
+        if ($own_profile) $tab_items['notifications'] = ['label' => '通知', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=notifications')];
         $main .= '<div class="profile-toolbar">' . tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="index.php?a=profile">设置</a>' . (can_access_admin() ? '<a href="index.php?a=admin">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="index.php?a=notify&id=' . $profile_uid . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
     } else {
         $tab_items = [
