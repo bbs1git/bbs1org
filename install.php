@@ -71,7 +71,7 @@ function i_html(string $title, string $body): void
 }
 function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name): void
 {
-    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员信息已保存。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . i_h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码已保存到 `data/install-admin.json`</li></ul></div></aside></div><div class="footer">请妥善保存管理员密码。</div>');
+    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . i_h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码不会保存到文件</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
 }
 function i_locked(): void
 {
@@ -161,6 +161,5 @@ $topic_id = (int)$db->lastInsertId();
 $db->prepare("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=1")->execute([$topic_id, $topic_title]);
 if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);
 i_save_cache($db);
-file_put_contents(__DIR__ . '/data/install-admin.json', json_encode(['username' => $admin_username, 'password' => $admin_pass, 'email' => $admin_email, 'created_at' => i_now(), 'topic_id' => $topic_id], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
 file_put_contents(INSTALL_LOCK_FILE, (string)i_now(), LOCK_EX);
 i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name);
