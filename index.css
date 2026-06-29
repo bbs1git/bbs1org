@@ -229,10 +229,13 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .form-panel form{display:grid;gap:2px}
 .form-panel .grid{grid-template-columns:1fr;gap:5px;margin:0 0 8px}
 .form-panel .grid>span{padding-top:0}
+.forum-group-checks{display:flex;flex-wrap:wrap;gap:8px}
+.forum-group-checks .check{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:#555;font-size:12px}
+.forum-group-checks .check input{width:14px;height:14px}
 .form-panel input,.form-panel select{max-width:450px}
-.form-panel button{justify-self:end;min-width:88px}
+.form-panel button{justify-self:start;min-width:88px}
 .form-panel .muted{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius-sm);background:#fafafa}
-.auth-extra{margin:8px 0 0;color:#888;font-size:12px;text-align:right}
+.auth-extra{margin:8px 0 0;color:#888;font-size:12px;text-align:left}
 .auth-extra a{color:var(--brand)}
 .auth-extra a:hover{color:var(--brand-hover)}
 .form-link-left{margin:10px 0 0;color:#888;font-size:12px;text-align:left}
@@ -433,7 +436,6 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .avatar-picker-head{grid-template-columns:64px minmax(0,1fr)}
     .avatar-picker-preview{width:64px;height:64px}
     .avatar-options{grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:7px}
-    .reply-panel button,.form-panel button{width:100%}
     .notify-actions{flex-direction:column;align-items:stretch}
     .notify-actions button{width:100%}
 }

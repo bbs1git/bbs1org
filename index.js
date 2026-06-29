@@ -150,8 +150,10 @@ document.addEventListener("submit", async e => {
             }
             replyForm.reset();
             if (status) status.textContent = "已回复";
-        } catch (_) {
-            if (status) status.textContent = "提交失败";
+        } catch (err) {
+            const message = err?.message || "提交失败";
+            if (status) status.textContent = message;
+            showToast(message);
         } finally {
             button.disabled = false;
         }
@@ -180,6 +182,7 @@ document.addEventListener("submit", async e => {
     }
     const form = e.target.closest("form");
     if (!form || (form.method || "").toLowerCase() !== "post") return;
+    if (form.dataset.noAjax === "1") return;
     e.preventDefault();
     const button = e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
     if (button) button.disabled = true;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 session_start();
-define('APP_VERSION', 'v1.0 alpha');
+define('APP_VERSION', 'v1.1 alpha');
 define('DB_FILE', __DIR__ . '/data/forum.sqlite');
 define('INSTALL_LOCK_FILE', __DIR__ . '/data/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
@@ -278,7 +278,7 @@ function forums_cache(bool $refresh = false): array
         $cached = include FORUM_CACHE_FILE;
         if (is_array($cached)) return $forums = $cached;
     }
-    $forums = q("SELECT id,name,description,sort,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
+    $forums = q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
     if (!is_dir(dirname(FORUM_CACHE_FILE))) mkdir(dirname(FORUM_CACHE_FILE), 0755, true);
     file_put_contents(FORUM_CACHE_FILE, "<?php\nreturn " . var_export($forums, true) . ";\n", LOCK_EX);
     return $forums;
@@ -287,6 +287,33 @@ function forum_by_id(int $id): ?array
 {
     foreach (forums_cache() as $f) if ((int)$f['id'] === $id) return $f;
     return null;
+}
+function forum_group_select_options(?array $forum = null, string $field = '', string $label = '', int $size = 5): string
+{
+    $selected = [];
+    if ($forum && $field !== '') $selected = forum_group_ids($forum, $field);
+    $html = '<div class="grid"><span>' . h($label) . '</span><div class="forum-group-checks">';
+    foreach (groups_cache() as $g) {
+        $gid = (int)$g['id'];
+        $html .= '<label class="check"><input type="checkbox" name="' . h($field) . '[]" value="' . $gid . '"' . (in_array($gid, $selected, true) ? ' checked' : '') . '><span>' . h($g['name']) . '</span></label>';
+    }
+    return $html . '</div></div>';
+}
+function forum_group_ids(array $forum, string $field): array
+{
+    $raw = trim((string)($forum[$field] ?? ''));
+    if ($raw === '') return [];
+    $ids = array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: []))));
+    return $ids;
+}
+function forum_group_allowed(?array $forum, string $field): bool
+{
+    if (!$forum) return false;
+    $ids = forum_group_ids($forum, $field);
+    if (!$ids) return true;
+    $me = me();
+    $gid = (int)($me['group_id'] ?? 0);
+    return in_array($gid, $ids, true);
 }
 function groups_cache(bool $refresh = false): array
 {
@@ -794,7 +821,7 @@ function me(): ?array
     $u = one("SELECT * FROM users WHERE id=?", [uid()]);
     if (!$u) return null;
     $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
-    return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'is_banned' => (int)($u['is_banned'] ?? 0), 'is_muted' => (int)($u['is_muted'] ?? 0), 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
+    return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'group_id' => (int)($u['group_id'] ?? 0), 'is_banned' => (int)($u['is_banned'] ?? 0), 'is_muted' => (int)($u['is_muted'] ?? 0), 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
 }
 function can_manage(): bool
 {
@@ -1205,7 +1232,7 @@ function page(string $title, string $body): void
     $mine_link = $mine ? 'index.php?a=user&id=' . (int)$mine['id'] : 'index.php?a=login';
     $mine_label = $mine ? '我的' . notification_badge_html((int)($mine['unread_notifications'] ?? 0)) : '登录';
     echo '<div class="top"><div class="bar"><a class="brand" href="index.php">' . h($site_name) . '</a><nav class="forum-nav">';
-    foreach (array_slice(forums_cache(), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a>';
+    foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a>';
     echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . $mine_link . '">' . $mine_label . '</a></div></div>';
     echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="index.js" defer></script>' . (string)$settings['footer_html'] . '</body></html>';
 }
@@ -1226,7 +1253,7 @@ function select_group(int $gid): string
 function select_forum(int $fid): string
 {
     $html = '<label class="grid"><span>版块</span><select name="forum_id">';
-    foreach (forums_cache() as $f) $html .= '<option value="' . (int)$f['id'] . '"' . ((int)$f['id'] === $fid ? ' selected' : '') . '>' . h($f['name']) . '</option>';
+    foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_post_groups')) $html .= '<option value="' . (int)$f['id'] . '"' . ((int)$f['id'] === $fid ? ' selected' : '') . '>' . h($f['name']) . '</option>';
     return $html . '</select></label>';
 }
 function can_topic(array $t): bool
@@ -1487,7 +1514,7 @@ function forgot_password_page(): void
     if ($sent) {
         $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
     } else {
-        $body .= '<form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
+        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
     }
     page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
 }
@@ -1518,8 +1545,14 @@ function save_forum(): void
 {
     $name = post('name', 80);
     if ($name === '') err('版块名不能为空');
-    $p = [$name, post('description', 300), (int)$_POST['sort']];
-    id() ? q("UPDATE forums SET name=?,description=?,sort=? WHERE id=?", [...$p, id()]) : q("INSERT INTO forums(name,description,sort) VALUES(?,?,?)", $p);
+    $description = post('description', 300);
+    $sort = (int)$_POST['sort'];
+    $allow_view_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_view_groups'] ?? []))))));
+    $allow_post_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_post_groups'] ?? []))))));
+    $allow_reply_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_reply_groups'] ?? []))))));
+    id()
+        ? q("UPDATE forums SET name=?,description=?,sort=?,allow_view_groups=?,allow_post_groups=?,allow_reply_groups=? WHERE id=?", [$name, $description, $sort, $allow_view_groups, $allow_post_groups, $allow_reply_groups, id()])
+        : q("INSERT INTO forums(name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups) VALUES(?,?,?,?,?,?)", [$name, $description, $sort, $allow_view_groups, $allow_post_groups, $allow_reply_groups]);
     forums_cache(true);
 }
 function save_group(): void
@@ -1535,6 +1568,8 @@ function save_topic(): int
 {
     need_speak();
     $fid = max(1, (int)$_POST['forum_id']);
+    $forum = forum_by_id($fid) ?: err('版块不存在');
+    if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
     $title = post('title', 120);
     $body = post('body', 20000);
     if ($title === '' || $body === '') err('标题和内容不能为空');
@@ -1542,8 +1577,8 @@ function save_topic(): int
         $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
         q("UPDATE topics SET forum_id=?,title=?,body=?,updated_at=? WHERE id=?", [$fid, $title, $body, now(), id()]);
-        if ((int)$t['forum_id'] !== $fid) q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [0, '']);
-        q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [id(), $title]);
+        if ((int)$t['forum_id'] !== $fid) q("UPDATE forums SET last_topic_id=0,last_topic_title='' WHERE id=?", [(int)$t['forum_id']]);
+        q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [id(), $title, $fid]);
         forums_cache(true);
         return id();
     }
@@ -1586,7 +1621,9 @@ function save_reply(): array
     need_speak();
     $ajax = ajax_request();
     $tid = max(1, (int)$_POST['topic_id']);
-    one("SELECT id FROM topics WHERE id=?", [$tid]) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
+    $topic = one("SELECT id,forum_id FROM topics WHERE id=?", [$tid]) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
+    $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
+    if (!forum_group_allowed($forum, 'allow_reply_groups')) $ajax ? ajax_error('无权限') : err('无权限');
     $body = post('body', 10000);
     if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
     $command = reply_admin_command($body, $tid);
@@ -1802,6 +1839,16 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             $where = $where ? $where . ' AND t.user_id=?' : 'WHERE t.user_id=?';
             $params[] = $profile_uid;
         }
+        if (!$profile_uid) {
+            $visible_forums = [];
+            foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_view_groups')) $visible_forums[] = (int)$f['id'];
+            if ($visible_forums) {
+                $where = $where ? $where . ' AND t.forum_id IN (' . implode(',', array_fill(0, count($visible_forums), '?')) . ')' : 'WHERE t.forum_id IN (' . implode(',', array_fill(0, count($visible_forums), '?')) . ')';
+                $params = array_merge($params, $visible_forums);
+            } else {
+                $where = $where ? $where . ' AND 1=0' : 'WHERE 1=0';
+            }
+        }
         $total = ($q === '' && !$fid && !$profile_uid) ? (int)$stats['topics'] : (int)q("SELECT COUNT(*) FROM topics t $where", $params)->fetchColumn();
         $rows = q("SELECT id,title,highlight_style,created_at,updated_at,reply_count,last_reply_at,forum_id,user_id FROM topics t $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$size, $off]))->fetchAll();
         $rows = attach_users($rows);
@@ -1864,6 +1911,7 @@ function forum_page(): void
 {
     $fid = id();
     $f = forum_by_id($fid) ?: err('版块不存在');
+    if (!forum_group_allowed($f, 'allow_view_groups')) err('无权限');
     remember_forum($fid);
     topic_index_page($f);
 }
@@ -1875,6 +1923,8 @@ function topic_page(): void
     }
     $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
     $t = attach_users([$t])[0];
+    $forum = forum_by_id((int)$t['forum_id']) ?: err('版块不存在');
+    if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
     remember_forum((int)$t['forum_id']);
     if (mark_viewed((int)$t['id'])) {
         q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
@@ -1909,13 +1959,16 @@ function topic_page(): void
     $pagination = paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']);
     if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
     else $main .= '</ul>';
-    $reply_status = uid() ? (can_speak() ? '说两句' : '禁止发言') : '登录后回复';
+    $can_reply_forum = forum_group_allowed($forum, 'allow_reply_groups');
+    $reply_status = uid() ? (can_speak() ? ($can_reply_forum ? '说两句' : '无回帖权限') : '禁止发言') : '登录后回复';
     $help = can_manage() ? '<button class="command-help" type="button" data-command-help>指令帮助</button>' : '<span class="reply-status">' . $reply_status . '</span>';
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3>' . $help . '</div>';
-    if (can_speak()) {
+    if (can_speak() && $can_reply_forum) {
         $main .= '<form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . '<button>回复</button></form>';
     } elseif (!uid()) {
         $main .= '<div class="reply-login-box"><a href="index.php?a=login">登录后回复</a></div>';
+    } elseif (!$can_reply_forum) {
+        $main .= '<div class="reply-login-box disabled">当前用户组无回帖权限</div>';
     } else {
         $main .= '<div class="reply-login-box disabled">当前用户禁止发言</div>';
     }
@@ -2028,8 +2081,14 @@ function admin_page(): void
         foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="index.php?a=admin&do=edit&type=group&id=' . (int)$g['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=groups&id=' . (int)$g['id'] . '&tab=groups" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>' . admin_add_head('index.php?a=admin&do=edit&type=forum') . '</th></tr>';
-        foreach (forums_cache() as $f) $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td class="ops"><a href="index.php?a=admin&do=edit&type=forum&id=' . (int)$f['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=forums&id=' . (int)$f['id'] . '&tab=forums" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th>' . admin_add_head('index.php?a=admin&do=edit&type=forum') . '</th></tr>';
+        foreach (forums_cache() as $f) {
+            $perm = [];
+            $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
+            $perm[] = '发帖:' . (forum_group_ids($f, 'allow_post_groups') ? count(forum_group_ids($f, 'allow_post_groups')) . '组' : '不限');
+            $perm[] = '回帖:' . (forum_group_ids($f, 'allow_reply_groups') ? count(forum_group_ids($f, 'allow_reply_groups')) . '组' : '不限');
+            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="index.php?a=admin&do=edit&type=forum&id=' . (int)$f['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=forums&id=' . (int)$f['id'] . '&tab=forums" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+        }
         $html .= '</table>';
     } elseif ($tab === 'topics') {
         $total = admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id);
@@ -2082,10 +2141,10 @@ function admin_edit_page(): void
         $tab = 'groups';
         $body = input('名称', 'name', $g['name'], 'text', true) . '<label class="grid"><span>允许用户和内容管理</span><input type="checkbox" name="allow_manage" value="1"' . ((int)($g['allow_manage'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>允许后台管理</span><input type="checkbox" name="allow_admin" value="1"' . ((int)($g['allow_admin'] ?? 0) ? ' checked' : '') . '></label>';
     } elseif ($type === 'forum') {
-        $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0];
+        $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => ''];
         if (!$f) err('版块不存在');
         $tab = 'forums';
-        $body = input('名称', 'name', $f['name'], 'text', true) . input('排序', 'sort', $f['sort'], 'number', true) . textarea('描述', 'description', $f['description']);
+        $body = input('名称', 'name', $f['name'], 'text', true) . input('排序', 'sort', $f['sort'], 'number', true) . textarea('描述', 'description', $f['description']) . forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
     } else err('参数错误');
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
