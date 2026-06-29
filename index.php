@@ -492,12 +492,10 @@ function mark_notifications_read(int $uid): void
 function notification_link(array $n): string
 {
     if ((int)($n['topic_id'] ?? 0) > 0) {
-        $url = 'index.php?a=topic&id=' . (int)$n['topic_id'];
-        if ((int)($n['reply_id'] ?? 0) > 0) $url .= '&replyid=' . (int)$n['reply_id'];
-        return $url;
+        return route_url('topic', ['id' => (int)$n['topic_id'], 'replyid' => (int)($n['reply_id'] ?? 0) ?: null]);
     }
-    if ((int)($n['sender_id'] ?? 0) > 0) return 'index.php?a=user&id=' . (int)$n['sender_id'];
-    return 'index.php';
+    if ((int)($n['sender_id'] ?? 0) > 0) return route_url('user', ['id' => (int)$n['sender_id']]);
+    return route_url('home');
 }
 function notification_row_html(array $n): string
 {
@@ -511,8 +509,8 @@ function notification_row_html(array $n): string
     $kind = notification_kind_label((string)($n['kind'] ?? ''));
     $unread = (int)($n['read_at'] ?? 0) === 0;
     $quote = notification_excerpt($body, 100);
-    $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge" href="index.php?a=notify&id=' . $sender_id . '&quote=' . rawurlencode($quote) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
-    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head"><a class="post-title" href="index.php?a=user&id=' . $sender_id . '">' . h($sender_name) . '</a><span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
+    $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
+    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head"><a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a><span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
 }
 function admin_user_form_data(int $id): array
 {
@@ -652,21 +650,23 @@ function admin_search_form(string $tab, string $query): string
     if ($tab === 'users') $has_clear = $has_clear || $group_id > 0 || ($_GET['is_banned'] ?? '') !== '' || ($_GET['is_muted'] ?? '') !== '';
     if ($tab === 'topics') $has_clear = $has_clear || (int)($_GET['forum_id'] ?? 0) > 0 || $field !== 'title';
     $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="' . h($tab) . '">';
-    return '<form class="admin-table-search" method="get" action="index.php">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="index.php?a=admin&tab=' . h($tab) . '">清空</a>' : '') . '</form>';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
 }
 function admin_bulk_delete_form_open(string $tab, string $query): string
 {
-    return '<form id="admin-bulk-form" method="post" action="index.php?a=admin&do=batch_action" onsubmit="return confirm(\'确定执行批量操作？\')">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
+    return '<form id="admin-bulk-form" method="post" action="' . h(admin_url(['do' => 'batch_action'])) . '" onsubmit="return confirm(\'确定执行批量操作？\')">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
 }
 function admin_pagination(string $tab, string $query, int $total, int $page, int $size, string $field = '', int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1): string
 {
-    $url = 'index.php?a=admin&tab=' . rawurlencode($tab) . ($query !== '' ? '&q=' . rawurlencode($query) : '');
-    if ($tab === 'topics' && $field !== '') $url .= '&field=' . rawurlencode(admin_topic_field($field));
-    if ($tab === 'replies' && $field !== '') $url .= '&reply_field=' . rawurlencode(admin_reply_field($field));
-    if ($tab === 'topics' && (int)($_GET['forum_id'] ?? 0) > 0) $url .= '&forum_id=' . (int)$_GET['forum_id'];
-    if ($tab === 'users' && $group_id > 0) $url .= '&group_id=' . $group_id;
-    if ($tab === 'users' && $banned_filter >= 0) $url .= '&is_banned=' . $banned_filter;
-    if ($tab === 'users' && $muted_filter >= 0) $url .= '&is_muted=' . $muted_filter;
+    $params = ['tab' => $tab];
+    if ($query !== '') $params['q'] = $query;
+    if ($tab === 'topics' && $field !== '') $params['field'] = admin_topic_field($field);
+    if ($tab === 'replies' && $field !== '') $params['reply_field'] = admin_reply_field($field);
+    if ($tab === 'topics' && (int)($_GET['forum_id'] ?? 0) > 0) $params['forum_id'] = (int)$_GET['forum_id'];
+    if ($tab === 'users' && $group_id > 0) $params['group_id'] = $group_id;
+    if ($tab === 'users' && $banned_filter >= 0) $params['is_banned'] = $banned_filter;
+    if ($tab === 'users' && $muted_filter >= 0) $params['is_muted'] = $muted_filter;
+    $url = admin_url($params);
     $html = paginate($total, $page, $size, $url);
     return $html === '' ? '' : '<div class="pagination-bar">' . $html . '</div>';
 }
@@ -696,7 +696,7 @@ function admin_bulk_delete_bar(string $tab = ''): string
 function admin_user_row(array $u, bool $manageable = true): string
 {
     $g = group_by_id((int)$u['group_id']) ?: ['name' => ''];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="index.php?a=admin&do=edit&type=user&id=' . (int)$u['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=users&id=' . (int)$u['id'] . '&tab=users" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
     $flags = ((int)($u['is_banned'] ?? 0) ? '<span class="admin-flag danger">禁访</span>' : '') . ((int)($u['is_muted'] ?? 0) ? '<span class="admin-flag danger">禁言</span>' : '');
     return '<li class="admin-list-item"><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$u['id'] . '" form="admin-bulk-form"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<span>' . h($u['username']) . '</span>' . $flags . '<span class="admin-group-pill">' . h($g['name']) . '</span></div></div>' . $ops . '</li>';
 }
@@ -709,15 +709,15 @@ function user_state_tag_html(array $u): string
 }
 function admin_topic_row(array $t, bool $manageable = true): string
 {
-    $url = 'index.php?a=topic&id=' . (int)$t['id'];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="index.php?a=topic_edit&id=' . (int)$t['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=topics&id=' . (int)$t['id'] . '&tab=topics" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $url = route_url('topic', ['id' => (int)$t['id']]);
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
     $forum = forum_by_id((int)($t['forum_id'] ?? 0)) ?: ['name' => ''];
     $forum_tag = $forum['name'] !== '' ? '<span class="admin-group-pill">' . h($forum['name']) . '</span>' : '';
-    return '<li class="admin-list-item"><div class="admin-topic-user">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '<span class="admin-dot">·</span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</div><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><a class="admin-content-title" href="' . $url . '" target="_blank" rel="noopener">' . h($t['title']) . '</a>' . $forum_tag . '</div>' . $ops . '</li>';
+    return '<li class="admin-list-item"><div class="admin-topic-user">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '<span class="admin-dot">·</span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</div><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a>' . $forum_tag . '</div>' . $ops . '</li>';
 }
 function admin_reply_row(array $r, bool $manageable = true): string
 {
-    $ops = '<div class="admin-inline-ops"><a href="index.php?a=topic&id=' . (int)$r['topic_id'] . '&replyid=' . (int)$r['id'] . '" target="_blank" rel="noopener">查看</a>' . ($manageable ? ' <a href="index.php?a=reply_edit&id=' . (int)$r['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=replies&id=' . (int)$r['id'] . '&tab=replies" onclick="return confirm(\'确定删除？\')">删除</a>' : '') . '</div>';
+    $ops = '<div class="admin-inline-ops"><a href="' . h(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']])) . '" target="_blank" rel="noopener">查看</a>' . ($manageable ? ' <a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'])) . '" onclick="return confirm(\'确定删除？\')">删除</a>' : '') . '</div>';
     return '<li class="admin-list-item"><div class="admin-topic-user">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '<span class="admin-dot">·</span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</div><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$r['id'] . '" form="admin-bulk-form"><div class="admin-content-text">' . h(cut($r['body'], 120)) . '</div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
@@ -753,7 +753,7 @@ function mark_viewed(int $tid): bool
 function quick_forums_html(): string
 {
     $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">最近浏览版块</div><ul class="quick-links">';
-    foreach (recent_forums() as $f) $html .= '<li><a href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a></li>';
+    foreach (recent_forums() as $f) $html .= '<li><a href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a></li>';
     return $html . '</ul></div></div>';
 }
 function sidebar_notice_card_html(string $title, array $items): string
@@ -790,8 +790,8 @@ function tab_bar_html(array $items, string $active, string $class = ''): string
 function auth_tabs_html(string $active): string
 {
     return tab_bar_html([
-        'login' => ['label' => '登录', 'href' => 'index.php?a=login'],
-        'register' => ['label' => '注册', 'href' => 'index.php?a=register'],
+        'login' => ['label' => '登录', 'href' => route_url('login')],
+        'register' => ['label' => '注册', 'href' => route_url('register')],
     ], $active, 'auth-tabs');
 }
 function sidebar_stack_html(array $parts): string
@@ -807,19 +807,19 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
     $is_self = uid() && (int)$m['id'] === uid();
     $prefix = $is_self ? '我的' : 'TA的';
     $unread = $is_self ? (int)($m['unread_notifications'] ?? 0) : 0;
-    $links = '<a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=topics">' . svg_icon('topic') . $prefix . '主题</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=replies">' . svg_icon('reply') . $prefix . '回帖</a><a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=favorites">' . svg_icon('favorite') . $prefix . '收藏</a>';
-    if ($is_self) $links .= '<a href="index.php?a=user&id=' . (int)$m['id'] . '&tab=notifications">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="index.php?a=profile">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="index.php?a=admin">' . svg_icon('admin') . '后台面板</a>' : '');
-    else $links .= '<a href="index.php?a=notify&id=' . (int)$m['id'] . '" onclick="openNotify(this.href);return false">' . svg_icon('notify') . '私信TA</a>';
-    $user_url = 'index.php?a=user&id=' . (int)$m['id'];
+    $links = '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'topics'])) . '">' . svg_icon('topic') . $prefix . '主题</a><a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'replies'])) . '">' . svg_icon('reply') . $prefix . '回帖</a><a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'favorites'])) . '">' . svg_icon('favorite') . $prefix . '收藏</a>';
+    if ($is_self) $links .= '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'notifications'])) . '">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="' . h(route_url('profile')) . '">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">' . svg_icon('admin') . '后台面板</a>' : '');
+    else $links .= '<a href="' . h(route_url('notify', ['id' => (int)$m['id']])) . '" onclick="openNotify(this.href);return false">' . svg_icon('notify') . '私信TA</a>';
+    $user_url = route_url('user', ['id' => (int)$m['id']]);
     $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><a class="user-avatar-big" href="' . $user_url . '">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</a><div><a class="user-name" href="' . $user_url . '">' . h($m['username']) . '</a><div class="user-rank">' . h($m['group_name'] ?? '用户') . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
-    if (can_speak()) $html .= '<a class="btn-post' . ($is_self ? '' : ' notify-link') . '" href="' . ($reply_button ? '#reply' : ($is_self ? 'index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') : 'index.php?a=notify&id=' . (int)$m['id'])) . '"' . ($is_self || $reply_button ? '' : ' onclick="openNotify(this.href);return false"') . '>' . ($reply_button ? '回帖' : ($is_self ? '+ 发帖' : '私信TA')) . '</a>';
+    if (can_speak()) $html .= '<a class="btn-post' . ($is_self ? '' : ' notify-link') . '" href="' . h($reply_button ? '#reply' : ($is_self ? route_url('topic_edit', ['fid' => $fid ?: null]) : route_url('notify', ['id' => (int)$m['id']]))) . '"' . ($is_self || $reply_button ? '' : ' onclick="openNotify(this.href);return false"') . '>' . ($reply_button ? '回帖' : ($is_self ? '+ 发帖' : '私信TA')) . '</a>';
     return $html . '</div>';
 }
 function sidebar_stats_card_html(): string
 {
     $stats = stats_cache();
     $html = '<div class="card sidebar-card stats-card"><div class="stats-wrap"><div class="stats-title">站点统计</div><div class="stats-sub">主题 ' . (int)$stats['topics'] . ' · 回复 ' . (int)$stats['replies'] . ' · 用户 ' . (int)$stats['users'] . '</div><div class="new-users-title">最新用户</div><div class="new-users">';
-    foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="index.php?a=user&id=' . (int)$u['id'] . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
+    foreach (($stats['latest_users'] ?? []) as $u) $html .= '<a class="nu-item" href="' . h(route_url('user', ['id' => (int)$u['id']])) . '"><div class="nu-avatar-circle">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), '', (string)($u['avatar_seed'] ?? '')) . '</div><span class="nu-name">' . h($u['username']) . '</span></a>';
     return $html . '</div></div></div>';
 }
 function sidebar_bio_card_html(?array $user): string
@@ -838,7 +838,7 @@ function topic_user_group_html(array $row): string
 function guest_auth_html(): string
 {
     $allow = setting('allow_register', '1') === '1';
-    return '<div class="side-auth' . ($allow ? '' : ' single') . '"><a href="index.php?a=login">登录</a>' . ($allow ? '<a href="index.php?a=register">注册</a>' : '') . '</div>';
+    return '<div class="side-auth' . ($allow ? '' : ' single') . '"><a href="' . h(route_url('login')) . '">登录</a>' . ($allow ? '<a href="' . h(route_url('register')) . '">注册</a>' : '') . '</div>';
 }
 function user_card_html(?array $m = null, bool $reply_button = false, int $fid = 0): string
 {
@@ -921,7 +921,7 @@ function can_speak(): bool
 }
 function need_login(): void
 {
-    if (!uid()) go('index.php?a=login');
+    if (!uid()) go(route_url('login'));
 }
 function need_speak(): void
 {
@@ -1016,23 +1016,28 @@ function paginate(int $total, int $page, int $size, string $url): string
     $pages = max(1, (int)ceil($total / $size));
     if ($pages <= 1) return '';
     $page = max(1, min($page, $pages));
-    $sep = str_contains($url, '?') ? '&' : '?';
+    $page_url = function (int $n) use ($url): string {
+        if (pretty_url_enabled() && !str_contains($url, '?') && preg_match('#/(?:forum|topic|thread|user)/\d+(?:/(?:topics|replies|favorites|notifications))?$#', $url)) {
+            return $n <= 1 ? $url : rtrim($url, '/') . '/page/' . $n;
+        }
+        return append_url_query($url, ['p' => $n]);
+    };
     $h = '<div class="pagination"><ul>';
-    if ($page > 1) $h .= '<li><a href="' . $url . $sep . 'p=' . ($page - 1) . '">上一页</a></li>';
+    if ($page > 1) $h .= '<li><a href="' . h($page_url($page - 1)) . '">上一页</a></li>';
     $start = max(1, $page - 2);
     $end = min($pages, $page + 2);
     if ($start > 1) {
-        $h .= '<li><a href="' . $url . $sep . 'p=1">1</a></li>';
+        $h .= '<li><a href="' . h($page_url(1)) . '">1</a></li>';
         if ($start > 2) $h .= '<li><span class="ellipsis">...</span></li>';
     }
     for ($i = $start; $i <= $end; $i++) {
-        $h .= '<li' . ($i === $page ? ' class="active"' : '') . '><a href="' . $url . $sep . 'p=' . $i . '">' . $i . '</a></li>';
+        $h .= '<li' . ($i === $page ? ' class="active"' : '') . '><a href="' . h($page_url($i)) . '">' . $i . '</a></li>';
     }
     if ($end < $pages) {
         if ($end < $pages - 1) $h .= '<li><span class="ellipsis">...</span></li>';
-        $h .= '<li><a href="' . $url . $sep . 'p=' . $pages . '">' . $pages . '</a></li>';
+        $h .= '<li><a href="' . h($page_url($pages)) . '">' . $pages . '</a></li>';
     }
-    if ($page < $pages) $h .= '<li><a href="' . $url . $sep . 'p=' . ($page + 1) . '">下一页</a></li>';
+    if ($page < $pages) $h .= '<li><a href="' . h($page_url($page + 1)) . '">下一页</a></li>';
     $h .= '</ul></div>';
     return $h;
 }
@@ -1041,7 +1046,6 @@ function topic_page_links(int $topic_id, int $reply_count): string
     $size = max(1, (int)setting('replies_per_page', '50'));
     $pages = (int)ceil($reply_count / $size);
     if ($pages <= 1) return '';
-    $base = 'index.php?a=topic&id=' . $topic_id;
     $nums = [];
     foreach ([2, 3, $pages - 2, $pages - 1, $pages] as $n) if ($n >= 2 && $n <= $pages) $nums[$n] = true;
     $nums = array_keys($nums);
@@ -1050,7 +1054,7 @@ function topic_page_links(int $topic_id, int $reply_count): string
     $prev = 1;
     foreach ($nums as $i) {
         if ($i - $prev > 1) $h .= '<span class="topic-pages-sep">…</span>';
-        $h .= '<a href="' . $base . '&p=' . $i . '">' . $i . '</a>';
+        $h .= '<a href="' . h(route_url('topic', ['id' => $topic_id, 'p' => $i])) . '">' . $i . '</a>';
         $prev = $i;
     }
     return $h . '</span>';
@@ -1153,6 +1157,114 @@ function avatar_tag(int $uid, string $name, string $style = '', string $class = 
     $classes = trim('avatar-img ' . $class);
     return '<img class="' . h($classes) . '" src="' . h(avatar_url($uid, $style, $seed)) . '" alt="' . h($name) . '" loading="lazy">';
 }
+function app_base_path(): string
+{
+    $dir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'))), '/');
+    return ($dir === '' || $dir === '.') ? '' : $dir;
+}
+function app_url(string $path = ''): string
+{
+    $path = ltrim($path, '/');
+    $base = app_base_path();
+    if ($path === '') return $base === '' ? '/' : $base . '/';
+    return $base . '/' . $path;
+}
+function append_url_query(string $url, array $params): string
+{
+    $query = [];
+    foreach ($params as $key => $value) {
+        if ($value === null || $value === '') continue;
+        $query[$key] = (string)$value;
+    }
+    if (!$query) return $url;
+    return $url . (str_contains($url, '?') ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+}
+function pretty_url_enabled(): bool
+{
+    return db_schema_ready() && setting('pretty_url', '1') === '1';
+}
+function index_url(array $params = []): string
+{
+    return append_url_query(app_url('index.php'), $params);
+}
+function admin_url(array $params = []): string
+{
+    return route_url('admin', $params);
+}
+function route_url(string $a = 'home', array $params = []): string
+{
+    if (!pretty_url_enabled()) {
+        if ($a !== 'home') $params = ['a' => $a] + $params;
+        return index_url($params);
+    }
+    $query = $params;
+    $path = '';
+    if ($a === 'home') {
+        $path = '';
+    } elseif (in_array($a, ['login', 'register', 'logout', 'profile'], true)) {
+        $path = $a;
+    } elseif ($a === 'forgot_password' || $a === 'reset_password') {
+        $path = str_replace('_', '-', $a);
+    } elseif ($a === 'forum') {
+        $path = 'forum/' . max(0, (int)($params['id'] ?? 0));
+        unset($query['id']);
+    } elseif ($a === 'topic') {
+        $id = max(0, (int)($params['id'] ?? 0));
+        $replyid = max(0, (int)($params['replyid'] ?? 0));
+        if ($id <= 0 && $replyid > 0) {
+            $path = 'reply/' . $replyid;
+        } else {
+            $path = 'topic/' . $id;
+            if ((int)($params['p'] ?? 0) > 1) $path .= '/page/' . (int)$params['p'];
+            if ($replyid > 0) $path .= '/reply/' . $replyid;
+        }
+        unset($query['id'], $query['p'], $query['replyid']);
+    } elseif ($a === 'user') {
+        $path = 'user/' . max(0, (int)($params['id'] ?? 0));
+        $tab = (string)($params['tab'] ?? '');
+        if (in_array($tab, ['topics', 'replies', 'favorites', 'notifications'], true)) {
+            $path .= '/' . $tab;
+            unset($query['tab']);
+        }
+        if ((int)($params['p'] ?? 0) > 1) {
+            $path .= '/page/' . (int)$params['p'];
+            unset($query['p']);
+        }
+        unset($query['id']);
+    } elseif (in_array($a, ['notify', 'favorite'], true)) {
+        $path = $a . '/' . max(0, (int)($params['id'] ?? 0));
+        unset($query['id']);
+    } elseif ($a === 'topic_edit') {
+        $path = 'topic_edit';
+        if ((int)($params['id'] ?? 0) > 0) {
+            $path .= '/id/' . (int)$params['id'];
+            unset($query['id']);
+        }
+        if ((int)($params['fid'] ?? 0) > 0) {
+            $path .= '/fid/' . (int)$params['fid'];
+            unset($query['fid']);
+        }
+    } elseif ($a === 'reply_edit') {
+        $path = 'reply_edit';
+        if ((int)($params['id'] ?? 0) > 0) {
+            $path .= '/id/' . (int)$params['id'];
+            unset($query['id']);
+        }
+    } elseif ($a === 'admin' && empty($params['do'])) {
+        $tab = (string)($params['tab'] ?? '');
+        $path = 'admin' . (in_array($tab, ['settings', 'forums', 'groups', 'topics', 'replies', 'users', 'trash'], true) ? '/' . $tab : '');
+        unset($query['tab']);
+    } else {
+        $params = ['a' => $a] + $params;
+        return index_url($params);
+    }
+    if ((int)($query['p'] ?? 0) <= 1) unset($query['p']);
+    return append_url_query(app_url($path), $query);
+}
+function asset_url(string $file): string
+{
+    return app_url($file);
+}
 function markdown_inline(string $text): string
 {
     $text = h($text);
@@ -1174,7 +1286,7 @@ function markdown_inline(string $text): string
     }, $text) ?? $text;
     $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(topic|reply)?(\d+)/u', function ($m) {
         $type = $m[2] ?: 'reply';
-        $url = $type === 'topic' ? 'index.php?a=topic&id=' . (int)$m[3] : 'index.php?a=topic&replyid=' . (int)$m[3];
+        $url = $type === 'topic' ? route_url('topic', ['id' => (int)$m[3]]) : route_url('topic', ['replyid' => (int)$m[3]]);
         return '<a href="' . $url . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . $type . (int)$m[3] . '</a>';
     }, $text) ?? $text;
     $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
@@ -1255,26 +1367,26 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $has_title = $title !== '';
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
     $avatar = avatar_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
-    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title post-author" href="index.php?a=user&id=' . (int)$row['user_id'] . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . markdown_html($body) . '</div></li>';
+    return '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . markdown_html($body) . '</div></li>';
 }
 function quote_reply_action(array $row): string
 {
     $type = isset($row['topic_id']) ? 'reply' : 'topic';
     return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-type="' . $type . '" data-replyid="' . (int)($row['id'] ?? 0) . '" title="引用回复"><span>引用回复</span></a>';
 }
-function topic_list_row(array $t, string $sort, string $url_prefix = 'index.php'): string
+function topic_list_row(array $t, string $sort): string
 {
     $time = (int)($t['time'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
-    $user_link = '<a href="' . h($url_prefix) . '?a=user&id=' . (int)$t['user_id'] . '">' . svg_icon('user') . h($t['username']) . '</a>';
-    $forum_link = '<a href="' . h($url_prefix) . '?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a>';
+    $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
+    $forum_link = '<a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>';
     $meta = '<span>' . $user_link . '</span><span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span><span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span><span>' . human_time($time) . '</span>';
     $pages = topic_page_links((int)$t['id'], (int)$t['reply_count']);
     $reply_id = (int)($t['my_reply_id'] ?? 0);
-    $topic_url = h($url_prefix) . '?a=topic&id=' . (int)$t['id'] . ($reply_id > 0 ? '&replyid=' . $reply_id : '');
+    $topic_url = route_url('topic', ['id' => (int)$t['id'], 'replyid' => $reply_id > 0 ? $reply_id : null]);
     $badges = ((int)($t['is_pinned'] ?? 0) ? '<span class="topic-badge pinned">置顶</span>' : '');
     $style = (string)($t['highlight_style'] ?? '') !== '' ? ' style="' . h((string)$t['highlight_style']) . '"' : '';
-    return '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . $topic_url . '"' . $style . '>' . h($t['title']) . '</a>' . $pages . '</div><div class="post-meta">' . $meta . '</div></div><a class="post-tag post-forum-badge" href="' . h($url_prefix) . '?a=forum&id=' . (int)$forum['id'] . '">' . h($forum['name']) . '</a></li>';
+    return '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $pages . '</div><div class="post-meta">' . $meta . '</div></div><a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></li>';
 }
 function topic_stats_html(int $view_count, int $reply_count): string
 {
@@ -1295,14 +1407,14 @@ function page(string $title, string $body): void
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
     if ($flash !== '' && !headers_sent()) setcookie('__flash', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="logo.svg"><link rel="stylesheet" href="index.css"></head><body>';
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="' . h(asset_url('index.css')) . '"></head><body>';
     $mine = me();
-    $mine_link = $mine ? 'index.php?a=user&id=' . (int)$mine['id'] : 'index.php?a=login';
+    $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id']]) : route_url('login');
     $mine_label = $mine ? '我的' . notification_badge_html((int)($mine['unread_notifications'] ?? 0)) : '登录';
-    echo '<div class="top"><div class="bar"><a class="brand" href="index.php">' . h($site_name) . '</a><nav class="forum-nav">';
-    foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="index.php?a=forum&id=' . (int)$f['id'] . '">' . h($f['name']) . '</a>';
-    echo '</nav><form class="search-form" method="get" action="index.php"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . $mine_link . '">' . $mine_label . '</a></div></div>';
-    echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="index.js" defer></script>' . (string)$settings['footer_html'] . '</body></html>';
+    echo '<div class="top"><div class="bar"><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
+    foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+    echo '</nav><form class="search-form" method="get" action="' . h(route_url('home')) . '"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
+    echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="' . h(asset_url('index.js')) . '" defer></script>' . (string)$settings['footer_html'] . '</body></html>';
 }
 function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
 {
@@ -1395,7 +1507,7 @@ function admin_trash_list(string $table = '', int $size = 50, int $offset = 0): 
 }
 function admin_trash_search_form(string $table): string
 {
-    $html = '<form class="admin-table-search" method="get" action="index.php"><input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="trash"><select class="admin-search-select" name="table">';
+    $html = '<form class="admin-table-search" method="get" action="' . h(index_url()) . '"><input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="trash"><select class="admin-search-select" name="table">';
     $html .= '<option value="">全部</option>';
     foreach (['users' => '用户', 'topics' => '主题', 'replies' => '回帖'] as $k => $v) $html .= '<option value="' . $k . '"' . ($table === $k ? ' selected' : '') . '>' . $v . '</option>';
     return $html . '</select><button class="admin-search-link" type="submit">筛选</button></form>';
@@ -1405,7 +1517,7 @@ function admin_trash_row(array $row): string
     $data = json_decode((string)$row['row_data'], true);
     $title = trash_table_label((string)$row['table_name']) . ' #' . (int)$row['row_id'];
     $summary = is_array($data) ? json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : (string)$row['row_data'];
-    return '<li class="admin-list-item"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre><div class="admin-inline-ops"><a href="index.php?a=admin&do=restore&id=' . (int)$row['id'] . '" onclick="return confirm(\'确定恢复？\')">恢复</a></div></li>';
+    return '<li class="admin-list-item"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre><div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'restore', 'id' => (int)$row['id']])) . '" onclick="return confirm(\'确定恢复？\')">恢复</a></div></li>';
 }
 function refresh_topic_stats(int $tid): void
 {
@@ -1472,7 +1584,7 @@ function user_notifications_page(): void
             $main .= notification_row_html($n);
         }
     }
-    $pagination = paginate($total, $p, $size, 'index.php?a=user&id=' . uid() . '&tab=notifications');
+    $pagination = paginate($total, $p, $size, route_url('user', ['id' => uid(), 'tab' => 'notifications']));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     page('我的通知', shell_html($main, sidebar_stack_html([sidebar_user_card_html($me, false)])));
 }
@@ -1492,12 +1604,12 @@ function user_notify_page(): void
             echo json_encode(['ok' => 1, 'message' => '已发送'], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        go('index.php?a=user&id=' . (int)$target['id'] . '&tab=notifications');
+        go(route_url('user', ['id' => (int)$target['id'], 'tab' => 'notifications']));
     }
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
     $quote = notification_excerpt((string)($_GET['quote'] ?? ''), 100);
     $value = $quote !== '' ? '> ' . $quote . "\n\n" : '';
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="index.php?a=notify&id=' . (int)$target['id'] . '">' . form_token() . '<textarea name="content" placeholder="输入私信内容" required>' . h($value) . '</textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . '<textarea name="content" placeholder="输入私信内容" required>' . h($value) . '</textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -1506,14 +1618,13 @@ function user_notify_page(): void
 }
 function user_notify_link_html(int $uid): string
 {
-    return '<a class="notify-link" href="index.php?a=notify&id=' . $uid . '" data-user-id="' . $uid . '">私信TA</a>';
+    return '<a class="notify-link" href="' . h(route_url('notify', ['id' => $uid])) . '" data-user-id="' . $uid . '">私信TA</a>';
 }
 function base_url(): string
 {
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
-    $dir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'))), '/');
-    return ($https ? 'https' : 'http') . '://' . $host . ($dir === '' ? '' : $dir);
+    return ($https ? 'https' : 'http') . '://' . $host;
 }
 function send_mail_text(string $to, string $subject, string $body): bool
 {
@@ -1554,7 +1665,7 @@ function password_reset_notice_sidebar(string $mode): string
 }
 function forgot_password_page(): void
 {
-    if (uid()) go('index.php');
+    if (uid()) go(route_url('home'));
     $sent = false;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
@@ -1567,7 +1678,7 @@ function forgot_password_page(): void
             err('用户名和邮箱不匹配');
         }
         $token = create_password_reset($u);
-        $link = base_url() . '/index.php?a=reset_password&token=' . $token;
+        $link = base_url() . route_url('reset_password', ['token' => $token]);
         $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'FORUM');
         $body = "你好，" . $u['username'] . "\n\n请打开以下链接重置密码：\n" . $link . "\n\n链接有效期为 1 小时。如果不是你本人操作，请忽略本邮件。";
         if (mail_virtual_enabled()) {
@@ -1575,20 +1686,20 @@ function forgot_password_page(): void
             return;
         }
         if (!send_mail_text((string)$u['email'], $subject, $body)) err('邮件发送失败，请稍后再试');
-        if (ajax_request()) go('index.php?a=login');
+        if (ajax_request()) go(route_url('login'));
         $sent = true;
     }
     $body = '<div class="form-panel auth-panel"><h2>忘记密码</h2>';
     if ($sent) {
-        $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
+        $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     } else {
-        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="index.php?a=login">返回登录</a></p>';
+        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     }
     page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
 }
 function reset_password_page(): void
 {
-    if (uid()) go('index.php');
+    if (uid()) go(route_url('home'));
     $token = trim((string)($_GET['token'] ?? $_POST['token'] ?? ''));
     if ($token === '') err('重置链接无效');
     $row = one("SELECT * FROM password_resets WHERE token_hash=? AND used_at=0 AND expires_at>=?", [hash('sha256', $token), now()]);
@@ -1602,8 +1713,8 @@ function reset_password_page(): void
         if ($pwd !== $pwd2) err('两次密码不一致');
         q("UPDATE users SET password=? WHERE id=?", [password_hash($pwd, PASSWORD_DEFAULT), (int)$row['user_id']]);
         q("UPDATE password_resets SET used_at=? WHERE id=?", [now(), (int)$row['id']]);
-        if (ajax_request()) go('index.php?a=login');
-        page('密码已重置', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>密码已重置</h2><p class="muted">请使用新密码登录。</p><p class="auth-extra"><a href="index.php?a=login">去登录</a></p></div>', password_reset_notice_sidebar('reset')));
+        if (ajax_request()) go(route_url('login'));
+        page('密码已重置', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>密码已重置</h2><p class="muted">请使用新密码登录。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">去登录</a></p></div>', password_reset_notice_sidebar('reset')));
         return;
     }
     $form = '<div class="form-panel auth-panel"><h2>重置密码</h2><form method="post">' . form_token() . '<input type="hidden" name="token" value="' . h($token) . '">' . input('新密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . '<button>保存新密码</button></form></div>';
@@ -1709,7 +1820,7 @@ function save_reply(): array
     if (($command['action'] ?? '') === 'delete' && ($command['type'] ?? '') === 'reply') del('replies', (int)$command['id']);
     if (($command['action'] ?? '') === 'delete' && ($command['type'] ?? '') === 'topic') {
         del('topics', (int)$command['id']);
-        return ['topic_id' => $tid, 'reply_id' => $rid, 'redirect' => 'index.php'];
+        return ['topic_id' => $tid, 'reply_id' => $rid, 'redirect' => route_url('home')];
     }
     if (($command['action'] ?? '') === 'move') {
         $old_forum_id = (int)val("SELECT forum_id FROM topics WHERE id=?", [$tid]);
@@ -1778,7 +1889,7 @@ function del(string $table, int $id): void
 }
 function login_page(): void
 {
-    if (uid()) go('index.php');
+    if (uid()) go(route_url('home'));
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
         if (!rate_allow_login_fail($ip)) err('同一IP 1小时内错误次数已达上限');
@@ -1786,7 +1897,7 @@ function login_page(): void
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             session_regenerate_id(true);
             $_SESSION['uid'] = (int)$u['id'];
-            go('index.php');
+            go(route_url('home'));
         }
         rate_hit_login_fail($ip);
         err('用户名或错误');
@@ -1794,16 +1905,16 @@ function login_page(): void
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
     ]);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . '<button>登录</button></form><p class="auth-extra"><a href="index.php?a=forgot_password">忘记密码？</a></p></div>', $sidebar));
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
 }
 function register_page(): void
 {
-    if (uid()) go('index.php');
+    if (uid()) go(route_url('home'));
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false);
         $_SESSION['uid'] = (int)db()->lastInsertId();
-        go('index.php');
+        go(route_url('home'));
     }
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
@@ -1817,9 +1928,9 @@ function profile_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_POST['id'] = uid();
         save_user(false);
-        go('index.php?a=profile');
+        go(route_url('profile'));
     }
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit"><a href="index.php?a=logout"><span>安全退出</span><small>退出当前登录状态</small></a></div></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit"><a href="' . h(route_url('logout')) . '"><span>安全退出</span><small>退出当前登录状态</small></a></div></div>', $u));
 }
 function user_page(): void
 {
@@ -1844,16 +1955,18 @@ function favorite_page(): void
     one("SELECT id FROM topics WHERE id=?", [$tid]) ?: err('主题不存在');
     if (one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), $tid])) q("DELETE FROM favorites WHERE user_id=? AND topic_id=?", [uid(), $tid]);
     else q("INSERT INTO favorites(user_id,topic_id,created_at) VALUES(?,?,?)", [uid(), $tid, now()]);
-    go('index.php?a=topic&id=' . $tid);
+    go(route_url('topic', ['id' => $tid]));
 }
 function topic_index_page(?array $filter_forum = null, ?array $filter_user = null): void
 {
     $fid = (int)($filter_forum['id'] ?? 0);
     $profile_uid = (int)($filter_user['id'] ?? 0);
     $own_profile = $profile_uid && uid() === $profile_uid;
-    $base = $profile_uid ? 'index.php?a=user&id=' . $profile_uid : ($fid ? 'index.php?a=forum&id=' . $fid : 'index.php');
-    $url = function (string $query) use ($base): string {
-        return $base . (str_contains($base, '?') ? '&' : '?') . $query;
+    $url = function (string $query) use ($profile_uid, $fid): string {
+        parse_str($query, $params);
+        if ($profile_uid) return route_url('user', ['id' => $profile_uid] + $params);
+        if ($fid) return route_url('forum', ['id' => $fid] + $params);
+        return route_url('home', $params);
     };
     $p = max(1, (int)($_GET['p'] ?? 1));
     $size = max(1, (int)setting('topics_per_page', '30'));
@@ -1938,13 +2051,13 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             'favorites' => ['label' => '收藏', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=favorites')],
         ];
         if ($own_profile) $tab_items['notifications'] = ['label' => '通知', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=notifications')];
-        $main .= '<div class="profile-toolbar">' . tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="index.php?a=profile">设置</a>' . (can_access_admin() ? '<a href="index.php?a=admin">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="index.php?a=notify&id=' . $profile_uid . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
+        $main .= '<div class="profile-toolbar">' . tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="' . h(route_url('profile')) . '">设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="' . h(route_url('notify', ['id' => $profile_uid])) . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
     } else {
         $tab_items = [
             'comment' => ['label' => '新评论', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment')],
             'post' => ['label' => '新帖子', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=post')],
         ];
-        $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . (can_speak() ? '<a class="tab-post" href="index.php?a=topic_edit' . ($fid ? '&fid=' . $fid : '') . '">+ 发帖</a>' : '') . '</div>';
+        $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
     }
     $main .= '<ul class="post-list">';
     if ($profile_uid && $profile_tab === 'notifications') {
@@ -1985,7 +2098,7 @@ function topic_page(): void
 {
     if (!id() && id('replyid')) {
         $reply = one("SELECT topic_id FROM replies WHERE id=?", [id('replyid')]) ?: err('回复不存在');
-        go('index.php?a=topic&id=' . (int)$reply['topic_id'] . '&replyid=' . id('replyid'));
+        go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
     $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
     $t = attach_users([$t])[0];
@@ -2011,18 +2124,18 @@ function topic_page(): void
     $fav = uid() ? one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), (int)$t['id']]) : null;
     $topic_ops = '';
     if (uid()) $topic_ops .= quote_reply_action($t);
-    if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="index.php?a=favorite&id=' . (int)$t['id'] . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
-    if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="index.php?a=topic_edit&id=' . (int)$t['id'] . '" title="编辑"><span>编辑</span></a>';
+    if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="' . h(route_url('favorite', ['id' => (int)$t['id']])) . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
+    if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
     $main = '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
     $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
     foreach ($replies as $r) {
         $reply_ops = uid() ? quote_reply_action($r) : '';
-        if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$r['id'] . '" title="编辑"><span>编辑</span></a>';
+        if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
         $reply_ops = $reply_ops !== '' ? '<div class="post-ops">' . $reply_ops . '</div>' : '';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', (int)$r['id'] === $replyid);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
-    $pagination = paginate((int)$t['reply_count'], $p, $size, 'index.php?a=topic&id=' . (int)$t['id']);
+    $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]));
     if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
     else $main .= '</ul>';
     $can_reply_forum = forum_group_allowed($forum, 'allow_reply_groups');
@@ -2030,9 +2143,9 @@ function topic_page(): void
     $help = can_manage() ? '<button class="command-help" type="button" data-command-help>指令帮助</button>' : '<span class="reply-status">' . $reply_status . '</span>';
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3>' . $help . '</div>';
     if (can_speak() && $can_reply_forum) {
-        $main .= '<form class="ajax-reply-form" method="post" action="index.php?a=reply_edit">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . '<button>回复</button></form>';
+        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . '<button>回复</button></form>';
     } elseif (!uid()) {
-        $main .= '<div class="reply-login-box"><a href="index.php?a=login">登录后回复</a></div>';
+        $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">登录后回复</a></div>';
     } elseif (!$can_reply_forum) {
         $main .= '<div class="reply-login-box disabled">当前用户组无回帖权限</div>';
     } else {
@@ -2050,7 +2163,7 @@ function topic_edit_page(): void
         $t = one("SELECT * FROM topics WHERE id=?", [id()]) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
     }
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') go('index.php?a=topic&id=' . save_topic());
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') go(route_url('topic', ['id' => save_topic()]));
     $title = id() ? '编辑主题' : '发表主题';
     page($title, topic_form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . '<button>保存</button></form></div>'));
 }
@@ -2066,19 +2179,19 @@ function reply_edit_page(): void
         $editing = id() > 0;
         $saved = save_reply();
         if (!empty($saved['redirect'])) go($saved['redirect']);
-        if (ajax_request() && $editing) go('index.php?a=topic&id=' . $saved['topic_id'] . '&replyid=' . $saved['reply_id']);
+        if (ajax_request() && $editing) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
         if (ajax_request()) {
             $row = one("SELECT * FROM replies WHERE id=?", [$saved['reply_id']]) ?: err('回复不存在');
             $row = attach_users([$row])[0];
             $ops = quote_reply_action($row);
-            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="index.php?a=reply_edit&id=' . (int)$row['id'] . '" title="编辑"><span>编辑</span></a>';
+            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             $ops = '<div class="post-ops">' . $ops . '</div>';
             $topic = one("SELECT view_count,reply_count FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0];
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        go('index.php?a=topic&id=' . $saved['topic_id'] . '&replyid=' . $saved['reply_id']);
+        go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
     page('编辑回复', form_shell('<div class="form-panel"><h2>编辑回复</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . '<button>保存</button></form></div>'));
 }
@@ -2091,7 +2204,7 @@ function admin_tabs(string $tab): string
 {
     $items = ['settings' => '设置', 'forums' => '版块', 'groups' => '用户组', 'topics' => '主题', 'replies' => '回帖', 'users' => '用户', 'trash' => '回收站'];
     $h = '<div class="tab-bar admin-tabs">';
-    foreach ($items as $k => $v) $h .= '<a class="tab' . ($tab === $k ? ' active' : '') . '" href="index.php?a=admin&tab=' . $k . '">' . $v . '</a>';
+    foreach ($items as $k => $v) $h .= '<a class="tab' . ($tab === $k ? ' active' : '') . '" href="' . h(admin_url(['tab' => $k])) . '">' . $v . '</a>';
     return $h . '</div>';
 }
 function admin_layout(string $tab, string $body): string
@@ -2117,15 +2230,15 @@ function admin_page(): void
         if (isset($_POST['clear_opcache'])) {
             clear_opcache_cache();
             set_flash('OPcache已清理');
-            go('index.php?a=admin&tab=settings');
+            go(admin_url(['tab' => 'settings']));
         }
         save_settings();
-        go('index.php?a=admin&tab=settings');
+        go(admin_url(['tab' => 'settings']));
     }
     if ($tab === 'settings' && isset($_GET['clear_opcache'])) {
         clear_opcache_cache();
         set_flash('OPcache已清理');
-        go('index.php?a=admin&tab=settings');
+        go(admin_url(['tab' => 'settings']));
     }
     $html = '';
     if ($tab === 'settings') {
@@ -2133,33 +2246,33 @@ function admin_page(): void
         $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
         foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
         $group_select .= '</select></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="index.php?a=admin&tab=settings&clear_opcache=1" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('users', $q), $manageable ? admin_add_head('index.php?a=admin&do=edit&type=user') : '') . '<ul class="admin-manage-list">';
+        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('users', $q), $manageable ? admin_add_head(admin_url(['do' => 'edit', 'type' => 'user'])) : '') . '<ul class="admin-manage-list">';
         foreach (admin_users_list($q, $admin_size, $admin_offset, $user_group_id, $user_banned_filter, $user_muted_filter) as $u) $html .= admin_user_row($u, $manageable);
         $html .= '</ul></div>';
         if ($manageable) $html .= admin_bulk_delete_bar('users');
         $html .= admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter);
     } elseif ($tab === 'groups') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th>' . admin_add_head('index.php?a=admin&do=edit&type=group') . '</th></tr>';
-        foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="index.php?a=admin&do=edit&type=group&id=' . (int)$g['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=groups&id=' . (int)$g['id'] . '&tab=groups" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th>' . admin_add_head(admin_url(['do' => 'edit', 'type' => 'group'])) . '</th></tr>';
+        foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th>' . admin_add_head('index.php?a=admin&do=edit&type=forum') . '</th></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th>' . admin_add_head(admin_url(['do' => 'edit', 'type' => 'forum'])) . '</th></tr>';
         foreach (forums_cache() as $f) {
             $perm = [];
             $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
             $perm[] = '发帖:' . (forum_group_ids($f, 'allow_post_groups') ? count(forum_group_ids($f, 'allow_post_groups')) . '组' : '不限');
             $perm[] = '回帖:' . (forum_group_ids($f, 'allow_reply_groups') ? count(forum_group_ids($f, 'allow_reply_groups')) . '组' : '不限');
-            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="index.php?a=admin&do=edit&type=forum&id=' . (int)$f['id'] . '">编辑</a> <a href="index.php?a=admin&do=delete&type=forums&id=' . (int)$f['id'] . '&tab=forums" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
         }
         $html .= '</table>';
     } elseif ($tab === 'topics') {
         $total = admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id);
         if ($manageable) $html .= admin_bulk_delete_form_open('topics', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), $manageable ? admin_add_head('index.php?a=topic_edit') : '') . '<ul class="admin-manage-list">';
+        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), $manageable ? admin_add_head(route_url('topic_edit')) : '') . '<ul class="admin-manage-list">';
         foreach (admin_topics_list($q, $admin_size, $admin_offset, $topic_field, $topic_forum_id) as $t) $html .= admin_topic_row($t, $manageable);
         $html .= '</ul></div>';
         if ($manageable) $html .= admin_bulk_delete_bar('topics');
@@ -2175,7 +2288,7 @@ function admin_page(): void
     } elseif ($tab === 'trash') {
         $trash_table = in_array((string)($_GET['table'] ?? ''), ['users', 'topics', 'replies'], true) ? (string)$_GET['table'] : '';
         $total = admin_trash_count($trash_table);
-        $url = 'index.php?a=admin&tab=trash' . ($trash_table !== '' ? '&table=' . rawurlencode($trash_table) : '');
+        $url = admin_url(['tab' => 'trash', 'table' => $trash_table]);
         $html .= '<div class="admin-list-panel">' . admin_list_head(admin_trash_search_form($trash_table), '') . '<ul class="admin-manage-list">';
         foreach (admin_trash_list($trash_table, $admin_size, $admin_offset) as $row) $html .= admin_trash_row($row);
         if ($total === 0) $html .= '<li class="empty-state">暂无数据</li>';
@@ -2195,7 +2308,7 @@ function admin_edit_page(): void
         elseif ($type === 'group') save_group();
         elseif ($type === 'forum') save_forum();
         else err('参数错误');
-        go('index.php?a=admin&tab=' . ($type === 'user' ? 'users' : $type . 's'));
+        go(admin_url(['tab' => $type === 'user' ? 'users' : $type . 's']));
     }
     if ($type === 'user') {
         $u = admin_user_form_data(id());
@@ -2228,7 +2341,7 @@ try {
     elseif ($a === 'reset_password') reset_password_page();
     elseif ($a === 'logout') {
         session_destroy();
-        go('index.php');
+        go(route_url('home'));
     } elseif ($a === 'profile') profile_page();
     elseif ($a === 'user') user_page();
     elseif ($a === 'notify') user_notify_page();
@@ -2245,8 +2358,8 @@ try {
         if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限');
         del($type, id());
         $back = $_GET['back'] ?? '';
-        if ($back === 'topic') go('index.php?a=topic&id=' . (int)($_GET['tid'] ?? 0));
-        go('index.php');
+        if ($back === 'topic') go(route_url('topic', ['id' => (int)($_GET['tid'] ?? 0)]));
+        go(route_url('home'));
     } elseif ($a === 'admin') {
         if ($do === 'edit') admin_edit_page();
         elseif ($do === 'delete') {
@@ -2255,13 +2368,13 @@ try {
             if (!in_array($type, ['users', 'groups', 'forums', 'topics', 'replies'], true)) err('参数错误');
             if (!can_admin_delete($type, id())) err('无权限');
             del($type, id());
-            go('index.php?a=admin&tab=' . ($_GET['tab'] ?? 'settings'));
+            go(admin_url(['tab' => $_GET['tab'] ?? 'settings']));
         } elseif ($do === 'restore') {
             need_admin();
             need_manage();
             $type = trash_restore_row(id());
             if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
-            go('index.php?a=admin&tab=trash');
+            go(admin_url(['tab' => 'trash']));
         } elseif ($do === 'batch_action') {
             need_admin();
             need_manage();
@@ -2287,7 +2400,7 @@ try {
             } elseif ($action === 'delete') {
                 foreach ($ids as $rid) if (can_admin_delete($tab, $rid)) del($tab, $rid);
             }
-            go('index.php?a=admin&tab=' . $tab);
+            go(admin_url(['tab' => $tab]));
         } else admin_page();
     }
     else home_page();
