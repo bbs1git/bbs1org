@@ -9,19 +9,25 @@ const showToast = (message) => {
 };
 const modal = document.getElementById("notify-modal");
 const modalBody = document.getElementById("notify-modal-body");
+const modalTitle = document.getElementById("notify-modal-title");
 const closeModal = () => {
     if (modal) modal.hidden = true;
     if (modalBody) modalBody.innerHTML = "";
+};
+const openModal = (title, html) => {
+    if (!modal || !modalBody) return;
+    if (modalTitle) modalTitle.textContent = title;
+    modalBody.innerHTML = html;
+    modal.hidden = false;
 };
 window.openNotify = async function (url) {
     try {
         const response = await fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}});
         const html = await response.text();
-        if (modal && modalBody) {
-            modalBody.innerHTML = html;
-            modal.hidden = false;
-            modalBody.querySelector("form")?.querySelector("textarea")?.focus();
-        }
+        openModal("私信TA", html);
+        const textarea = modalBody?.querySelector("form")?.querySelector("textarea");
+        textarea?.focus();
+        textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
     } catch (_) {
         showToast("打开失败");
     }
@@ -62,6 +68,31 @@ document.addEventListener("click", e => {
         refreshAvatarPicker(p);
     }
 });
+document.addEventListener("change", e => {
+    const all = e.target.closest("[data-select-all]");
+    if (!all) return;
+    const form = all.closest("form");
+    const root = form || document;
+    root.querySelectorAll('input[type="checkbox"][name="ids[]"]').forEach(box => {
+        box.checked = all.checked;
+    });
+});
+document.addEventListener("change", e => {
+    const action = e.target.closest("[data-bulk-action]");
+    if (!action) return;
+    toggleBulkForum(action);
+});
+window.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-bulk-action]").forEach(action => {
+        toggleBulkForum(action);
+    });
+});
+window.toggleBulkForum = function (action) {
+    const wrap = action?.closest(".bulk-action-group")?.querySelector("[data-bulk-forum-wrap]");
+    if (!wrap) return;
+    const show = action.value === "move";
+    wrap.classList.toggle("is-hidden", !show);
+};
 document.addEventListener("click", e => {
     if (e.target?.closest("[data-modal-close]") || e.target === modal) closeModal();
 });
@@ -75,11 +106,20 @@ document.addEventListener("click", e => {
         window.location.href = quote.href;
         return;
     }
-    const mention = "@" + (quote.dataset.username || "").trim() + " ";
-    if (!textarea.value.includes(mention)) textarea.value = mention + textarea.value;
+    const replyid = (quote.dataset.replyid || "").trim();
+    const type = (quote.dataset.type || "reply").trim();
+    const mention = "@" + (quote.dataset.username || "").trim() + (replyid ? " #" + type + replyid : "") + " ";
+    if (!textarea.value.includes(mention)) {
+        const prefix = textarea.value && !textarea.value.endsWith("\n") ? "\n" : "";
+        textarea.value += prefix + mention;
+    }
     panel.scrollIntoView({block:"center"});
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+});
+document.addEventListener("click", e => {
+    if (!e.target.closest("[data-command-help]")) return;
+    openModal("管理指令帮助", '<div class="command-help-pop"><p>@作者 #replyID 删除</p><p>@作者 #topicID 删除</p><p>@作者 #topicID 转移 新版块名</p><p>@作者 #topicID 置顶</p><p>@作者 #topicID 取消置顶</p><p>@作者 #topicID 高亮 color:#d94b4b;font-weight:700</p><p>@作者 #topicID 取消高亮</p><p>@作者 #replyID 禁止发言</p><p>@作者 #replyID 取消禁止发言</p><p>@作者 #replyID 禁止访问</p><p>@作者 #replyID 取消禁止访问</p></div>');
 });
 document.addEventListener("submit", async e => {
     const replyForm = e.target.closest(".ajax-reply-form");
@@ -151,8 +191,8 @@ document.addEventListener("submit", async e => {
             throw new Error("操作失败");
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
-        if (data.redirect) window.location.href = data.redirect;
-        else showToast(data.message || "操作成功");
+        showToast(data.message || "操作完成");
+        if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
         showToast(err?.message || "操作失败");
         if (button) button.disabled = false;
