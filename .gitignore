@@ -4,3 +4,4 @@ cache/
 *.lock
 update.php
 .claude
+.DS_Store

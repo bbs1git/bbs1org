@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
-const INSTALL_FILE = __DIR__ . '/data/forum.sqlite';
-const INSTALL_LOCK_FILE = __DIR__ . '/data/install.lock';
+const INSTALL_DATA_DIR = __DIR__ . '/data';
+const INSTALL_DB_CONFIG_FILE = INSTALL_DATA_DIR . '/db.php';
+const INSTALL_DEFAULT_DB_FILE = INSTALL_DATA_DIR . '/forum.sqlite';
+const INSTALL_LOCK_FILE = INSTALL_DATA_DIR . '/install.lock';
 const INSTALL_CACHE_DIR = __DIR__ . '/cache';
 const INSTALL_FORUM_CACHE_FILE = INSTALL_CACHE_DIR . '/forums.php';
 const INSTALL_GROUP_CACHE_FILE = INSTALL_CACHE_DIR . '/groups.php';
@@ -12,13 +14,34 @@ const INSTALL_SETTING_CACHE_FILE = INSTALL_CACHE_DIR . '/settings.php';
 
 function i_h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function i_now(): int { return time(); }
+function i_db_name(): string
+{
+    if (is_file(INSTALL_DB_CONFIG_FILE)) {
+        $config = include INSTALL_DB_CONFIG_FILE;
+        $name = is_array($config) ? basename((string)($config['db_file'] ?? '')) : '';
+        if ($name !== '' && preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*\.sqlite$/', $name)) return $name;
+    }
+    if (is_file(INSTALL_DEFAULT_DB_FILE)) return basename(INSTALL_DEFAULT_DB_FILE);
+    return 'forum-' . bin2hex(random_bytes(8)) . '.sqlite';
+}
+function i_db_file(): string
+{
+    return INSTALL_DATA_DIR . '/' . i_db_name();
+}
+function i_save_db_config(string $db_name): void
+{
+    if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
+    file_put_contents(INSTALL_DB_CONFIG_FILE, "<?php\nreturn ['db_file' => " . var_export($db_name, true) . "];\n", LOCK_EX);
+}
 function i_db(): PDO
 {
     static $db;
     if ($db) return $db;
-    $dir = dirname(INSTALL_FILE);
+    $file = i_db_file();
+    $dir = dirname($file);
     if (!is_dir($dir)) mkdir($dir, 0755, true);
-    $db = new PDO('sqlite:' . INSTALL_FILE, null, null, [
+    i_save_db_config(basename($file));
+    $db = new PDO('sqlite:' . $file, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
@@ -69,9 +92,9 @@ function i_html(string $title, string $body): void
     </style></head><body><main class="wrap">' . $body . '</main></body></html>';
     exit;
 }
-function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name): void
+function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $db_name): void
 {
-    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . i_h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码不会保存到文件</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
+    i_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . i_h($site_name) . '</div><div>数据库文件</div><div class="mono">data/' . i_h($db_name) . '</div><div>管理员用户名</div><div class="mono">' . i_h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . i_h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . i_h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建随机文件名 SQLite 数据库</li><li>创建默认版块</li><li>创建第一个管理员</li><li>导入 README 作为首个主题</li><li>生成缓存文件</li><li>管理员密码不会保存到文件</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
 }
 function i_locked(): void
 {
@@ -140,11 +163,13 @@ $settings = [
     'footer_html' => '',
     'site_closed' => '0',
     'allow_register' => '1',
+    'pretty_url' => '1',
     'reserved_usernames' => 'admin,administrator,root,system',
     'default_group_id' => '2',
     'topics_per_page' => '30',
     'replies_per_page' => '50',
     'mail_from' => '',
+    'mail_virtual' => '0',
     'register_per_hour' => '1',
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',
@@ -162,4 +187,4 @@ $db->prepare("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=1")-
 if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);
 i_save_cache($db);
 file_put_contents(INSTALL_LOCK_FILE, (string)i_now(), LOCK_EX);
-i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name);
+i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, basename(i_db_file()));
