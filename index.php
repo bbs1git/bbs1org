@@ -2180,7 +2180,7 @@ function topic_page(): void
     if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="' . h(route_url('favorite', ['id' => (int)$t['id']])) . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
     if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
     $main = '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
-    $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
+    if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
     foreach ($replies as $r) {
         $reply_ops = uid() ? quote_reply_action($r) : '';
         if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
