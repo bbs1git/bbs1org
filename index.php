@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 session_start();
-define('APP_VERSION', 'v1.2 beta');
+define('APP_VERSION', 'v1.2.1 beta');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -186,6 +186,7 @@ function default_settings(): array
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
         'captcha_charset' => 'alnum',
+        'captcha_forms' => '',
         'post_interval_seconds' => '5',
         'pinned_topic_ids' => '',
     ];
@@ -435,6 +436,7 @@ function save_settings(): void
         'login_fail_per_hour' => (string)min(100, max(1, (int)($_POST['login_fail_per_hour'] ?? 5))),
         'reset_fail_per_hour' => (string)min(100, max(1, (int)($_POST['reset_fail_per_hour'] ?? 5))),
         'captcha_charset' => captcha_charset_value((string)($_POST['captcha_charset'] ?? 'alnum')),
+        'captcha_forms' => captcha_forms_value($_POST['captcha_forms'] ?? []),
         'post_interval_seconds' => (string)min(3600, max(0, (int)($_POST['post_interval_seconds'] ?? 5))),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
@@ -451,6 +453,42 @@ function captcha_charset_options(string $selected): string
     $html = '<label class="grid"><span>验证码内容</span><select name="captcha_charset">';
     foreach ($items as $value => $label) $html .= '<option value="' . h($value) . '"' . ($selected === $value ? ' selected' : '') . '>' . h($label) . '</option>';
     return $html . '</select></label>';
+}
+function captcha_form_options(): array
+{
+    return [
+        'register' => '注册表单',
+        'login' => '登录表单',
+        'forgot_password' => '取回密码表单',
+        'topic' => '发帖表单',
+        'reply' => '回帖表单',
+    ];
+}
+function captcha_forms_value(array|string $value): string
+{
+    $items = is_array($value) ? $value : preg_split('/\s*,\s*/', $value, -1, PREG_SPLIT_NO_EMPTY);
+    $allowed = array_keys(captcha_form_options());
+    $items = array_values(array_intersect($allowed, array_map('strval', $items ?: [])));
+    return implode(',', $items);
+}
+function captcha_forms_enabled(): array
+{
+    $value = captcha_forms_value(setting('captcha_forms', ''));
+    return $value === '' ? [] : explode(',', $value);
+}
+function captcha_enabled(string $form): bool
+{
+    return in_array($form, captcha_forms_enabled(), true);
+}
+function captcha_forms_options_html(string $selected): string
+{
+    $enabled = captcha_forms_value($selected);
+    $enabled = $enabled === '' ? [] : explode(',', $enabled);
+    $html = '<label class="grid captcha-forms-field"><span>验证码启用表单<small>默认都不选，则都不启用。</small></span><div class="forum-group-checks">';
+    foreach (captcha_form_options() as $value => $label) {
+        $html .= '<label class="check"><input type="checkbox" name="captcha_forms[]" value="' . h($value) . '"' . (in_array($value, $enabled, true) ? ' checked' : '') . '><span>' . h($label) . '</span></label>';
+    }
+    return $html . '</div></label>';
 }
 function reserved_usernames(): array
 {
@@ -1266,7 +1304,7 @@ function captcha_field(): string
     captcha_cleanup();
     $id = bin2hex(random_bytes(8));
     $url = index_url(['a' => 'captcha_image', 'id' => $id, 'r' => bin2hex(random_bytes(4))]);
-    return '<label class="grid captcha-grid"><span>验证码</span><div class="captcha-box"><input class="captcha-input" name="captcha" type="text" value="" autocomplete="off" inputmode="text" maxlength="8" required><input type="hidden" name="captcha_id" value="' . h($id) . '"><img class="captcha-img" src="' . h($url) . '" alt="验证码图片" width="132" height="42"><button class="captcha-refresh" type="button" data-captcha-refresh title="换一张" aria-label="换一张">换一张</button></div></label>';
+    return '<label class="grid captcha-grid"><span>验证码</span><div class="captcha-box"><input class="captcha-input" name="captcha" type="text" value="" autocomplete="off" inputmode="text" maxlength="8" required><input type="hidden" name="captcha_id" value="' . h($id) . '"><img class="captcha-img" src="' . h($url) . '" alt="验证码图片" width="132" height="34"><button class="captcha-refresh" type="button" data-captcha-refresh title="换一张" aria-label="换一张"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.7 4.4M4 12A8 8 0 0 1 18.7 7.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 16H5v2M17 8h2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></label>';
 }
 function captcha_check(): void
 {
@@ -1943,7 +1981,7 @@ function forgot_password_page(): void
     if (uid()) go(route_url('home'));
     $sent = false;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        captcha_check();
+        if (captcha_enabled('forgot_password')) captcha_check();
         $ip = ip_addr();
         if (!rate_allow_reset_fail($ip)) err('同一IP 1小时内错误次数已达上限');
         $username = post('username', 40);
@@ -1969,7 +2007,7 @@ function forgot_password_page(): void
     if ($sent) {
         $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     } else {
-        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . captcha_field() . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
+        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . (captcha_enabled('forgot_password') ? captcha_field() : '') . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     }
     page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
 }
@@ -2024,7 +2062,7 @@ function save_topic(): int
     need_speak();
     if (!id()) {
         check_post_interval();
-        captcha_check();
+        if (captcha_enabled('topic')) captcha_check();
     }
     $fid = max(1, (int)$_POST['forum_id']);
     $forum = forum_by_id($fid) ?: err('版块不存在');
@@ -2084,7 +2122,7 @@ function save_reply(): array
     need_speak();
     if (!id()) {
         check_post_interval();
-        captcha_check();
+        if (captcha_enabled('reply')) captcha_check();
     }
     $ajax = ajax_request();
     $tid = max(1, (int)$_POST['topic_id']);
@@ -2182,7 +2220,7 @@ function login_page(): void
 {
     if (uid()) go(route_url('home'));
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        captcha_check();
+        if (captcha_enabled('login')) captcha_check();
         $ip = ip_addr();
         if (!rate_allow_login_fail($ip)) err('同一IP 1小时内错误次数已达上限');
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
@@ -2197,14 +2235,14 @@ function login_page(): void
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
     ]);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . captcha_field() . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . (captcha_enabled('login') ? captcha_field() : '') . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
 }
 function register_page(): void
 {
     if (uid()) go(route_url('home'));
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        captcha_check();
+        if (captcha_enabled('register')) captcha_check();
         save_user(false);
         $_SESSION['uid'] = (int)db()->lastInsertId();
         go(route_url('home'));
@@ -2212,7 +2250,7 @@ function register_page(): void
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
     ]);
-    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . captcha_field() . '<button>注册</button></form></div>', $sidebar));
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . (captcha_enabled('register') ? captcha_field() : '') . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
@@ -2446,7 +2484,7 @@ function topic_page(): void
     $help = can_manage() ? '<button class="command-help" type="button" data-command-help>指令帮助</button>' : '<span class="reply-status">' . $reply_status . '</span>';
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3>' . $help . '</div>';
     if (can_speak() && $can_reply_forum) {
-        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . captcha_field() . '<button>回复</button></form>';
+        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . (captcha_enabled('reply') ? captcha_field() : '') . '<button>回复</button></form>';
     } elseif (!uid()) {
         $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">登录后回复</a></div>';
     } elseif (!$can_reply_forum) {
@@ -2468,7 +2506,7 @@ function topic_edit_page(): void
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST') go(route_url('topic', ['id' => save_topic()]));
     $title = id() ? '编辑主题' : '发表主题';
-    page($title, topic_form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . (id() ? '' : captcha_field()) . '<button>保存</button></form></div>'));
+    page($title, topic_form_shell('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . (!id() && captcha_enabled('topic') ? captcha_field() : '') . '<button>保存</button></form></div>'));
 }
 function reply_edit_page(): void
 {
@@ -2552,8 +2590,8 @@ function admin_page(): void
         $security_fields = '<label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>';
         $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
-        $security_fields .= captcha_charset_options((string)$s['captcha_charset']) . input('发帖/回复间隔（秒）', 'post_interval_seconds', $s['post_interval_seconds'], 'number', true);
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div><h3>安全设置</h3>' . $security_fields . '<p class="muted">发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</p><div class="row settings-actions"><button type="submit">保存</button></div></form></div>';
+        $security_fields .= captcha_charset_options((string)$s['captcha_charset']) . captcha_forms_options_html((string)$s['captcha_forms']) . '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><h3>安全设置</h3>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);

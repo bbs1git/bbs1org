@@ -221,6 +221,7 @@ $settings = [
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',
     'captcha_charset' => 'alnum',
+    'captcha_forms' => '',
     'post_interval_seconds' => '5',
     'pinned_topic_ids' => '',
 ];
