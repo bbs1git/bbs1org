@@ -175,7 +175,7 @@ function default_settings(): array
         'footer_html' => '',
         'site_closed' => '0',
         'allow_register' => '1',
-        'pretty_url' => '1',
+        'pretty_url' => '0',
         'reserved_usernames' => 'admin,administrator,root,system',
         'default_group_id' => '2',
         'topics_per_page' => '30',
@@ -1202,7 +1202,7 @@ function append_url_query(string $url, array $params): string
 }
 function pretty_url_enabled(): bool
 {
-    return db_schema_ready() && setting('pretty_url', '1') === '1';
+    return db_schema_ready() && setting('pretty_url', '0') === '1';
 }
 function index_url(array $params = []): string
 {
@@ -2351,7 +2351,7 @@ function admin_edit_page(): void
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
 
-if (db_schema_ready() && setting('pretty_url', '1') === '1') apply_pretty_route();
+if (db_schema_ready() && setting('pretty_url', '0') === '1') apply_pretty_route();
 check();
 need_site_access();
 if (!db_schema_ready()) simple_error_page('请先安装');
