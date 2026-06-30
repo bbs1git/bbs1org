@@ -1585,6 +1585,30 @@ function save_user(bool $admin = false): void
     }
     stats_cache(true);
 }
+function puppet_username_from_body(string $body): string
+{
+    if (!can_manage()) return '';
+    return preg_match('/@@([A-Za-z0-9_.\-\x{4e00}-\x{9fff}]{1,40})/u', $body, $m) ? (string)$m[1] : '';
+}
+function strip_puppet_commands(string $body): string
+{
+    return trim(preg_replace('/@@[A-Za-z0-9_.\-\x{4e00}-\x{9fff}]{1,40}/u', '', $body) ?? $body);
+}
+function puppet_user_id(string $username): int
+{
+    $u = one("SELECT id FROM users WHERE username=?", [$username]);
+    if ($u) return (int)$u['id'];
+    $pwd = bin2hex(random_bytes(16));
+    q("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,is_banned,is_muted,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $username . '@local', '', '', '', (int)setting('default_group_id', '2'), 0, 0, now()]);
+    stats_cache(true);
+    return (int)db()->lastInsertId();
+}
+function apply_puppet_author(string $body): array
+{
+    $username = puppet_username_from_body($body);
+    if ($username === '') return ['user_id' => uid(), 'body' => $body];
+    return ['user_id' => puppet_user_id($username), 'body' => strip_puppet_commands($body)];
+}
 function user_notifications_page(): void
 {
     need_login();
@@ -1782,7 +1806,10 @@ function save_topic(): int
         forums_cache(true);
         return id();
     }
-    q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, uid(), $title, $body, now(), now(), now()]);
+    $author = apply_puppet_author($body);
+    $body = (string)$author['body'];
+    if ($body === '') err('内容不能为空');
+    q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, (int)$author['user_id'], $title, $body, now(), now(), now()]);
     $tid = (int)db()->lastInsertId();
     q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$tid, $title, $fid]);
     forums_cache(true);
@@ -1833,11 +1860,14 @@ function save_reply(): array
         q("UPDATE replies SET body=?,updated_at=? WHERE id=?", [$body, now(), id()]);
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
     }
+    $author = apply_puppet_author($body);
+    $body = (string)$author['body'];
+    if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
     $ts = now();
-    q("INSERT INTO replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, uid(), $body, $ts, $ts]);
+    q("INSERT INTO replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
     $rid = (int)db()->lastInsertId();
     q("UPDATE topics SET updated_at=?,reply_count=reply_count+1,last_reply_at=? WHERE id=?", [$ts, $ts, $tid]);
-    create_reply_notifications($tid, $rid, $body, uid());
+    create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
     if (($command['action'] ?? '') === 'delete' && ($command['type'] ?? '') === 'reply') del('replies', (int)$command['id']);
     if (($command['action'] ?? '') === 'delete' && ($command['type'] ?? '') === 'topic') {
         del('topics', (int)$command['id']);
