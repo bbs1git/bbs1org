@@ -50,8 +50,37 @@ window.openNotify = async function (url) {
 const runPageFlash = () => {
     if (window.__pageFlash) showToast(window.__pageFlash);
 };
+const runAutoHome = () => {
+    const panel = document.querySelector("[data-auto-home]");
+    if (!panel) return;
+    const target = panel.dataset.autoHome || "/";
+    const output = panel.querySelector("[data-auto-home-countdown]");
+    const message = panel.querySelector("[data-auto-home-message]");
+    const messageText = message?.textContent || "";
+    const messageMatch = messageText.match(/请\s*(\d+)\s*秒后再试/);
+    let seconds = Math.max(1, parseInt(panel.dataset.autoHomeSeconds || "5", 10) || 5);
+    let messageSeconds = messageMatch ? Math.max(0, parseInt(messageMatch[1], 10) || 0) : null;
+    const render = () => {
+        if (output) output.textContent = String(Math.max(0, seconds));
+        if (message && Number.isInteger(messageSeconds)) {
+            message.textContent = messageText.replace(/请\s*\d+\s*秒后再试/, "请 " + Math.max(0, messageSeconds) + " 秒后再试");
+        }
+    };
+    render();
+    const timer = setInterval(() => {
+        seconds -= 1;
+        if (Number.isInteger(messageSeconds)) messageSeconds -= 1;
+        render();
+        if (seconds <= 0) {
+            clearInterval(timer);
+            window.location.href = target;
+        }
+    }, 1000);
+};
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runPageFlash);
 else runPageFlash();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runAutoHome);
+else runAutoHome();
 function avatarPickerUrl(p, seed) {
     const s = p?.querySelector("select[name=avatar_style]");
     return "https://api.dicebear.com/10.x/" + encodeURIComponent(s?.value || "dylan") + "/svg?seed=" + encodeURIComponent(seed || p.dataset.seed || "0");

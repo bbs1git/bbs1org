@@ -323,6 +323,15 @@ function check_post_interval(): void
     $wait = $seconds - (time() - latest_user_content_time(uid()));
     if ($wait > 0) err('操作太频繁，请 ' . $wait . ' 秒后再试');
 }
+function check_search_interval(): void
+{
+    $seconds = post_interval_seconds();
+    if ($seconds <= 0) return;
+    $last = (int)($_SESSION['last_search_at'] ?? 0);
+    $wait = $seconds - (time() - $last);
+    if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
+    $_SESSION['last_search_at'] = time();
+}
 function clear_opcache_cache(): bool
 {
     if (!function_exists('opcache_reset')) return false;
@@ -997,7 +1006,7 @@ function need_site_access(): void
     ensure_installed();
     if (is_banned() && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
-    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'captcha_image'], true)) err('网站已关闭');
+    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'captcha_image', 'form_error'], true)) err('网站已关闭');
 }
 function token(): string
 {
@@ -1021,6 +1030,32 @@ function set_flash(string $message): void
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
+}
+function local_back_url(string $url, string $fallback = ''): string
+{
+    $fallback = $fallback !== '' ? $fallback : route_url('home');
+    $url = trim($url);
+    if ($url === '' || str_starts_with($url, '//')) return $fallback;
+    $parts = parse_url($url);
+    if (!is_array($parts)) return $fallback;
+    if (isset($parts['scheme']) || isset($parts['host'])) {
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+        if (($parts['host'] ?? '') === '' || strcasecmp((string)$parts['host'], $host) !== 0) return $fallback;
+        $url = (string)($parts['path'] ?? '/');
+        if (isset($parts['query']) && $parts['query'] !== '') $url .= '?' . $parts['query'];
+    }
+    if ($url === '' || $url[0] !== '/') return $fallback;
+    if (str_contains($url, 'a=form_error')) return $fallback;
+    return $url;
+}
+function form_error_redirect(string $message, string $back = ''): never
+{
+    $_SESSION['form_error'] = [
+        'message' => $message,
+        'back' => local_back_url($back !== '' ? $back : (string)($_SERVER['HTTP_REFERER'] ?? ''), route_url('home')),
+        'created_at' => time(),
+    ];
+    go(route_url('form_error'));
 }
 function ajax_error(string $m): never
 {
@@ -1048,8 +1083,19 @@ function err(string $m): never
 {
     if (ajax_request()) ajax_error($m);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
     page('错误', shell_html('<div class="form-panel"><h2>错误</h2><p>' . h($m) . '</p></div>', sidebar_stack_html([sidebar_user_card_html()])));
     exit;
+}
+function form_error_page(): void
+{
+    $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
+    unset($_SESSION['form_error']);
+    $message = trim((string)($data['message'] ?? '操作失败'));
+    $back = local_back_url((string)($data['back'] ?? ''), route_url('home'));
+    $home = route_url('home');
+    $body = '<div class="form-panel form-error-panel" data-auto-home="' . h($home) . '" data-auto-home-seconds="5"><h2>表单提交失败</h2><p data-auto-home-message>' . h($message !== '' ? $message : '操作失败') . '</p><p class="form-error-countdown"><span data-auto-home-countdown>5</span> 秒后自动返回首页</p><div class="form-error-actions"><a class="btn alt" href="' . h($back) . '">返回修改</a><a class="btn" href="' . h($home) . '">返回首页</a></div></div>';
+    page('表单提交失败', shell_html($body, sidebar_stack_html([sidebar_user_card_html()])));
 }
 function not_found(string $m): never
 {
@@ -1552,7 +1598,7 @@ function page(string $title, string $body): void
     $mine_label = $mine ? '我的' . notification_badge_html((int)($mine['unread_notifications'] ?? 0)) : '登录';
     echo '<div class="top"><div class="bar"><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
     foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
-    echo '</nav><form class="search-form" method="get" action="' . h(route_url('home')) . '"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
+    echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
     echo (string)$settings['header_html'] . '<main class="wrap">' . $body . '</main><footer class="footer">' . (string)$settings['footer_html'] . 'Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="' . h(asset_url('index.js')) . '" defer></script></body></html>';
 }
 function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
@@ -2266,6 +2312,13 @@ function home_page(): void
 {
     topic_index_page();
 }
+function search_page(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') go(route_url('home'));
+    check_search_interval();
+    $q = post('q', 120);
+    go(route_url('home', $q !== '' ? ['q' => $q] : []));
+}
 function forum_page(): void
 {
     $fid = id();
@@ -2532,6 +2585,8 @@ try {
     $a = $_GET['a'] ?? 'home';
     $do = $_GET['do'] ?? '';
     if ($a === 'home') home_page();
+    elseif ($a === 'search') search_page();
+    elseif ($a === 'form_error') form_error_page();
     elseif ($a === 'captcha_image') captcha_image_page();
     elseif ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
