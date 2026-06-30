@@ -220,6 +220,8 @@ $settings = [
     'register_per_hour' => '1',
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',
+    'captcha_charset' => 'alnum',
+    'post_interval_seconds' => '5',
     'pinned_topic_ids' => '',
 ];
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");

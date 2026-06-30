@@ -67,7 +67,7 @@ function apply_pretty_route(): void
         set_route_params(['a' => strtolower($m[1])]);
     } elseif (preg_match('#^/(forgot|reset)[-_]password(?:\.html)?$#i', $path, $m)) {
         set_route_params(['a' => strtolower($m[1]) . '_password']);
-    } elseif (preg_match('#^/admin(?:/(settings|forums|groups|topics|replies|users|trash))?(?:\.html)?$#i', $path, $m) || preg_match('#^/admin-(settings|forums|groups|topics|replies|users|trash)(?:\.html)?$#i', $path, $m)) {
+    } elseif (preg_match('#^/admin(?:/(settings|security|forums|groups|topics|replies|users|trash))?(?:\.html)?$#i', $path, $m) || preg_match('#^/admin-(settings|security|forums|groups|topics|replies|users|trash)(?:\.html)?$#i', $path, $m)) {
         set_route_params(['a' => 'admin', 'tab' => $m[1] ?? null]);
     } elseif (preg_match('#^/forum/(\d+)(?:/(?:page/)?(\d+))?(?:\.html)?$#i', $path, $m) || preg_match('#^/forum-(\d+)(?:-(\d+))?(?:\.html)?$#i', $path, $m)) {
         set_route_params(['a' => 'forum', 'id' => $m[1], 'p' => $m[2] ?? null]);
@@ -185,6 +185,8 @@ function default_settings(): array
         'register_per_hour' => '1',
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
+        'captcha_charset' => 'alnum',
+        'post_interval_seconds' => '5',
         'pinned_topic_ids' => '',
     ];
 }
@@ -303,6 +305,24 @@ function rate_hit_reset_fail(string $ip): void
     $ts = time();
     q("UPDATE ip_logs SET reset_fail_count=?,reset_fail_at=?,updated_at=? WHERE ip=?", [$count, $ts, $ts, $ip]);
 }
+function post_interval_seconds(): int
+{
+    return min(3600, max(0, (int)setting('post_interval_seconds', '5')));
+}
+function latest_user_content_time(int $user_id): int
+{
+    if ($user_id <= 0) return 0;
+    $topic_time = (int)(val("SELECT MAX(created_at) FROM topics WHERE user_id=?", [$user_id]) ?: 0);
+    $reply_time = (int)(val("SELECT MAX(created_at) FROM replies WHERE user_id=?", [$user_id]) ?: 0);
+    return max($topic_time, $reply_time);
+}
+function check_post_interval(): void
+{
+    $seconds = post_interval_seconds();
+    if ($seconds <= 0 || !uid()) return;
+    $wait = $seconds - (time() - latest_user_content_time(uid()));
+    if ($wait > 0) err('操作太频繁，请 ' . $wait . ' 秒后再试');
+}
 function clear_opcache_cache(): bool
 {
     if (!function_exists('opcache_reset')) return false;
@@ -316,8 +336,6 @@ function save_settings(): void
 {
     $site_name = post('site_name', 80);
     if ($site_name === '') err('网站名不能为空');
-    $gid = max(1, (int)($_POST['default_group_id'] ?? 2));
-    if (!group_by_id($gid)) err('默认用户组不存在');
     $values = [
         'site_name' => $site_name,
         'site_keywords' => post('site_keywords', 200),
@@ -325,18 +343,41 @@ function save_settings(): void
         'header_html' => post('header_html', 20000),
         'footer_html' => post('footer_html', 20000),
         'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
-        'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
         'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
-        'reserved_usernames' => post('reserved_usernames', 2000),
-        'default_group_id' => (string)$gid,
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
         'mail_from' => post('mail_from', 120),
         'mail_virtual' => isset($_POST['mail_virtual']) ? '1' : '0',
+        'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
+    ];
+    foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
+    settings_cache(true);
+}
+function captcha_charset_value(string $value): string
+{
+    return in_array($value, ['alpha', 'numeric', 'alnum'], true) ? $value : 'alnum';
+}
+function captcha_charset_options(string $selected): string
+{
+    $selected = captcha_charset_value($selected);
+    $items = ['alpha' => '纯英文', 'numeric' => '纯数字', 'alnum' => '数字+英文'];
+    $html = '<label class="grid"><span>验证码内容</span><select name="captcha_charset">';
+    foreach ($items as $value => $label) $html .= '<option value="' . h($value) . '"' . ($selected === $value ? ' selected' : '') . '>' . h($label) . '</option>';
+    return $html . '</select></label>';
+}
+function save_security_settings(): void
+{
+    $gid = max(1, (int)($_POST['default_group_id'] ?? 2));
+    if (!group_by_id($gid)) err('默认用户组不存在');
+    $values = [
+        'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
+        'reserved_usernames' => post('reserved_usernames', 2000),
+        'default_group_id' => (string)$gid,
         'register_per_hour' => (string)min(100, max(1, (int)($_POST['register_per_hour'] ?? 1))),
         'login_fail_per_hour' => (string)min(100, max(1, (int)($_POST['login_fail_per_hour'] ?? 5))),
         'reset_fail_per_hour' => (string)min(100, max(1, (int)($_POST['reset_fail_per_hour'] ?? 5))),
-        'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
+        'captcha_charset' => captcha_charset_value((string)($_POST['captcha_charset'] ?? 'alnum')),
+        'post_interval_seconds' => (string)min(3600, max(0, (int)($_POST['post_interval_seconds'] ?? 5))),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
     settings_cache(true);
@@ -1104,7 +1145,11 @@ function captcha_cleanup(): void
 }
 function captcha_code(int $length = 5): string
 {
-    $chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    $chars = match (captcha_charset_value(setting('captcha_charset', 'alnum'))) {
+        'alpha' => 'ABCDEFGHJKLMNPQRSTUVWXYZ',
+        'numeric' => '23456789',
+        default => '23456789ABCDEFGHJKLMNPQRSTUVWXYZ',
+    };
     $code = '';
     for ($i = 0, $max = strlen($chars) - 1; $i < $length; $i++) $code .= $chars[random_int(0, $max)];
     return $code;
@@ -1340,7 +1385,7 @@ function route_url(string $a = 'home', array $params = []): string
         }
     } elseif ($a === 'admin' && empty($params['do'])) {
         $tab = (string)($params['tab'] ?? '');
-        $path = 'admin' . (in_array($tab, ['settings', 'forums', 'groups', 'topics', 'replies', 'users', 'trash'], true) ? '/' . $tab : '');
+        $path = 'admin' . (in_array($tab, ['settings', 'security', 'forums', 'groups', 'topics', 'replies', 'users', 'trash'], true) ? '/' . $tab : '');
         unset($query['tab']);
     } else {
         $params = ['a' => $a] + $params;
@@ -1865,7 +1910,10 @@ function save_group(): void
 function save_topic(): int
 {
     need_speak();
-    if (!id()) captcha_check();
+    if (!id()) {
+        check_post_interval();
+        captcha_check();
+    }
     $fid = max(1, (int)$_POST['forum_id']);
     $forum = forum_by_id($fid) ?: err('版块不存在');
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
@@ -1921,7 +1969,10 @@ function reply_admin_command(string $body, int $topic_id): array
 function save_reply(): array
 {
     need_speak();
-    if (!id()) captcha_check();
+    if (!id()) {
+        check_post_interval();
+        captcha_check();
+    }
     $ajax = ajax_request();
     $tid = max(1, (int)$_POST['topic_id']);
     $topic = one("SELECT id,forum_id FROM topics WHERE id=?", [$tid]) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
@@ -2333,7 +2384,7 @@ function admin_nav(string $tab): string
 }
 function admin_tabs(string $tab): string
 {
-    $items = ['settings' => '设置', 'forums' => '版块', 'groups' => '用户组', 'topics' => '主题', 'replies' => '回帖', 'users' => '用户', 'trash' => '回收站'];
+    $items = ['settings' => '设置', 'security' => '安全设置', 'forums' => '版块', 'groups' => '用户组', 'topics' => '主题', 'replies' => '回帖', 'users' => '用户', 'trash' => '回收站'];
     $h = '<div class="tab-bar admin-tabs">';
     foreach ($items as $k => $v) $h .= '<a class="tab' . ($tab === $k ? ' active' : '') . '" href="' . h(admin_url(['tab' => $k])) . '">' . $v . '</a>';
     return $h . '</div>';
@@ -2366,6 +2417,10 @@ function admin_page(): void
         save_settings();
         go(admin_url(['tab' => 'settings']));
     }
+    if ($tab === 'security' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        save_security_settings();
+        go(admin_url(['tab' => 'security']));
+    }
     if ($tab === 'settings' && isset($_GET['clear_opcache'])) {
         clear_opcache_cache();
         set_flash('OPcache已清理');
@@ -2374,10 +2429,17 @@ function admin_page(): void
     $html = '';
     if ($tab === 'settings') {
         $s = settings_cache();
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+    } elseif ($tab === 'security') {
+        $s = settings_cache();
         $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
         foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
         $group_select .= '</select></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords']) . textarea('网站介绍', 'site_description', $s['site_description']) . input('系统发件邮箱', 'mail_from', $s['mail_from'], 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids']) . textarea('页头HTML代码', 'header_html', $s['header_html']) . textarea('页脚HTML代码', 'footer_html', $s['footer_html']) . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label><label class="grid"><span>启用伪静态</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']) . $group_select . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $security_fields = '<label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>';
+        $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
+        $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
+        $security_fields .= captcha_charset_options((string)$s['captcha_charset']) . input('发帖/回复间隔（秒）', 'post_interval_seconds', $s['post_interval_seconds'], 'number', true);
+        $html .= '<div class="form-panel settings-form security-form"><form method="post">' . form_token() . $security_fields . '<p class="muted">发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</p><div class="row settings-actions"><button type="submit">保存</button></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
