@@ -33,19 +33,65 @@ function i_save_db_config(string $db_name): void
     if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
     file_put_contents(INSTALL_DB_CONFIG_FILE, "<?php\nreturn ['db_file' => " . var_export($db_name, true) . "];\n", LOCK_EX);
 }
+function i_env_text($value): string
+{
+    $text = trim((string)$value);
+    return $text !== '' ? $text : '未检测到';
+}
+function i_install_error(string $title, string $message, array $steps): void
+{
+    if (PHP_SAPI === 'cli') {
+        $plain_steps = [];
+        foreach ($steps as $step) $plain_steps[] = trim(html_entity_decode(strip_tags($step), ENT_QUOTES, 'UTF-8'));
+        fwrite(STDERR, $title . PHP_EOL . $message . PHP_EOL . PHP_EOL . implode(PHP_EOL, array_map(fn($step) => '- ' . $step, $plain_steps)) . PHP_EOL);
+        exit(1);
+    }
+    $items = '';
+    foreach ($steps as $step) $items .= '<li>' . $step . '</li>';
+    $drivers = class_exists('PDO') ? implode(', ', PDO::getAvailableDrivers()) : 'PDO 未启用';
+    i_html($title, '<div class="hero"><h1>' . i_h($title) . '</h1><p>安装环境检查未通过，请按提示处理后再继续。</p></div><div class="grid"><section class="card"><div class="hd"><h2>需要处理的问题</h2></div><div class="bd"><div class="note warn">' . i_h($message) . '</div><div style="height:14px"></div><ul class="list">' . $items . '</ul></div></section><aside class="card"><div class="hd"><h2>当前 PHP 环境</h2></div><div class="bd"><div class="kv"><div>PHP 版本</div><div class="mono">' . i_h(PHP_VERSION) . '</div><div>php.ini</div><div class="mono">' . i_h(i_env_text(php_ini_loaded_file())) . '</div><div>附加配置</div><div class="mono">' . i_h(i_env_text(php_ini_scanned_files())) . '</div><div>PDO 驱动</div><div class="mono">' . i_h(i_env_text($drivers)) . '</div></div></div></aside></div>');
+}
+function i_check_sqlite_support(): void
+{
+    if (!class_exists('PDO')) {
+        i_install_error('PDO 扩展未启用', '当前 PHP 环境缺少 PDO，安装程序无法连接 SQLite 数据库。', [
+            '在 <span class="mono">php.ini</span> 中启用或安装 <span class="mono">pdo</span> 扩展。',
+            '如果使用 Linux 包管理器，请安装当前 PHP 版本对应的 PDO 组件。',
+            '修改完成后重启 Web 服务或 PHP-FPM，再重新访问安装页面。',
+        ]);
+    }
+    if (!extension_loaded('pdo_sqlite') || !in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+        i_install_error('SQLite 扩展未启用', '当前 PHP 环境缺少 SQLite PDO 驱动，无法创建论坛数据库。', [
+            '确认当前 PHP 已启用 <span class="mono">pdo_sqlite</span> 扩展。',
+            'Windows 环境：打开右侧显示的 <span class="mono">php.ini</span>，启用 <span class="mono">extension=pdo_sqlite</span>。',
+            '如果启动 PHP 时提示 <span class="mono">Unable to load dynamic library \'pdo_sqlite\'</span>，请检查 <span class="mono">extension_dir</span> 是否指向当前 PHP 的 <span class="mono">ext</span> 目录，并确认其中存在 <span class="mono">php_pdo_sqlite.dll</span>。',
+            'Linux 环境：安装当前 PHP 版本对应的 PDO SQLite 支持包，安装后确认 PDO 驱动列表中出现 <span class="mono">sqlite</span>。',
+            '修改完成后重启 Web 服务或 PHP-FPM，再重新访问安装页面。',
+        ]);
+    }
+}
 function i_db(): PDO
 {
     static $db;
     if ($db) return $db;
+    i_check_sqlite_support();
     $file = i_db_file();
     $dir = dirname($file);
     if (!is_dir($dir)) mkdir($dir, 0755, true);
     i_save_db_config(basename($file));
-    $db = new PDO('sqlite:' . $file, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
+    try {
+        $db = new PDO('sqlite:' . $file, null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+    } catch (PDOException $e) {
+        i_install_error('数据库初始化失败', 'SQLite 数据库连接失败：' . $e->getMessage(), [
+            '确认 PHP 的 <span class="mono">pdo_sqlite</span> 扩展已经启用。',
+            '确认 <span class="mono">data</span> 目录可写，Web 服务用户可以创建和写入 SQLite 文件。',
+            '处理完成后刷新安装页面重试。',
+        ]);
+    }
     foreach (['PRAGMA journal_mode=WAL', 'PRAGMA synchronous=NORMAL', 'PRAGMA temp_store=MEMORY', 'PRAGMA busy_timeout=5000'] as $sql) $db->exec($sql);
     return $db;
 }
@@ -87,7 +133,7 @@ function i_html(string $title, string $body): void
     .form{display:grid;gap:12px}.row{display:grid;gap:6px}.row label{font-size:12px;color:var(--muted)}.row small{color:var(--muted);font-size:11px;line-height:1.4}.row.compact{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.row.compact .field{display:grid;gap:6px}input[type=text],input[type=password],input[type=email],textarea{width:100%;border:1px solid #d6dbe3;border-radius:8px;padding:10px 12px;font:inherit;background:#fff;color:var(--text)}textarea{min-height:128px;resize:vertical}
     input:focus,textarea:focus{outline:0;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}.checks{display:grid;gap:10px}.check{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line2);border-radius:8px;background:#fafcff}.check input{margin-top:3px}
     .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border:0;border-radius:8px;background:var(--brand);color:#fff;cursor:pointer;font:inherit;font-weight:600}.btn:hover{background:var(--brand2);color:#fff}.btn.alt{background:#fff;color:#374151;border:1px solid #d1d5db}.btn.alt:hover{background:#f8fafc;color:#111;border-color:#cbd5e1}
-    .list{margin:0;padding-left:18px;color:#374151}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;font-size:13px}.kv div:nth-child(odd){color:var(--muted)}.admin-pass{padding:14px;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:8px;word-break:break-all}.footer{margin-top:16px;color:var(--muted);font-size:12px;text-align:center}
+    .list{margin:0;padding-left:18px;color:#374151}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;word-break:break-word}.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;font-size:13px}.kv div{min-width:0}.kv div:nth-child(odd){color:var(--muted)}.kv div:nth-child(even){overflow-wrap:anywhere;word-break:break-word}.admin-pass{padding:14px;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:8px;word-break:break-all}.footer{margin-top:16px;color:var(--muted);font-size:12px;text-align:center}
     @media (max-width:860px){.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.wrap{padding:18px 12px 30px}}
     </style></head><body><main class="wrap">' . $body . '</main></body></html>';
     exit;
@@ -107,6 +153,7 @@ function i_form(string $site_name, string $admin_user, string $admin_email, stri
 if (is_file(INSTALL_LOCK_FILE)) {
     i_locked();
 }
+i_check_sqlite_support();
 $step = (string)($_POST['step'] ?? '');
 if ($step !== 'install') {
     i_form('我的论坛', 'admin', '', '', '默认版块', '欢迎使用 bbs1org');

@@ -1,5 +1,6 @@
 data/*.sqlite
 data/*.sqlite-*
+data/*.php
 cache/
 *.lock
 update.php

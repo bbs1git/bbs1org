@@ -7,6 +7,14 @@ const showToast = (message) => {
     clearTimeout(window.__toastTimer);
     window.__toastTimer = setTimeout(() => toast.hidden = true, 1800);
 };
+const refreshCaptchaIn = (root) => {
+    root?.querySelectorAll(".captcha-img").forEach(img => {
+        const url = new URL(img.getAttribute("src") || "", window.location.href);
+        url.searchParams.set("r", Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+        img.src = url.pathname + url.search;
+    });
+    root?.querySelectorAll('input[name="captcha"]').forEach(input => input.value = "");
+};
 const modal = document.getElementById("notify-modal");
 const modalBody = document.getElementById("notify-modal-body");
 const modalTitle = document.getElementById("notify-modal-title");
@@ -65,6 +73,11 @@ document.addEventListener("change", e => {
     if (p) refreshAvatarPicker(p);
 });
 document.addEventListener("click", e => {
+    const captchaButton = e.target.closest("[data-captcha-refresh]");
+    if (captchaButton) {
+        refreshCaptchaIn(captchaButton.closest("form") || document);
+        return;
+    }
     const b = e.target.closest(".avatar-option");
     if (!b) return;
     const p = b.closest(".avatar-picker");
@@ -155,11 +168,13 @@ document.addEventListener("submit", async e => {
                 } else if (stats) stats.remove();
             }
             replyForm.reset();
+            refreshCaptchaIn(replyForm);
             if (status) status.textContent = "已回复";
         } catch (err) {
             const message = err?.message || "提交失败";
             if (status) status.textContent = message;
             showToast(message);
+            refreshCaptchaIn(replyForm);
         } finally {
             button.disabled = false;
         }
@@ -209,9 +224,11 @@ document.addEventListener("submit", async e => {
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
         showToast(data.message || "操作完成");
+        refreshCaptchaIn(form);
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
         showToast(err?.message || "操作失败");
+        refreshCaptchaIn(form);
         if (button) button.disabled = false;
     }
 });
