@@ -39,7 +39,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .notify-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 6px;margin-left:6px;border-radius:999px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;line-height:1;box-shadow:0 4px 10px rgba(217,75,75,.25)}
 .tab-post{display:none}
 .tab-actions{display:none}
-.admin-tabs{display:none}
+.admin-tabs{display:flex;overflow-x:auto;gap:0}
+.admin-tabs .tab{flex:0 0 auto}
 .admin-trash-tabs{margin:0 0 12px}
 .nav-right{display:flex;align-items:center;gap:12px}
 .wrap{max-width:1100px;margin:0 auto;padding:12px}
@@ -95,6 +96,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .post-meta span,.post-meta a{display:inline-flex;align-items:center;gap:3px}
 .post-meta a:hover{color:var(--brand)}
 .meta-icon{width:13px;height:13px;flex:0 0 13px;color:#aaa}
+.ip-location{max-width:100%;color:#9a9a9a}
+.ip-location .meta-icon,.user-location .meta-icon{width:12px;height:12px;flex:0 0 12px}
 .post-meta .post-forum-meta{display:none}
 .post-entry{display:grid;grid-template-columns:36px minmax(0,1fr);grid-template-areas:"avatar body" "content content";column-gap:10px;align-items:start}
 .post-entry.has-title{grid-template-areas:"title title" "avatar body" "content content";row-gap:8px}
@@ -182,6 +185,7 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .avatar-option{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;padding:4px;border:1px solid #eee;border-radius:var(--radius-sm);background:#fafafa;cursor:pointer}
 .avatar-option:hover,.avatar-option.active{border-color:var(--brand);background:var(--brand-soft)}
 .user-rank{margin-top:2px;color:#888;font-size:11px}
+.user-location{display:flex;align-items:center;gap:4px;max-width:132px;margin-top:3px;color:#999;font-size:11px;line-height:1.35;word-break:break-word;overflow-wrap:anywhere}
 .side-auth{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
 .side-auth.single{grid-template-columns:1fr}
 .side-auth a{display:flex;align-items:center;justify-content:center;height:30px;border-radius:4px;background:var(--brand);color:#fff}
@@ -220,6 +224,7 @@ button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,sele
 input,select,textarea{width:100%;border:1px solid #ddd;border-radius:var(--radius-sm);background:#fff;color:var(--text);font:inherit;padding:7px 9px}
 input:hover,select:hover,textarea:hover{border-color:#cfcfcf}
 input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(46,204,113,.12);outline:0}
+input.readonly-input:disabled{border-color:#e5e7eb;background:#f8fafc;color:#667085;opacity:1;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--brand)}
 textarea{min-height:120px;resize:vertical;line-height:1.6}
 .grid{display:grid;grid-template-columns:98px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}
@@ -235,6 +240,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .form-panel input,.form-panel select{max-width:450px}
 .form-panel button{justify-self:start;min-width:88px}
 .form-panel .muted{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius-sm);background:#fafafa}
+.form-error-panel p{margin:0 0 12px;color:#555}
+.form-error-countdown{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:999px;background:var(--brand-soft);color:var(--brand)!important;font-size:12px}
+.form-error-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .captcha-box{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .captcha-input{flex:0 1 130px;max-width:130px;text-transform:uppercase}
 .captcha-img{width:132px;height:42px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#f7fbf9;object-fit:cover}
