@@ -1365,6 +1365,12 @@ function markdown_html(string $text): string
             $flush();
             continue;
         }
+        if (preg_match('/^(#{1,6})\s+(.+)$/u', $line, $m)) {
+            $flush();
+            $level = strlen($m[1]);
+            $html[] = '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
+            continue;
+        }
         $paragraph[] = $line;
     }
     if ($in_code) $html[] = '<pre><code>' . h(rtrim(implode("\n", $code), "\n")) . '</code></pre>';
