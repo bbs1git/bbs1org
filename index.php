@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 session_start();
-define('APP_VERSION', 'v1.1 beta');
+define('APP_VERSION', 'v1.2 beta');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
