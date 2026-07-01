@@ -1,5 +1,7 @@
 <?php
 declare(strict_types=1);
+date_default_timezone_set('Asia/Shanghai');
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 
 const UPDATE_SCHEMA_DATA_DIR = __DIR__ . '/data';
 const UPDATE_SCHEMA_DB_CONFIG_FILE = UPDATE_SCHEMA_DATA_DIR . '/db.php';

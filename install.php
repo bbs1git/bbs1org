@@ -1,6 +1,8 @@
 <?php
 
 declare(strict_types=1);
+date_default_timezone_set('Asia/Shanghai');
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 
 const INSTALL_DATA_DIR = __DIR__ . '/data';
 const INSTALL_DB_CONFIG_FILE = INSTALL_DATA_DIR . '/db.php';
@@ -213,6 +215,7 @@ $settings = [
     'default_group_id' => '2',
     'topics_per_page' => '30',
     'replies_per_page' => '50',
+    'mail_from' => '',
     'mail_virtual' => '0',
     'register_per_hour' => '1',
     'login_fail_per_hour' => '5',
