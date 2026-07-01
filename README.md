@@ -19,6 +19,9 @@
 - PHP 8.1+
 - SQLite 扩展
 
+## 演示
+[https://bbs1.org]https://bbs1.org
+
 ## Docker 部署
 
 ```bash
@@ -56,7 +59,6 @@ docker-compose.yml  Compose 部署
 docker/             Nginx 配置
 data/               数据文件
 cache/              运行缓存
-docs/               截图与文档
 ```
 
 ## 说明
