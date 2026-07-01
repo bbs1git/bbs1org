@@ -20,7 +20,7 @@
 - SQLite 扩展
 
 ## 演示
-[https://bbs1.org]https://bbs1.org
+https://bbs1.org
 
 ## Docker 部署
 
