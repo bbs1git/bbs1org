@@ -7,14 +7,6 @@ const showToast = (message) => {
     clearTimeout(window.__toastTimer);
     window.__toastTimer = setTimeout(() => toast.hidden = true, 1800);
 };
-const refreshCaptchaIn = (root) => {
-    root?.querySelectorAll(".captcha-img").forEach(img => {
-        const url = new URL(img.getAttribute("src") || "", window.location.href);
-        url.searchParams.set("r", Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
-        img.src = url.pathname + url.search;
-    });
-    root?.querySelectorAll('input[name="captcha"]').forEach(input => input.value = "");
-};
 const modal = document.getElementById("notify-modal");
 const modalBody = document.getElementById("notify-modal-body");
 const modalTitle = document.getElementById("notify-modal-title");
@@ -50,37 +42,8 @@ window.openNotify = async function (url) {
 const runPageFlash = () => {
     if (window.__pageFlash) showToast(window.__pageFlash);
 };
-const runAutoHome = () => {
-    const panel = document.querySelector("[data-auto-home]");
-    if (!panel) return;
-    const target = panel.dataset.autoHome || "/";
-    const output = panel.querySelector("[data-auto-home-countdown]");
-    const message = panel.querySelector("[data-auto-home-message]");
-    const messageText = message?.textContent || "";
-    const messageMatch = messageText.match(/请\s*(\d+)\s*秒后再试/);
-    let seconds = Math.max(1, parseInt(panel.dataset.autoHomeSeconds || "5", 10) || 5);
-    let messageSeconds = messageMatch ? Math.max(0, parseInt(messageMatch[1], 10) || 0) : null;
-    const render = () => {
-        if (output) output.textContent = String(Math.max(0, seconds));
-        if (message && Number.isInteger(messageSeconds)) {
-            message.textContent = messageText.replace(/请\s*\d+\s*秒后再试/, "请 " + Math.max(0, messageSeconds) + " 秒后再试");
-        }
-    };
-    render();
-    const timer = setInterval(() => {
-        seconds -= 1;
-        if (Number.isInteger(messageSeconds)) messageSeconds -= 1;
-        render();
-        if (seconds <= 0) {
-            clearInterval(timer);
-            window.location.href = target;
-        }
-    }, 1000);
-};
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runPageFlash);
 else runPageFlash();
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runAutoHome);
-else runAutoHome();
 function avatarPickerUrl(p, seed) {
     const s = p?.querySelector("select[name=avatar_style]");
     return "https://api.dicebear.com/10.x/" + encodeURIComponent(s?.value || "dylan") + "/svg?seed=" + encodeURIComponent(seed || p.dataset.seed || "0");
@@ -102,11 +65,6 @@ document.addEventListener("change", e => {
     if (p) refreshAvatarPicker(p);
 });
 document.addEventListener("click", e => {
-    const captchaButton = e.target.closest("[data-captcha-refresh]");
-    if (captchaButton) {
-        refreshCaptchaIn(captchaButton.closest("form") || document);
-        return;
-    }
     const b = e.target.closest(".avatar-option");
     if (!b) return;
     const p = b.closest(".avatar-picker");
@@ -130,9 +88,29 @@ document.addEventListener("change", e => {
     if (!action) return;
     toggleBulkForum(action);
 });
+document.addEventListener("change", e => {
+    const action = e.target.closest("[data-topic-action]");
+    if (!action) return;
+    const form = action.closest("form");
+    const highlight = form?.querySelector("[data-topic-highlight-wrap]");
+    if (highlight) highlight.classList.toggle("is-hidden", action.value !== "highlight");
+});
+document.addEventListener("click", e => {
+    const swatch = e.target.closest("[data-topic-color]");
+    if (!swatch) return;
+    const wrap = swatch.closest("[data-topic-highlight-wrap]");
+    const form = swatch.closest("form");
+    const input = form?.querySelector("[data-topic-highlight-value]");
+    if (!input || !wrap) return;
+    input.value = swatch.dataset.topicColor || "";
+    wrap.querySelectorAll("[data-topic-color]").forEach(btn => btn.classList.toggle("active", btn === swatch));
+});
 window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-bulk-action]").forEach(action => {
         toggleBulkForum(action);
+    });
+    document.querySelectorAll("[data-topic-action]").forEach(action => {
+        action.dispatchEvent(new Event("change", {bubbles: true}));
     });
 });
 window.toggleBulkForum = function (action) {
@@ -165,10 +143,6 @@ document.addEventListener("click", e => {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 });
-document.addEventListener("click", e => {
-    if (!e.target.closest("[data-command-help]")) return;
-    openModal("管理指令帮助", '<div class="command-help-pop"><p>@作者 #replyID 删除</p><p>@作者 #topicID 删除</p><p>@作者 #topicID 转移 新版块名</p><p>@作者 #topicID 置顶</p><p>@作者 #topicID 取消置顶</p><p>@作者 #topicID 高亮 color:#d94b4b;font-weight:700</p><p>@作者 #topicID 取消高亮</p><p>@作者 #replyID 禁止发言</p><p>@作者 #replyID 取消禁止发言</p><p>@作者 #replyID 禁止访问</p><p>@作者 #replyID 取消禁止访问</p></div>');
-});
 document.addEventListener("submit", async e => {
     const replyForm = e.target.closest(".ajax-reply-form");
     if (replyForm) {
@@ -197,13 +171,11 @@ document.addEventListener("submit", async e => {
                 } else if (stats) stats.remove();
             }
             replyForm.reset();
-            refreshCaptchaIn(replyForm);
             if (status) status.textContent = "已回复";
         } catch (err) {
             const message = err?.message || "提交失败";
             if (status) status.textContent = message;
             showToast(message);
-            refreshCaptchaIn(replyForm);
         } finally {
             button.disabled = false;
         }
@@ -253,11 +225,9 @@ document.addEventListener("submit", async e => {
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
         showToast(data.message || "操作完成");
-        refreshCaptchaIn(form);
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
         showToast(err?.message || "操作失败");
-        refreshCaptchaIn(form);
         if (button) button.disabled = false;
     }
 });

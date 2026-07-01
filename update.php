@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
 
-const UPDATE_SCHEMA_DB_FILE = __DIR__ . '/data/forum.sqlite';
-const UPDATE_SCHEMA_LOCK_FILE = __DIR__ . '/data/install.lock';
+const UPDATE_SCHEMA_DATA_DIR = __DIR__ . '/data';
+const UPDATE_SCHEMA_DB_CONFIG_FILE = UPDATE_SCHEMA_DATA_DIR . '/db.php';
+const UPDATE_SCHEMA_DEFAULT_DB_FILE = UPDATE_SCHEMA_DATA_DIR . '/forum.sqlite';
+const UPDATE_SCHEMA_LOCK_FILE = UPDATE_SCHEMA_DATA_DIR . '/install.lock';
 const UPDATE_SCHEMA_INSTALL_FILE = __DIR__ . '/install.php';
 
 function us_h(string $s): string
@@ -28,9 +30,19 @@ function us_page(string $title, array $changes, string $error = ''): void
     exit;
 }
 
+function us_db_file_path(): string
+{
+    if (is_file(UPDATE_SCHEMA_DB_CONFIG_FILE)) {
+        $config = include UPDATE_SCHEMA_DB_CONFIG_FILE;
+        $name = is_array($config) ? basename((string)($config['db_file'] ?? '')) : '';
+        if ($name !== '' && preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*\.sqlite$/', $name)) return UPDATE_SCHEMA_DATA_DIR . '/' . $name;
+    }
+    return UPDATE_SCHEMA_DEFAULT_DB_FILE;
+}
+
 function us_db(): PDO
 {
-    return new PDO('sqlite:' . UPDATE_SCHEMA_DB_FILE, null, null, [
+    return new PDO('sqlite:' . us_db_file_path(), null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
@@ -112,7 +124,7 @@ function us_install_schema(): array
     return [$tables, $indexes];
 }
 
-if (!is_file(UPDATE_SCHEMA_LOCK_FILE) || !is_file(UPDATE_SCHEMA_DB_FILE)) {
+if (!is_file(UPDATE_SCHEMA_LOCK_FILE) || !is_file(us_db_file_path())) {
     us_page('请先安装', [], '请先执行安装操作。');
 }
 if (!is_file(UPDATE_SCHEMA_INSTALL_FILE)) {

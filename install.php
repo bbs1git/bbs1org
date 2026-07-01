@@ -207,26 +207,17 @@ $db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin) VALUES
 $db->exec("INSERT OR IGNORE INTO forums(id,name,description,sort,last_topic_id,last_topic_title) VALUES(1," . $db->quote($forum_name) . ",'欢迎发帖',0,0,'')");
 $settings = [
     'site_name' => $site_name,
-    'site_keywords' => '',
-    'site_description' => '',
-    'header_html' => '',
-    'footer_html' => '',
     'site_closed' => '0',
     'allow_register' => '1',
-    'pretty_url' => '0',
     'reserved_usernames' => 'admin,administrator,root,system',
     'default_group_id' => '2',
     'topics_per_page' => '30',
     'replies_per_page' => '50',
-    'mail_from' => '',
     'mail_virtual' => '0',
     'register_per_hour' => '1',
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',
-    'captcha_charset' => 'alnum',
-    'captcha_forms' => '',
     'post_interval_seconds' => '5',
-    'pinned_topic_ids' => '',
 ];
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
