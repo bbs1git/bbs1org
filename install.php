@@ -173,7 +173,7 @@ if (is_file(INSTALL_LOCK_FILE)) i_locked();
 $db = i_db();
 $db->exec("
 CREATE TABLE IF NOT EXISTS groups(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE,password TEXT NOT NULL,email TEXT NOT NULL DEFAULT '',bio TEXT NOT NULL DEFAULT '',avatar_style TEXT NOT NULL DEFAULT '',avatar_seed TEXT NOT NULL DEFAULT '',group_id INTEGER NOT NULL DEFAULT 2,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE,password TEXT NOT NULL,email TEXT NOT NULL DEFAULT '',bio TEXT NOT NULL DEFAULT '',avatar_style TEXT NOT NULL DEFAULT '',avatar_seed TEXT NOT NULL DEFAULT '',group_id INTEGER NOT NULL DEFAULT 2,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications INTEGER NOT NULL DEFAULT 0,last_post_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,row_data TEXT NOT NULL,deleted_by INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS forums(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',sort INTEGER NOT NULL DEFAULT 0,allow_view_groups TEXT NOT NULL DEFAULT '',allow_post_groups TEXT NOT NULL DEFAULT '',allow_reply_groups TEXT NOT NULL DEFAULT '',last_topic_id INTEGER NOT NULL DEFAULT 0,last_topic_title TEXT NOT NULL DEFAULT '');
@@ -228,10 +228,11 @@ $settings = [
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
 $admin_pass = $admin_password;
-$db->prepare("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,created_at) VALUES(?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, i_now()]);
+$welcome_ts = i_now();
+$db->prepare("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,last_post_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, $welcome_ts, $welcome_ts]);
 $admin_id = (int)$db->lastInsertId();
 $readme = i_readme_text();
-$db->prepare("INSERT INTO topics(forum_id,user_id,title,body,highlight_style,reply_count,view_count,last_reply_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")->execute([1, $admin_id, $topic_title, $readme, '', 0, 0, i_now(), i_now(), i_now()]);
+$db->prepare("INSERT INTO topics(forum_id,user_id,title,body,highlight_style,reply_count,view_count,last_reply_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")->execute([1, $admin_id, $topic_title, $readme, '', 0, 0, $welcome_ts, $welcome_ts, $welcome_ts]);
 $topic_id = (int)$db->lastInsertId();
 $db->prepare("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=1")->execute([$topic_id, $topic_title]);
 if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);

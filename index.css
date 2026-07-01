@@ -428,6 +428,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .post-meta .post-forum-meta{display:inline-flex}
     .post-forum-badge{display:none}
     .post-tag{display:none}
+    .notification-reply-action{display:inline-flex;margin-left:auto}
     .post-title{white-space:normal}
     .row{align-items:flex-start}
     .grid,.admin{grid-template-columns:1fr}
