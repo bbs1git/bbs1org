@@ -641,6 +641,8 @@ function notifications_total(int $uid): int
 }
 function notifications_unread_total(int $uid): int
 {
+    $m = me();
+    if ($m && (int)$m['id'] === $uid) return (int)($m['unread_notifications'] ?? 0);
     return (int)val("SELECT COUNT(*) FROM notifications WHERE recipient_id=? AND read_at=0", [$uid]);
 }
 function mark_notifications_read(int $uid): void
@@ -1245,6 +1247,35 @@ function paginate(int $total, int $page, int $size, string $url): string
     if ($page < $pages) $h .= '<li><a href="' . h($page_url($page + 1)) . '">下一页</a></li>';
     $h .= '</ul></div>';
     return $h;
+}
+function simple_paginate(bool $has_prev, bool $has_next, int $page, string $url): string
+{
+    if (!$has_prev && !$has_next) return '';
+    $page_url = fn(int $n): string => append_url_query($url, ['p' => $n]);
+    $h = '<div class="pagination"><ul>';
+    if ($has_prev) $h .= '<li><a href="' . h($page_url(max(1, $page - 1))) . '">上一页</a></li>';
+    $h .= '<li class="active"><a href="' . h($page_url($page)) . '">' . $page . '</a></li>';
+    if ($has_next) $h .= '<li><a href="' . h($page_url($page + 1)) . '">下一页</a></li>';
+    return $h . '</ul></div>';
+}
+function user_reply_topics_page(int $user_id, int $page, int $size): array
+{
+    $need = $page * $size + 1;
+    $scan_limit = min(max($need * 3, $size + 1), 1000);
+    $offset = 0;
+    $topics = [];
+    do {
+        $rows = q("SELECT topic_id,created_at,id FROM replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$user_id, $scan_limit, $offset])->fetchAll();
+        foreach ($rows as $row) {
+            $tid = (int)$row['topic_id'];
+            if (isset($topics[$tid])) continue;
+            $topics[$tid] = ['id' => $tid, 'my_reply_at' => (int)$row['created_at'], 'my_reply_id' => (int)$row['id']];
+            if (count($topics) >= $need) break 2;
+        }
+        $offset += $scan_limit;
+    } while (count($rows) === $scan_limit);
+    $slice = array_slice($topics, ($page - 1) * $size, $size, true);
+    return [$slice, count($topics) > $page * $size];
 }
 function topic_page_links(int $topic_id, int $reply_count): string
 {
@@ -2332,11 +2363,17 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $unread_total = notifications_unread_total($profile_uid);
         $rows = notifications_list($profile_uid, $size, $off);
     } elseif ($profile_uid && $profile_tab === 'replies') {
-        $where2 = $where ? $where . ' AND r.user_id=?' : 'WHERE r.user_id=?';
-        $params2 = array_merge($params, [$profile_uid]);
-        $topic_ids = array_column(q("SELECT DISTINCT topic_id id FROM replies WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll(), 'id');
-        $total = (int)val("SELECT COUNT(DISTINCT topic_id) FROM replies WHERE user_id=?", [$profile_uid]);
-        $rows = $topic_ids ? q("SELECT " . topic_list_select_columns('topics') . ",(SELECT MAX(created_at) FROM replies r WHERE r.topic_id=topics.id AND r.user_id=?) my_reply_at,(SELECT id FROM replies r2 WHERE r2.topic_id=topics.id AND r2.user_id=? ORDER BY r2.created_at DESC,r2.id DESC LIMIT 1) my_reply_id FROM topics WHERE id IN (" . implode(',', array_fill(0, count($topic_ids), '?')) . ") ORDER BY my_reply_at DESC", array_merge([$profile_uid, $profile_uid], $topic_ids))->fetchAll() : [];
+        [$topic_meta, $has_next_reply_page] = user_reply_topics_page($profile_uid, $p, $size);
+        $total = $p * $size + ($has_next_reply_page ? 1 : 0);
+        $topic_ids = array_keys($topic_meta);
+        $rows = $topic_ids ? q("SELECT " . topic_list_select_columns('topics') . " FROM topics WHERE id IN (" . implode(',', array_fill(0, count($topic_ids), '?')) . ")", $topic_ids)->fetchAll() : [];
+        foreach ($rows as &$row) {
+            $meta = $topic_meta[(int)$row['id']] ?? ['my_reply_at' => 0, 'my_reply_id' => 0];
+            $row['my_reply_at'] = $meta['my_reply_at'];
+            $row['my_reply_id'] = $meta['my_reply_id'];
+        }
+        unset($row);
+        usort($rows, fn($a, $b) => ((int)$b['my_reply_at'] <=> (int)$a['my_reply_at']) ?: ((int)$b['my_reply_id'] <=> (int)$a['my_reply_id']));
         $rows = attach_users($rows);
     } elseif ($profile_uid && $profile_tab === 'favorites') {
         $fav_rows = q("SELECT topic_id,created_at favorite_at FROM favorites WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
@@ -2413,7 +2450,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
     }
     $page_query = ($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . ($profile_uid ? 'tab=' . $profile_tab : 'sort=' . $sort);
-    $pagination = paginate($total, $p, $size, $url($page_query));
+    $pagination = ($profile_uid && $profile_tab === 'replies') ? simple_paginate($p > 1, (bool)($has_next_reply_page ?? false), $p, $url($page_query)) : paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . sidebar_stats_card_html() : '')]);
