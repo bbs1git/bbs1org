@@ -85,6 +85,13 @@ function attach_users(array $rows, string $key = 'user_id', string $fallback = '
     unset($row);
     return $rows;
 }
+function attach_topics(array $rows, string $key = 'topic_id'): array
+{
+    $topics = rows_by_ids('topics', array_column($rows, $key), 'id,title');
+    foreach ($rows as &$row) $row['topic_title'] = (string)($topics[(int)($row[$key] ?? 0)]['title'] ?? '主题已删除');
+    unset($row);
+    return $rows;
+}
 function db_schema_ready(): bool
 {
     return is_file(INSTALL_LOCK_FILE);
@@ -561,11 +568,11 @@ function admin_replies_list(string $query = '', int $size = 50, int $offset = 0)
         if ($field === 'author') {
             $uids = array_column(q("SELECT id FROM users WHERE username LIKE ? ESCAPE '\\'", [$like])->fetchAll(), 'id');
             if (!$uids) return [];
-            return attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies WHERE user_id IN (" . implode(',', array_fill(0, count($uids), '?')) . ") ORDER BY id DESC LIMIT ? OFFSET ?", array_merge($uids, [$size, $offset]))->fetchAll());
+            return attach_topics(attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies WHERE user_id IN (" . implode(',', array_fill(0, count($uids), '?')) . ") ORDER BY id DESC LIMIT ? OFFSET ?", array_merge($uids, [$size, $offset]))->fetchAll()));
         }
-        return attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies WHERE body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?", [$like, $size, $offset])->fetchAll());
+        return attach_topics(attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies WHERE body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?", [$like, $size, $offset])->fetchAll()));
     }
-    return attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies ORDER BY id DESC LIMIT ? OFFSET ?", [$size, $offset])->fetchAll());
+    return attach_topics(attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM replies ORDER BY id DESC LIMIT ? OFFSET ?", [$size, $offset])->fetchAll()));
 }
 function admin_search_form(string $tab, string $query): string
 {
@@ -638,9 +645,9 @@ function admin_bulk_delete_bar(string $tab = ''): string
 function admin_user_row(array $u, bool $manageable = true): string
 {
     $g = group_by_id((int)$u['group_id']) ?: ['name' => ''];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
-    $flags = ((int)($u['is_banned'] ?? 0) ? '<span class="admin-flag danger">禁访</span>' : '') . ((int)($u['is_muted'] ?? 0) ? '<span class="admin-flag danger">禁言</span>' : '');
-    return '<li class="admin-list-item"><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$u['id'] . '" form="admin-bulk-form"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<span>' . h($u['username']) . '</span>' . $flags . '<span class="admin-group-pill">' . h($g['name']) . '</span></div></div>' . $ops . '</li>';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $states = array_filter([h($g['name']), (int)($u['is_banned'] ?? 0) ? '禁访' : '', (int)($u['is_muted'] ?? 0) ? '禁言' : '']);
+    return '<li class="admin-list-item admin-object-row admin-user-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$u['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<div class="admin-user-text"><strong>' . h($u['username']) . '</strong><span>' . implode(' / ', $states) . ' · ID ' . (int)$u['id'] . '</span></div></div></div>' . $ops . '</li>';
 }
 function user_state_tag_html(array $u): string
 {
@@ -652,15 +659,17 @@ function user_state_tag_html(array $u): string
 function admin_topic_row(array $t, bool $manageable = true): string
 {
     $url = route_url('topic', ['id' => (int)$t['id']]);
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
     $forum = forum_by_id((int)($t['forum_id'] ?? 0)) ?: ['name' => ''];
-    $forum_tag = $forum['name'] !== '' ? '<span class="admin-group-pill">' . h($forum['name']) . '</span>' : '';
-    return '<li class="admin-list-item"><div class="admin-topic-user">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '<span class="admin-dot">·</span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</div><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a>' . $forum_tag . '</div>' . $ops . '</li>';
+    $forum_tag = $forum['name'] !== '' ? '<span class="admin-forum-name">' . h($forum['name']) . '</span>' : '';
+    return '<li class="admin-list-item admin-object-row admin-topic-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '</span><span>ID ' . (int)$t['id'] . '</span><span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</span>' . $forum_tag . '</div></div>' . $ops . '</li>';
 }
 function admin_reply_row(array $r, bool $manageable = true): string
 {
-    $ops = '<div class="admin-inline-ops"><a href="' . h(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']])) . '" target="_blank" rel="noopener">查看</a>' . ($manageable ? ' <a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'])) . '" onclick="return confirm(\'确定删除？\')">删除</a>' : '') . '</div>';
-    return '<li class="admin-list-item"><div class="admin-topic-user">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '<span class="admin-dot">·</span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</div><div class="admin-list-line"><input type="checkbox" name="ids[]" value="' . (int)$r['id'] . '" form="admin-bulk-form"><div class="admin-content-text">' . h(cut($r['body'], 120)) . '</div></div>' . $ops . '</li>';
+    $topic_url = route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]);
+    $topic_title = (string)($r['topic_title'] ?? '主题已删除');
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    return '<li class="admin-list-item admin-object-row admin-reply-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$r['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h(cut($r['body'], 150)) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
 {
