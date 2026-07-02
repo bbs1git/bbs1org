@@ -11,6 +11,7 @@ define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
 define('DB_FILE', db_file_path());
 define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
+define('AVATAR_DIR', __DIR__ . '/avatars');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
@@ -101,6 +102,7 @@ function default_settings(): array
         'replies_per_page' => '50',
         'mail_from' => '',
         'mail_virtual' => '0',
+        'avatar_local' => '0',
         'register_per_hour' => '1',
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
@@ -275,6 +277,7 @@ function save_settings(): void
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
         'mail_from' => post('mail_from', 120),
         'mail_virtual' => isset($_POST['mail_virtual']) ? '1' : '0',
+        'avatar_local' => isset($_POST['avatar_local']) ? '1' : '0',
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
         'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
         'reserved_usernames' => post('reserved_usernames', 2000),
@@ -1111,11 +1114,65 @@ function avatar_style(string $style): string
     $styles = avatar_styles();
     return isset($styles[$style]) ? $style : 'dylan';
 }
+function avatar_seed_count(string $style): int
+{
+    return 48;
+}
+function decimal_mod(string $number, int $divisor): int
+{
+    $mod = 0;
+    foreach (str_split($number) as $digit) $mod = ($mod * 10 + (int)$digit) % $divisor;
+    return $mod;
+}
+function avatar_seed(string $style, string $seed, int $uid = 0): string
+{
+    $count = max(1, avatar_seed_count($style));
+    $seed = trim($seed);
+    if ($seed === '') $seed = (string)$uid;
+    if (ctype_digit($seed)) {
+        $mod = decimal_mod($seed, $count);
+        return (string)($mod === 0 ? $count : $mod);
+    }
+    $hash = (string)sprintf('%u', crc32($seed));
+    $mod = decimal_mod($hash, $count);
+    return (string)($mod === 0 ? $count : $mod);
+}
+function avatar_remote_url(string $style, string $seed): string
+{
+    return 'https://api.dicebear.com/10.x/' . rawurlencode($style) . '/svg?seed=' . rawurlencode($seed);
+}
+function avatar_file_name(string $style, string $seed): string
+{
+    $seed = preg_replace('/[^A-Za-z0-9._-]/', '_', $seed) ?? '';
+    return $style . '_' . ($seed === '' ? '0' : $seed) . '.svg';
+}
+function local_avatar_url(string $style, string $seed, string $remote): string
+{
+    static $urls = [];
+    $key = $style . "\n" . $seed;
+    if (isset($urls[$key])) return $urls[$key];
+    if (setting('avatar_local', '0') !== '1') return $remote;
+    if (!is_dir(AVATAR_DIR) && !mkdir(AVATAR_DIR, 0755, true)) return $remote;
+    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
+    if (is_file($file)) return $urls[$key] = asset_url('avatars/' . basename($file));
+    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
+    $context = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+    $svg = @file_get_contents($remote, false, $context);
+    if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
+    if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
+    if (!@rename($tmp, $file)) {
+        @unlink($tmp);
+        return is_file($file) ? $urls[$key] = asset_url('avatars/' . basename($file)) : $remote;
+    }
+    return $urls[$key] = asset_url('avatars/' . basename($file));
+}
 function avatar_tag(int $uid, string $name, string $style = '', string $class = '', string $seed = ''): string
 {
     $classes = trim('avatar-img ' . $class);
     $style = avatar_style($style) ?: 'dylan';
-    return '<img class="' . h($classes) . '" src="https://api.dicebear.com/10.x/' . rawurlencode($style) . '/svg?seed=' . rawurlencode($seed === '' ? (string)$uid : $seed) . '" alt="' . h($name) . '" loading="lazy">';
+    $seed = avatar_seed($style, $seed, $uid);
+    $remote = avatar_remote_url($style, $seed);
+    return '<img class="' . h($classes) . '" src="' . h(local_avatar_url($style, $seed, $remote)) . '" alt="' . h($name) . '" loading="lazy">';
 }
 function app_url(string $path = ''): string
 {
@@ -1271,12 +1328,12 @@ function avatar_picker_html(array $u): string
     $uid = (int)$u['id'];
     $style = avatar_style((string)($u['avatar_style'] ?? ''));
     $seed = (string)($u['avatar_seed'] ?? '');
+    if ($seed !== '') $seed = avatar_seed($style ?: 'dylan', $seed, $uid);
     $name = (string)($u['username'] ?? '');
     $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style"><option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
     foreach (avatar_styles() as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
     $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><div class="avatar-option' . ($seed === '' ? ' active' : '') . '" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</div>';
-    $seeds = array_map('strval', range(1, 48));
-    if ($seed !== '' && !in_array($seed, $seeds, true)) array_unshift($seeds, $seed);
+    $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
     foreach ($seeds as $s) $html .= '<div class="avatar-option' . ($s === $seed ? ' active' : '') . '" data-seed="' . h($s) . '">' . avatar_tag($uid, $name, $style, '', $s) . '</div>';
     return $html . '</div></div></div>';
 }
@@ -1444,6 +1501,7 @@ function save_user(bool $admin = false): void
     $bio = post('bio', 1000);
     $avatar_style = avatar_style(post('avatar_style', 40));
     $avatar_seed = post('avatar_seed', 80);
+    if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
     if ($username === '') err('用户名不能为空');
     $user_id = id();
     $old_user = $user_id ? one("SELECT username,group_id,is_banned,is_muted FROM users WHERE id=?", [$user_id]) : null;
@@ -2185,7 +2243,7 @@ function admin_page(): void
         $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
         $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><label class="grid"><span>头像是否镜像到本地</span><input type="checkbox" name="avatar_local" value="1"' . ((int)$s['avatar_local'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);

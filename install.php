@@ -218,6 +218,7 @@ $settings = [
     'replies_per_page' => '50',
     'mail_from' => '',
     'mail_virtual' => '0',
+    'avatar_local' => '0',
     'register_per_hour' => '1',
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',

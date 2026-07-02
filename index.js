@@ -44,9 +44,14 @@ const runPageFlash = () => {
 };
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runPageFlash);
 else runPageFlash();
+function avatarSeed(seed) {
+    const n = String(seed || "0").replace(/\D/g, "") || "0";
+    const mod = [...n].reduce((r, d) => (r * 10 + Number(d)) % 48, 0);
+    return String(mod || 48);
+}
 function avatarPickerUrl(p, seed) {
     const s = p?.querySelector("select[name=avatar_style]");
-    return "https://api.dicebear.com/10.x/" + encodeURIComponent(s?.value || "dylan") + "/svg?seed=" + encodeURIComponent(seed || p.dataset.seed || "0");
+    return "https://api.dicebear.com/10.x/" + encodeURIComponent(s?.value || "dylan") + "/svg?seed=" + encodeURIComponent(avatarSeed(seed || p.dataset.seed || "0"));
 }
 function refreshAvatarPicker(p) {
     const k = p?.querySelector("input[name=avatar_seed]");
