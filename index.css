@@ -177,7 +177,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .avatar-picker-preview{width:72px;height:72px;border:1px solid var(--line);border-radius:var(--radius);background:#fafafa;padding:6px}
 .avatar-picker-preview .avatar-img{border-radius:calc(var(--radius) - 2px)}
 .avatar-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:8px;width:100%;overflow:visible}
-.avatar-option{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;padding:4px;border:1px solid #eee;border-radius:var(--radius-sm);background:#fafafa;cursor:pointer}
+.avatar-option{display:flex;align-items:center;justify-content:center;width:100%;min-width:0;aspect-ratio:1/1;padding:4px;border:1px solid #eee;border-radius:var(--radius-sm);background:#fafafa;cursor:pointer;line-height:0;overflow:hidden}
+.avatar-picker .avatar-option{min-width:0}
 .avatar-option:hover,.avatar-option.active{border-color:var(--brand);background:var(--brand-soft)}
 .user-rank{margin-top:2px;color:#888;font-size:11px}
 .side-auth{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
@@ -263,6 +264,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .topic-form-panel textarea{min-height:240px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.avatar-mirror-box{display:grid;gap:8px}
+.avatar-mirror-box textarea{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.avatar-mirror-actions{margin:0}
 .settings-interval-field span{display:grid;gap:3px}
 .settings-interval-field small{color:#a3aab5;font-size:11px;font-weight:400;line-height:1.4}
 .settings-opcache-box{display:grid;gap:6px;align-items:start;margin-top:12px;padding-top:10px}

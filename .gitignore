@@ -5,3 +5,4 @@ cache/
 *.lock
 .claude
 .DS_Store
+avatars

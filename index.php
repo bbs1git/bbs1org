@@ -102,7 +102,7 @@ function default_settings(): array
         'replies_per_page' => '50',
         'mail_from' => '',
         'mail_virtual' => '0',
-        'avatar_local' => '0',
+        'avatar_mirror_styles' => '',
         'register_per_hour' => '1',
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
@@ -277,7 +277,7 @@ function save_settings(): void
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
         'mail_from' => post('mail_from', 120),
         'mail_virtual' => isset($_POST['mail_virtual']) ? '1' : '0',
-        'avatar_local' => isset($_POST['avatar_local']) ? '1' : '0',
+        'avatar_mirror_styles' => avatar_mirror_styles_text((string)($_POST['avatar_mirror_styles'] ?? '')),
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
         'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
         'reserved_usernames' => post('reserved_usernames', 2000),
@@ -1146,22 +1146,40 @@ function avatar_file_name(string $style, string $seed): string
     $seed = preg_replace('/[^A-Za-z0-9._-]/', '_', $seed) ?? '';
     return $style . '_' . ($seed === '' ? '0' : $seed) . '.svg';
 }
+function avatar_mirror_styles(?string $text = null): array
+{
+    static $cache = null;
+    if ($text === null && $cache !== null) return $cache;
+    $styles = [];
+    foreach (preg_split('/[\s,，]+/u', (string)($text ?? setting('avatar_mirror_styles', '')), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $style) {
+        $style = avatar_style(trim($style));
+        if ($style !== '') $styles[$style] = true;
+    }
+    $styles = array_values(array_filter(array_keys(avatar_styles()), fn($style) => !empty($styles[$style])));
+    return $text === null ? $cache = $styles : $styles;
+}
+function avatar_mirror_styles_text(?string $text = null, ?string $add_style = null): string
+{
+    $styles = array_fill_keys(avatar_mirror_styles($text), true);
+    if ($add_style !== null) {
+        $style = avatar_style($add_style);
+        if ($style !== '') $styles[$style] = true;
+    }
+    return implode(',', array_values(array_filter(array_keys(avatar_styles()), fn($style) => !empty($styles[$style]))));
+}
+function avatar_style_mirrored(string $style): bool
+{
+    return in_array($style, avatar_mirror_styles(), true);
+}
 function local_avatar_url(string $style, string $seed, string $remote): string
 {
-    static $urls = [];
-    $key = $style . "\n" . $seed;
-    if (isset($urls[$key])) return $urls[$key];
-    if (setting('avatar_local', '0') !== '1') return $remote;
-    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
-    if (is_file($file)) return $urls[$key] = asset_url('avatars/' . basename($file));
-    return $remote;
+    return avatar_style_mirrored($style) ? asset_url('avatars/' . avatar_file_name($style, $seed)) : $remote;
 }
 function cache_avatar_url(string $style, string $seed): string
 {
     $style = avatar_style($style) ?: 'dylan';
     $seed = avatar_seed($style, $seed);
     $remote = avatar_remote_url($style, $seed);
-    if (setting('avatar_local', '0') !== '1') return $remote;
     if (!is_dir(AVATAR_DIR) && !mkdir(AVATAR_DIR, 0755, true)) return $remote;
     $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
     if (is_file($file)) return asset_url('avatars/' . basename($file));
@@ -1172,17 +1190,31 @@ function cache_avatar_url(string $style, string $seed): string
     if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
     if (!@rename($tmp, $file)) {
         @unlink($tmp);
-        return is_file($file) ? asset_url('avatars/' . basename($file)) : $remote;
+        return $remote;
     }
     return asset_url('avatars/' . basename($file));
 }
-function avatar_sync_page(): void
+function avatar_mirror_page(): void
 {
-    $style = avatar_style((string)($_GET['style'] ?? '')) ?: 'dylan';
-    $seed = avatar_seed($style, (string)($_GET['seed'] ?? ''));
+    need_admin();
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => 0, 'message' => '只允许POST'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $style = avatar_style((string)($_REQUEST['style'] ?? '')) ?: 'dylan';
+    $seed = avatar_seed($style, (string)($_REQUEST['seed'] ?? ''));
+    if (($_POST['complete'] ?? '') === '1') {
+        $text = avatar_mirror_styles_text(setting('avatar_mirror_styles', ''), $style);
+        q("REPLACE INTO settings(name,value) VALUES('avatar_mirror_styles',?)", [$text]);
+        settings_cache(true);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => 1, 'style' => $style, 'styles' => setting('avatar_mirror_styles', '')], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     $url = cache_avatar_url($style, $seed);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => 1, 'url' => $url], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['ok' => str_starts_with($url, asset_url('avatars/')) ? 1 : 0, 'url' => $url, 'style' => $style, 'seed' => $seed], JSON_UNESCAPED_UNICODE);
     exit;
 }
 function avatar_tag(int $uid, string $name, string $style = '', string $class = '', string $seed = ''): string
@@ -1192,9 +1224,7 @@ function avatar_tag(int $uid, string $name, string $style = '', string $class = 
     $seed = avatar_seed($style, $seed, $uid);
     $remote = avatar_remote_url($style, $seed);
     $src = local_avatar_url($style, $seed, $remote);
-    $is_remote = setting('avatar_local', '0') === '1' && $src === $remote;
-    $attrs = $is_remote ? ' data-avatar-sync="' . h(route_url('avatar_sync', ['style' => $style, 'seed' => $seed])) . '"' : '';
-    return '<img class="' . h($classes . ($is_remote ? ' remote' : '')) . '" src="' . h($src) . '" alt="' . h($name) . '" loading="lazy"' . $attrs . '>';
+    return '<img class="' . h($classes) . '" src="' . h($src) . '" alt="' . h($name) . '" loading="lazy">';
 }
 function app_url(string $path = ''): string
 {
@@ -1352,10 +1382,20 @@ function avatar_picker_html(array $u): string
     $seed = (string)($u['avatar_seed'] ?? '');
     if ($seed !== '') $seed = avatar_seed($style ?: 'dylan', $seed, $uid);
     $name = (string)($u['username'] ?? '');
-    $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style"><option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
-    foreach (avatar_styles() as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
-    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</button>';
+    $mirror_styles = avatar_mirror_styles();
+    $local_only = !empty($mirror_styles);
+    $styles = avatar_styles();
+    if ($local_only) {
+        $styles = array_filter($styles, fn($v, $k) => in_array($k, $mirror_styles, true), ARRAY_FILTER_USE_BOTH);
+        if (!isset($styles[$style])) $style = (string)array_key_first($styles);
+        if ($seed === '') $seed = avatar_seed($style ?: 'dylan', (string)$uid, $uid);
+    }
     $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
+    $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '" data-avatar-base="' . h(asset_url('avatars/')) . '" data-avatar-mirror-styles="' . h(setting('avatar_mirror_styles', '')) . '" data-avatar-local-only="' . ($local_only ? '1' : '0') . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style">';
+    if (!$local_only) $html .= '<option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
+    foreach ($styles as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
+    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options">';
+    if (!$local_only) $html .= '<button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</button>';
     foreach ($seeds as $s) $html .= '<button class="avatar-option' . ($s === $seed ? ' active' : '') . '" type="button" data-seed="' . h($s) . '">' . avatar_tag($uid, $name, $style, '', $s) . '</button>';
     return $html . '</div></div></div>';
 }
@@ -1521,11 +1561,17 @@ function save_user(bool $admin = false): void
     $username = post('username', 40);
     $email = post('email', 120);
     $bio = post('bio', 1000);
+    $user_id = id();
     $avatar_style = avatar_style(post('avatar_style', 40));
     $avatar_seed = post('avatar_seed', 80);
     if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
+    $avatar_mirror_styles = avatar_mirror_styles();
+    if ($avatar_mirror_styles && (isset($_POST['avatar_style']) || isset($_POST['avatar_seed']))) {
+        if ($avatar_style === '') $avatar_style = (string)$avatar_mirror_styles[0];
+        if (!in_array($avatar_style, $avatar_mirror_styles, true)) err('头像目录不在本地镜像设置中');
+        if ($avatar_seed === '') $avatar_seed = avatar_seed($avatar_style, (string)$user_id);
+    }
     if ($username === '') err('用户名不能为空');
-    $user_id = id();
     $old_user = $user_id ? one("SELECT username,group_id,is_banned,is_muted FROM users WHERE id=?", [$user_id]) : null;
     if ($user_id && !$old_user) err('用户不存在');
     if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && in_array(function_exists('mb_strtolower') ? mb_strtolower($username, 'UTF-8') : strtolower($username), array_map(fn($v) => function_exists('mb_strtolower') ? mb_strtolower($v, 'UTF-8') : strtolower($v), preg_split('/[\s,，]+/u', setting('reserved_usernames'), -1, PREG_SPLIT_NO_EMPTY) ?: []), true)) err('用户名已保留');
@@ -2265,7 +2311,8 @@ function admin_page(): void
         $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
         $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label><label class="grid"><span>头像是否镜像到本地</span><input type="checkbox" name="avatar_local" value="1"' . ((int)$s['avatar_local'] ? ' checked' : '') . '></label><label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="muted" data-avatar-mirror-status></span></div></div></label>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
@@ -2360,7 +2407,7 @@ try {
     if ($a === 'home') home_page();
     elseif ($a === 'search') search_page();
     elseif ($a === 'form_error') form_error_page();
-    elseif ($a === 'avatar_sync') avatar_sync_page();
+    elseif ($a === 'avatar_mirror') avatar_mirror_page();
     elseif ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
     elseif ($a === 'forgot_password') forgot_password_page();
