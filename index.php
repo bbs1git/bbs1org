@@ -1297,6 +1297,7 @@ function markdown_inline(string $text): string
 {
     $text = h($text);
     $codes = [];
+    $clean_url = fn($url) => html_entity_decode((string)$url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $text = preg_replace_callback('/`([^`\n]+)`/u', function ($m) use (&$codes) {
         $key = "\x1A" . count($codes) . "\x1A";
         $codes[$key] = '<code>' . $m[1] . '</code>';
@@ -1306,11 +1307,12 @@ function markdown_inline(string $text): string
     $text = preg_replace('/(?<!\*)\*([^*\n]+)\*(?!\*)/u', '<em>$1</em>', $text) ?? $text;
     $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
         $key = "\x1A" . count($codes) . "\x1A";
-        $codes[$key] = '<img src="' . h($m[2]) . '" alt="' . $m[1] . '" loading="lazy">';
+        $url = html_entity_decode((string)$m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $codes[$key] = '<img src="' . h($url) . '" alt="' . $m[1] . '" loading="lazy">';
         return $key;
     }, $text) ?? $text;
-    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) {
-        return '<a href="' . h($m[2]) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
+    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use ($clean_url) {
+        return '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
     }, $text) ?? $text;
     $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(topic|reply)?(\d+)/u', function ($m) {
         $type = $m[2] ?: 'reply';
@@ -1318,8 +1320,9 @@ function markdown_inline(string $text): string
         return '<a href="' . $url . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . $type . (int)$m[3] . '</a>';
     }, $text) ?? $text;
     $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
-        $url = rtrim($m[1], '.,;:!?');
-        $tail = substr($m[1], strlen($url));
+        $raw_url = rtrim($m[1], '.,;:!?');
+        $url = html_entity_decode($raw_url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $tail = substr($m[1], strlen($raw_url));
         return '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . h($url) . '</a>' . h($tail);
     }, $text) ?? $text;
     return strtr($text, $codes);
