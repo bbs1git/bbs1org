@@ -623,10 +623,6 @@ function admin_flag(int $yes, bool $danger = false): string
 {
     return '<span class="admin-flag' . ($yes ? ($danger ? ' danger' : ' on') : '') . '">' . ($yes ? '是' : '否') . '</span>';
 }
-function admin_add_head(string $url): string
-{
-    return '<a class="admin-head-add" href="' . h($url) . '">添加</a>';
-}
 function admin_list_head(string $left = '', string $right = ''): string
 {
     return '<div class="admin-list-head"><div class="admin-head-inline"><div class="admin-head-left-slot">' . $left . '</div><div class="admin-head-right-slot">' . $right . '</div></div></div>';
@@ -639,7 +635,8 @@ function admin_bulk_delete_bar(string $tab = ''): string
         foreach (forums_cache() as $f) $forum_select .= '<option value="' . (int)$f['id'] . '">' . h($f['name']) . '</option>';
         $forum_select .= '</select></span>';
         $actions = '<div class="bulk-action-group"><select class="bulk-action-select" name="batch_action" form="admin-bulk-form" data-bulk-action onchange="toggleBulkForum(this)"><option value="delete">删除</option><option value="move">批量转移</option></select>' . $forum_select . '</div>';
-    } else $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option></select>';
+    } elseif ($tab === 'trash') $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="restore">恢复</option></select>';
+    else $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option></select>';
     return '<div class="bulk-bar"><label class="bulk-select-all"><input type="checkbox" data-select-all><span>全选</span></label>' . $actions . '<button class="danger bulk-delete" type="submit" form="admin-bulk-form">执行</button></div>';
 }
 function admin_user_row(array $u, bool $manageable = true): string
@@ -1555,7 +1552,7 @@ function admin_trash_row(array $row): string
     $data = json_decode((string)$row['row_data'], true);
     $title = (['users' => '用户', 'topics' => '主题', 'replies' => '回帖'][(string)$row['table_name']] ?? (string)$row['table_name']) . ' #' . (int)$row['row_id'];
     $summary = is_array($data) ? json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : (string)$row['row_data'];
-    return '<li class="admin-list-item"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre><div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'restore', 'id' => (int)$row['id']])) . '" onclick="return confirm(\'确定恢复？\')">恢复</a></div></li>';
+    return '<li class="admin-list-item admin-object-row admin-trash-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$row['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre></div><div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'restore', 'id' => (int)$row['id']])) . '" onclick="return confirm(\'确定恢复？\')">恢复</a></div></li>';
 }
 function refresh_topic_stats(int $tid): void
 {
@@ -2328,17 +2325,17 @@ function admin_page(): void
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('users', $q), $manageable ? admin_add_head(admin_url(['do' => 'edit', 'type' => 'user'])) : '') . '<ul class="admin-manage-list">';
+        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('users', $q), '') . '<ul class="admin-manage-list">';
         foreach (admin_users_list($q, $admin_size, $admin_offset, $user_group_id, $user_banned_filter, $user_muted_filter) as $u) $html .= admin_user_row($u, $manageable);
         $html .= '</ul></div>';
         if ($manageable) $html .= admin_bulk_delete_bar('users');
         $html .= admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter);
     } elseif ($tab === 'groups') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th>' . admin_add_head(admin_url(['do' => 'edit', 'type' => 'group'])) . '</th></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th></th></tr>';
         foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th>' . admin_add_head(admin_url(['do' => 'edit', 'type' => 'forum'])) . '</th></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th></th></tr>';
         foreach (forums_cache() as $f) {
             $perm = [];
             $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
@@ -2350,7 +2347,7 @@ function admin_page(): void
     } elseif ($tab === 'topics') {
         $total = admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id);
         if ($manageable) $html .= admin_bulk_delete_form_open('topics', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), $manageable ? admin_add_head(route_url('topic_edit')) : '') . '<ul class="admin-manage-list">';
+        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), '') . '<ul class="admin-manage-list">';
         foreach (admin_topics_list($q, $admin_size, $admin_offset, $topic_field, $topic_forum_id) as $t) $html .= admin_topic_row($t, $manageable);
         $html .= '</ul></div>';
         if ($manageable) $html .= admin_bulk_delete_bar('topics');
@@ -2367,10 +2364,12 @@ function admin_page(): void
         $trash_table = in_array((string)($_GET['table'] ?? ''), ['users', 'topics', 'replies'], true) ? (string)$_GET['table'] : '';
         $total = admin_trash_count($trash_table);
         $url = admin_url(['tab' => 'trash', 'table' => $trash_table]);
+        if ($manageable) $html .= admin_bulk_delete_form_open('trash', '');
         $html .= '<div class="admin-list-panel">' . admin_list_head(admin_trash_search_form($trash_table), '') . '<ul class="admin-manage-list">';
         foreach (admin_trash_list($trash_table, $admin_size, $admin_offset) as $row) $html .= admin_trash_row($row);
         if ($total === 0) $html .= '<li class="empty-state">暂无数据</li>';
         $html .= '</ul></div>';
+        if ($manageable) $html .= admin_bulk_delete_bar('trash');
         $phtml = paginate($total, $admin_page, $admin_size, $url);
         $html .= $phtml === '' ? '' : '<div class="pagination-bar">' . $phtml . '</div>';
     } else not_found('你访问的页面不存在');
@@ -2465,9 +2464,14 @@ try {
             need_manage();
             $tab = $_POST['tab'] ?? '';
             $action = (string)($_POST['batch_action'] ?? 'delete');
-            if (!in_array($tab, ['users', 'topics', 'replies'], true)) err('参数错误');
+            if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
             $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
-            if ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
+            if ($tab === 'trash' && $action === 'restore') {
+                foreach ($ids as $trash_id) {
+                    $type = trash_restore_row($trash_id);
+                    if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
+                }
+            } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
                 $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted';
                 $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
                 foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE users SET $field=? WHERE id=?", [$value, $uid]);
