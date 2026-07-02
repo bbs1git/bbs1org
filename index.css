@@ -267,6 +267,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .avatar-mirror-box{display:grid;gap:8px}
 .avatar-mirror-box textarea{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .avatar-mirror-actions{margin:0}
+.avatar-mirror-status{color:var(--muted);font-size:12px}
+.avatar-mirror-status:empty{display:none}
 .settings-interval-field span{display:grid;gap:3px}
 .settings-interval-field small{color:#a3aab5;font-size:11px;font-weight:400;line-height:1.4}
 .settings-opcache-box{display:grid;gap:6px;align-items:start;margin-top:12px;padding-top:10px}
