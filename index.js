@@ -60,11 +60,23 @@ function refreshAvatarPicker(p) {
     if (i) i.src = avatarPickerUrl(p, v);
     p?.querySelectorAll(".avatar-option").forEach(b => {
         const seed = b.dataset.seed || "";
-        const img = b.querySelector("img");
-        if (img) img.src = avatarPickerUrl(p, seed);
         b.classList.toggle("active", seed === v);
     });
 }
+async function syncRemoteAvatars() {
+    const items = [...document.querySelectorAll(".avatar-img.remote[data-avatar-sync]")];
+    for (const img of items) {
+        try {
+            const r = await fetch(img.dataset.avatarSync, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+            const j = await r.json();
+            if (j?.ok && j.url) img.src = j.url;
+        } catch (e) {
+        }
+        img.classList.remove("remote");
+    }
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", syncRemoteAvatars);
+else syncRemoteAvatars();
 document.addEventListener("change", e => {
     const p = e.target.closest(".avatar-picker");
     if (p) refreshAvatarPicker(p);

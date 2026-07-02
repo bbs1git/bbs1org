@@ -1152,9 +1152,19 @@ function local_avatar_url(string $style, string $seed, string $remote): string
     $key = $style . "\n" . $seed;
     if (isset($urls[$key])) return $urls[$key];
     if (setting('avatar_local', '0') !== '1') return $remote;
-    if (!is_dir(AVATAR_DIR) && !mkdir(AVATAR_DIR, 0755, true)) return $remote;
     $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
     if (is_file($file)) return $urls[$key] = asset_url('avatars/' . basename($file));
+    return $remote;
+}
+function cache_avatar_url(string $style, string $seed): string
+{
+    $style = avatar_style($style) ?: 'dylan';
+    $seed = avatar_seed($style, $seed);
+    $remote = avatar_remote_url($style, $seed);
+    if (setting('avatar_local', '0') !== '1') return $remote;
+    if (!is_dir(AVATAR_DIR) && !mkdir(AVATAR_DIR, 0755, true)) return $remote;
+    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
+    if (is_file($file)) return asset_url('avatars/' . basename($file));
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
     $context = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
     $svg = @file_get_contents($remote, false, $context);
@@ -1162,9 +1172,18 @@ function local_avatar_url(string $style, string $seed, string $remote): string
     if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
     if (!@rename($tmp, $file)) {
         @unlink($tmp);
-        return is_file($file) ? $urls[$key] = asset_url('avatars/' . basename($file)) : $remote;
+        return is_file($file) ? asset_url('avatars/' . basename($file)) : $remote;
     }
-    return $urls[$key] = asset_url('avatars/' . basename($file));
+    return asset_url('avatars/' . basename($file));
+}
+function avatar_sync_page(): void
+{
+    $style = avatar_style((string)($_GET['style'] ?? '')) ?: 'dylan';
+    $seed = avatar_seed($style, (string)($_GET['seed'] ?? ''));
+    $url = cache_avatar_url($style, $seed);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => 1, 'url' => $url], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 function avatar_tag(int $uid, string $name, string $style = '', string $class = '', string $seed = ''): string
 {
@@ -1172,7 +1191,10 @@ function avatar_tag(int $uid, string $name, string $style = '', string $class = 
     $style = avatar_style($style) ?: 'dylan';
     $seed = avatar_seed($style, $seed, $uid);
     $remote = avatar_remote_url($style, $seed);
-    return '<img class="' . h($classes) . '" src="' . h(local_avatar_url($style, $seed, $remote)) . '" alt="' . h($name) . '" loading="lazy">';
+    $src = local_avatar_url($style, $seed, $remote);
+    $is_remote = setting('avatar_local', '0') === '1' && $src === $remote;
+    $attrs = $is_remote ? ' data-avatar-sync="' . h(route_url('avatar_sync', ['style' => $style, 'seed' => $seed])) . '"' : '';
+    return '<img class="' . h($classes . ($is_remote ? ' remote' : '')) . '" src="' . h($src) . '" alt="' . h($name) . '" loading="lazy"' . $attrs . '>';
 }
 function app_url(string $path = ''): string
 {
@@ -1332,9 +1354,9 @@ function avatar_picker_html(array $u): string
     $name = (string)($u['username'] ?? '');
     $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style"><option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
     foreach (avatar_styles() as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
-    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><div class="avatar-option' . ($seed === '' ? ' active' : '') . '" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</div>';
+    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">默认</button>';
     $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
-    foreach ($seeds as $s) $html .= '<div class="avatar-option' . ($s === $seed ? ' active' : '') . '" data-seed="' . h($s) . '">' . avatar_tag($uid, $name, $style, '', $s) . '</div>';
+    foreach ($seeds as $s) $html .= '<button class="avatar-option' . ($s === $seed ? ' active' : '') . '" type="button" data-seed="' . h($s) . '">' . h($s) . '</button>';
     return $html . '</div></div></div>';
 }
 function topic_post_row(array $row, string $body, int $time, string $ops = '', string $title = '', string $stats = '', bool $highlight = false): string
@@ -2338,6 +2360,7 @@ try {
     if ($a === 'home') home_page();
     elseif ($a === 'search') search_page();
     elseif ($a === 'form_error') form_error_page();
+    elseif ($a === 'avatar_sync') avatar_sync_page();
     elseif ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
     elseif ($a === 'forgot_password') forgot_password_page();
