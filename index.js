@@ -60,6 +60,8 @@ function refreshAvatarPicker(p) {
     if (i) i.src = avatarPickerUrl(p, v);
     p?.querySelectorAll(".avatar-option").forEach(b => {
         const seed = b.dataset.seed || "";
+        const img = b.querySelector("img");
+        if (img) img.src = avatarPickerUrl(p, seed);
         b.classList.toggle("active", seed === v);
     });
 }

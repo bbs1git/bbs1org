@@ -1354,9 +1354,9 @@ function avatar_picker_html(array $u): string
     $name = (string)($u['username'] ?? '');
     $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style"><option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
     foreach (avatar_styles() as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
-    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">默认</button>';
+    $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options"><button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</button>';
     $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
-    foreach ($seeds as $s) $html .= '<button class="avatar-option' . ($s === $seed ? ' active' : '') . '" type="button" data-seed="' . h($s) . '">' . h($s) . '</button>';
+    foreach ($seeds as $s) $html .= '<button class="avatar-option' . ($s === $seed ? ' active' : '') . '" type="button" data-seed="' . h($s) . '">' . avatar_tag($uid, $name, $style, '', $s) . '</button>';
     return $html . '</div></div></div>';
 }
 function topic_post_row(array $row, string $body, int $time, string $ops = '', string $title = '', string $stats = '', bool $highlight = false): string
