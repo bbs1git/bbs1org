@@ -210,6 +210,7 @@ $db->exec("INSERT OR IGNORE INTO forums(id,name,description,sort,last_topic_id,l
 $settings = [
     'site_name' => $site_name,
     'site_closed' => '0',
+    'pretty_url' => '0',
     'allow_register' => '1',
     'reserved_usernames' => 'admin,administrator,root,system',
     'default_group_id' => '2',
