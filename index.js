@@ -343,9 +343,10 @@ document.addEventListener("click", e => {
         window.location.href = quote.href;
         return;
     }
-    const replyid = (quote.dataset.replyid || "").trim();
+    const quoteId = (quote.dataset.id || quote.dataset.replyid || "").trim();
     const type = (quote.dataset.type || "reply").trim();
-    const mention = "@" + (quote.dataset.username || "").trim() + (replyid ? " #" + type + replyid : "") + " ";
+    const marker = quoteId ? (type === "topic" ? " #t" + quoteId : " #" + quoteId) : "";
+    const mention = "@" + (quote.dataset.username || "").trim() + marker + " ";
     if (!textarea.value.includes(mention)) {
         const prefix = textarea.value && !textarea.value.endsWith("\n") ? "\n" : "";
         textarea.value += prefix + mention;

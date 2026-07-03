@@ -391,6 +391,7 @@ function notification_badge_html(int $count): string
 }
 function notification_excerpt(string $body, int $max = 120): string
 {
+    $body = preg_replace('/^\s*>.*(?:\n|$)/mu', '', $body) ?? $body;
     $body = trim(preg_replace('/\s+/u', ' ', $body) ?? '');
     return cut($body, $max);
 }
@@ -1355,10 +1356,10 @@ function markdown_inline(string $text): string
     $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use ($clean_url) {
         return '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
     }, $text) ?? $text;
-    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(topic|reply)?(\d+)/u', function ($m) {
-        $type = $m[2] ?: 'reply';
-        $url = $type === 'topic' ? route_url('topic', ['id' => (int)$m[3]]) : route_url('topic', ['replyid' => (int)$m[3]]);
-        return '<a href="' . $url . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . $type . (int)$m[3] . '</a>';
+    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(t?)(\d+)/u', function ($m) {
+        $is_topic = $m[2] === 't';
+        $url = $is_topic ? route_url('topic', ['id' => (int)$m[3]]) : route_url('topic', ['replyid' => (int)$m[3]]);
+        return '<a href="' . $url . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . ($is_topic ? 't' : '') . (int)$m[3] . '</a>';
     }, $text) ?? $text;
     $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
         $raw_url = rtrim($m[1], '.,;:!?');
@@ -1381,20 +1382,50 @@ function markdown_html(string $text): string
         $paragraph = [];
         if ($block === '') return;
         $lines = explode("\n", $block);
-        if (count($lines) === 1 && preg_match('/^(#{1,6})\s+(.+)$/u', $lines[0], $m)) {
-            $level = strlen($m[1]);
-            $html[] = '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
-            return;
-        }
-        if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
-            $items = '';
-            foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
-            if ($items !== '') {
-                $html[] = '<ul>' . $items . '</ul>';
-                return;
+        $render_plain = function (array $lines): string {
+            $block = trim(implode("\n", $lines));
+            if ($block === '') return '';
+            if (count($lines) === 1 && preg_match('/^(#{1,6})\s+(.+)$/u', $lines[0], $m)) {
+                $level = strlen($m[1]);
+                return '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
+            }
+            if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
+                $items = '';
+                foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
+                if ($items !== '') return '<ul>' . $items . '</ul>';
+            }
+            return '<p>' . str_replace("\n", '<br>', markdown_inline($block)) . '</p>';
+        };
+        $has_quote = false;
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*>\s?/u', $line)) {
+                $has_quote = true;
+                break;
             }
         }
-        $html[] = '<p>' . str_replace("\n", '<br>', markdown_inline($block)) . '</p>';
+        if (!$has_quote) {
+            $html[] = $render_plain($lines);
+            return;
+        }
+        $chunk = [];
+        $quote = null;
+        $append_chunk = function () use (&$html, &$chunk, &$quote, $render_plain) {
+            if (!$chunk) return;
+            if ($quote) {
+                $inner = trim(implode("\n", array_map(fn($line) => preg_replace('/^\s*>\s?/u', '', $line) ?? $line, $chunk)));
+                $html[] = '<blockquote>' . ($inner === '' ? '' : markdown_html($inner)) . '</blockquote>';
+            } else {
+                $html[] = $render_plain($chunk);
+            }
+            $chunk = [];
+        };
+        foreach ($lines as $line) {
+            $is_quote = preg_match('/^\s*>\s?/u', $line) === 1;
+            if ($quote !== null && $is_quote !== $quote) $append_chunk();
+            $quote = $is_quote;
+            $chunk[] = $line;
+        }
+        $append_chunk();
     };
     foreach (explode("\n", $text) as $line) {
         if (preg_match('/^\s*```\s*[\w-]*\s*$/u', $line)) {
@@ -1462,7 +1493,7 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
 function quote_reply_action(array $row): string
 {
     $type = isset($row['topic_id']) ? 'reply' : 'topic';
-    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-type="' . $type . '" data-replyid="' . (int)($row['id'] ?? 0) . '" title="引用回复"><span>引用回复</span></a>';
+    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-type="' . $type . '" data-id="' . (int)($row['id'] ?? 0) . '" title="引用回复"><span>引用回复</span></a>';
 }
 function topic_list_select_columns(string $table = 'topics'): string
 {
@@ -1752,7 +1783,9 @@ function user_notify_page(): void
     $target = one("SELECT id,username,avatar_style,avatar_seed,group_id FROM users WHERE id=?", [id()]) ?: err('用户不存在');
     if ((int)$target['id'] === uid()) err('不能通知自己');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $content = post('content', 500);
+        $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
+        $body = post('content', 500);
+        $content = trim(($quote !== '' ? '> ' . $quote . "\n\n" : '') . $body);
         if ($content === '') {
             ajax_request() ? ajax_error('通知内容不能为空') : err('通知内容不能为空');
         }
@@ -1766,8 +1799,8 @@ function user_notify_page(): void
     }
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
     $quote = notification_excerpt((string)($_GET['quote'] ?? ''), 100);
-    $value = $quote !== '' ? '> ' . $quote . "\n\n" : '';
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . '<textarea name="content" placeholder="输入私信内容" required>' . h($value) . '</textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $quote_html = $quote !== '' ? '<blockquote class="notify-quote-card"><p>' . h($quote) . '</p></blockquote><input type="hidden" name="quote" value="' . h($quote) . '">' : '';
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -2452,7 +2485,7 @@ function admin_page(): void
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
         $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
