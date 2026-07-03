@@ -67,6 +67,12 @@ function val(string $sql, array $p = [])
 {
     return q($sql, $p)->fetchColumn();
 }
+function cache_write_php(string $file, mixed $value): void
+{
+    if (!is_dir(dirname($file))) mkdir(dirname($file), 0755, true);
+    file_put_contents($file, "<?php\nreturn " . var_export($value, true) . ";\n", LOCK_EX);
+    if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+}
 function tx(callable $fn)
 {
     $db = db();
@@ -153,8 +159,7 @@ function settings_cache(bool $refresh = false): array
     $settings = default_settings();
     try {
         foreach (q("SELECT name,value FROM settings") as $row) $settings[(string)$row['name']] = (string)$row['value'];
-        if (!is_dir(dirname(SETTING_CACHE_FILE))) mkdir(dirname(SETTING_CACHE_FILE), 0755, true);
-        file_put_contents(SETTING_CACHE_FILE, "<?php\nreturn " . var_export($settings, true) . ";\n", LOCK_EX);
+        cache_write_php(SETTING_CACHE_FILE, $settings);
     } catch (Throwable $e) {
     }
     return $settings;
@@ -324,8 +329,7 @@ function forums_cache(bool $refresh = false): array
         if (is_array($cached)) return $forums = $cached;
     }
     $forums = q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
-    if (!is_dir(dirname(FORUM_CACHE_FILE))) mkdir(dirname(FORUM_CACHE_FILE), 0755, true);
-    file_put_contents(FORUM_CACHE_FILE, "<?php\nreturn " . var_export($forums, true) . ";\n", LOCK_EX);
+    cache_write_php(FORUM_CACHE_FILE, $forums);
     return $forums;
 }
 function forum_by_id(int $id): ?array
@@ -369,8 +373,7 @@ function groups_cache(bool $refresh = false): array
         if (is_array($cached)) return $groups = $cached;
     }
     $groups = q("SELECT id,name,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
-    if (!is_dir(dirname(GROUP_CACHE_FILE))) mkdir(dirname(GROUP_CACHE_FILE), 0755, true);
-    file_put_contents(GROUP_CACHE_FILE, "<?php\nreturn " . var_export($groups, true) . ";\n", LOCK_EX);
+    cache_write_php(GROUP_CACHE_FILE, $groups);
     return $groups;
 }
 function group_by_id(int $id): ?array
@@ -815,8 +818,7 @@ function stats_cache(bool $refresh = false): array
         'users' => (int)val("SELECT COUNT(*) FROM users"),
         'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM users ORDER BY id DESC LIMIT 8")->fetchAll(),
     ];
-    if (!is_dir(dirname(STATS_CACHE_FILE))) mkdir(dirname(STATS_CACHE_FILE), 0755, true);
-    file_put_contents(STATS_CACHE_FILE, "<?php\nreturn " . var_export($stats, true) . ";\n", LOCK_EX);
+    cache_write_php(STATS_CACHE_FILE, $stats);
     return $stats;
 }
 function now(): int

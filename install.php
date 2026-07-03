@@ -35,6 +35,12 @@ function i_save_db_config(string $db_name): void
     if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
     file_put_contents(INSTALL_DB_CONFIG_FILE, "<?php\nreturn ['db_file' => " . var_export($db_name, true) . "];\n", LOCK_EX);
 }
+function i_cache_write_php(string $file, mixed $value): void
+{
+    if (!is_dir(dirname($file))) mkdir(dirname($file), 0755, true);
+    file_put_contents($file, "<?php\nreturn " . var_export($value, true) . ";\n", LOCK_EX);
+    if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+}
 function i_install_error(string $title, string $message): void
 {
     if (PHP_SAPI === 'cli') {
@@ -77,18 +83,18 @@ function i_save_cache(PDO $db): void
 {
     if (!is_dir(INSTALL_CACHE_DIR)) mkdir(INSTALL_CACHE_DIR, 0755, true);
     $forums = $db->query("SELECT id,name,description,sort,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
-    file_put_contents(INSTALL_FORUM_CACHE_FILE, "<?php\nreturn " . var_export($forums, true) . ";\n", LOCK_EX);
+    i_cache_write_php(INSTALL_FORUM_CACHE_FILE, $forums);
     $groups = $db->query("SELECT id,name,allow_manage,allow_admin FROM groups ORDER BY id")->fetchAll();
-    file_put_contents(INSTALL_GROUP_CACHE_FILE, "<?php\nreturn " . var_export($groups, true) . ";\n", LOCK_EX);
+    i_cache_write_php(INSTALL_GROUP_CACHE_FILE, $groups);
     $stats = [
         'topics' => (int)$db->query("SELECT COUNT(*) FROM topics")->fetchColumn(),
         'replies' => (int)$db->query("SELECT COUNT(*) FROM replies")->fetchColumn(),
         'users' => (int)$db->query("SELECT COUNT(*) FROM users")->fetchColumn(),
         'latest_users' => $db->query("SELECT id,username,avatar_style,avatar_seed FROM users ORDER BY id DESC LIMIT 8")->fetchAll(),
     ];
-    file_put_contents(INSTALL_STATS_CACHE_FILE, "<?php\nreturn " . var_export($stats, true) . ";\n", LOCK_EX);
+    i_cache_write_php(INSTALL_STATS_CACHE_FILE, $stats);
     $settings = array_column($db->query("SELECT name,value FROM settings")->fetchAll(), 'value', 'name');
-    file_put_contents(INSTALL_SETTING_CACHE_FILE, "<?php\nreturn " . var_export($settings, true) . ";\n", LOCK_EX);
+    i_cache_write_php(INSTALL_SETTING_CACHE_FILE, $settings);
 }
 function i_html(string $title, string $body): void
 {
