@@ -254,7 +254,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .form-panel input,.form-panel select{max-width:450px}
 .form-panel button{justify-self:start;}
 .form-panel .muted{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius-sm);background:#fafafa}
-.form-error-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.form-error-panel{display:grid;gap:8px;padding:6px 0;background:transparent}
+.form-error-panel h2{margin:0;color:var(--danger);font-size:15px}
+.form-error-panel p{margin:0;color:#555;line-height:1.7}
 .reply-edit-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .reply-edit-head h2{margin:0}
 .reply-edit-ops{display:inline-flex;align-items:center;gap:10px}
@@ -269,12 +271,13 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .form-link-left{margin:10px 0 0;color:#888;font-size:12px;text-align:left}
 .form-link-left a{color:#777}
 .form-link-left a:hover{color:var(--brand)}
-.profile-exit{margin-top:14px;padding-top:12px;border-top:1px solid #f1f1f1}
-.profile-exit a{display:inline-grid;gap:2px;min-width:148px;padding:8px 10px;border-radius:var(--radius-sm);color:#666}
+.profile-exit{display:flex;justify-content:flex-start;margin-top:14px;padding-top:12px;border-top:1px solid #f1f1f1}
+.profile-exit .post-action-form{display:inline-flex!important;width:auto!important;justify-self:start!important}
+.profile-exit a{display:inline-grid;gap:2px;min-width:0;padding:0;border-radius:0;color:#666}
 .profile-exit a:hover{background:#fafafa;color:#222}
 .profile-exit span{font-size:13px;font-weight:500;line-height:1.3}
 .profile-exit small{color:#aaa;font-size:11px;line-height:1.3}
-.profile-exit-button{display:inline-grid!important;justify-content:start!important;min-width:148px!important;min-height:0!important;padding:8px 10px!important;border:0!important;border-radius:var(--radius-sm)!important;background:transparent!important;color:#666!important;font-size:13px!important;font-weight:500!important;line-height:1.3!important}
+.profile-exit-button{display:inline-grid!important;justify-content:start!important;justify-items:start!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#666!important;font-size:13px!important;font-weight:500!important;line-height:1.3!important;text-align:left!important}
 .profile-exit-button:hover{background:#fafafa!important;color:#222!important}
 .topic-form-panel textarea{min-height:240px}
 .settings-form textarea{min-height:96px}

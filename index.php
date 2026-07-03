@@ -917,28 +917,10 @@ function set_flash(string $message): void
         'samesite' => 'Lax',
     ]);
 }
-function local_back_url(string $url, string $fallback = ''): string
-{
-    $fallback = $fallback !== '' ? $fallback : route_url('home');
-    $url = trim($url);
-    if ($url === '' || str_starts_with($url, '//')) return $fallback;
-    $parts = parse_url($url);
-    if (!is_array($parts)) return $fallback;
-    if (isset($parts['scheme']) || isset($parts['host'])) {
-        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
-        if (($parts['host'] ?? '') === '' || strcasecmp((string)$parts['host'], $host) !== 0) return $fallback;
-        $url = (string)($parts['path'] ?? '/');
-        if (isset($parts['query']) && $parts['query'] !== '') $url .= '?' . $parts['query'];
-    }
-    if ($url === '' || $url[0] !== '/') return $fallback;
-    if (str_contains($url, 'a=form_error')) return $fallback;
-    return $url;
-}
-function form_error_redirect(string $message, string $back = ''): never
+function form_error_redirect(string $message): never
 {
     $_SESSION['form_error'] = [
         'message' => $message,
-        'back' => local_back_url($back !== '' ? $back : (string)($_SERVER['HTTP_REFERER'] ?? ''), route_url('home')),
         'created_at' => time(),
     ];
     go(route_url('form_error'));
@@ -965,30 +947,26 @@ function go(string $u): never
     header("Location: $u");
     exit;
 }
+function error_page(string $title, string $message, int $status = 200): never
+{
+    if ($status > 0) http_response_code($status);
+    $message = trim($message);
+    $body = '<div class="form-panel form-error-panel"><h2>' . h($title) . '</h2><p>' . h($message !== '' ? $message : $title) . '</p></div>';
+    page($title, shell_html($body, sidebar_stack_html([sidebar_user_card_html()])));
+    exit;
+}
 function err(string $m): never
 {
     if (ajax_request()) ajax_error($m);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
     if ($_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
-    page('错误', shell_html('<div class="form-panel"><h2>错误</h2><p>' . h($m) . '</p></div>', sidebar_stack_html([sidebar_user_card_html()])));
-    exit;
-}
-function form_error_page(): void
-{
-    $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
-    unset($_SESSION['form_error']);
-    $message = trim((string)($data['message'] ?? '操作失败'));
-    $back = local_back_url((string)($data['back'] ?? ''), route_url('home'));
-    $body = '<div class="form-panel form-error-panel"><h2>操作失败</h2><p>' . h($message !== '' ? $message : '操作失败') . '</p><div class="form-error-actions"><a class="btn alt" href="' . h($back) . '">返回修改</a><a class="btn" href="' . h(route_url('home')) . '">返回首页</a></div></div>';
-    page('操作失败', shell_html($body, sidebar_stack_html([sidebar_user_card_html()])));
+    error_page('错误', $m);
 }
 function not_found(string $m): never
 {
-    http_response_code(404);
     if (ajax_request()) ajax_error($m);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
-    page('404', shell_html('<div class="form-panel"><h2>404</h2><p>' . h($m) . '</p><p class="auth-extra"><a href="' . h(route_url('home')) . '">返回首页</a></p></div>', sidebar_stack_html([sidebar_user_card_html()])));
-    exit;
+    error_page('404', $m, 404);
 }
 function cut(string $v, int $max): string
 {
@@ -2589,7 +2567,11 @@ try {
     $do = $_GET['do'] ?? '';
     if ($a === 'home') home_page();
     elseif ($a === 'search') search_page();
-    elseif ($a === 'form_error') form_error_page();
+    elseif ($a === 'form_error') {
+        $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
+        unset($_SESSION['form_error']);
+        error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
+    }
     elseif ($a === 'avatar_mirror') avatar_mirror_page();
     elseif ($a === 'login') login_page();
     elseif ($a === 'register') register_page();
