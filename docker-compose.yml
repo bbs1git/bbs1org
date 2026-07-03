@@ -3,6 +3,7 @@ services:
     image: php:8-fpm-bookworm
     restart: unless-stopped
     working_dir: /var/www/html
+    command: sh -c "mkdir -p /var/www/html/data /var/www/html/cache /var/www/html/avatars && chown -R www-data:www-data /var/www/html/data /var/www/html/cache /var/www/html/avatars && php-fpm"
     volumes:
       - ./:/var/www/html
       - data:/var/www/html/data
