@@ -38,12 +38,12 @@ docker compose up -d
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
 cd /var/www/bbs1org
-mkdir -p data cache
-chown -R www-data:www-data data cache
+mkdir -p data cache avatars
+chown -R www-data:www-data data cache avatars
 ```
 
 1. 将站点根目录指向项目目录
-2. 确保 `data/` 和 `cache/` 可写
+2. 确保 `data/`、`cache/` 和 `avatars/` 可写
 3. 访问 `install.php` 完成安装
 
 ## 升级
