@@ -129,7 +129,6 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .notify-form textarea{min-height:132px;border-color:#e5e5e5;background:#fff;font-size:13px;line-height:1.7}
 .notify-form textarea::placeholder{color:#bbb}
 .notify-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.notify-actions button{min-width:82px}
 .notify-status{min-height:16px;color:var(--muted);font-size:12px}
 .modal-backdrop{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.35)}
 .modal-backdrop[hidden]{display:none!important}
@@ -139,6 +138,11 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .modal-close{min-width:28px;width:28px;height:28px;padding:0;border-radius:50%;background:transparent;color:#666}
 .modal-close:hover{background:#f3f3f3;color:#111}
 .modal-body{padding:14px}
+.confirm-box{display:grid;gap:14px}
+.confirm-message{margin:0;color:#333;font-size:14px;line-height:1.7}
+.prompt-input{width:100%;height:38px;padding:0 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:#111;font:inherit}
+.prompt-input:focus{border-color:var(--brand);outline:0;box-shadow:0 0 0 3px var(--brand-soft)}
+.confirm-actions{display:flex;justify-content:flex-end;gap:8px}
 .toast{position:fixed;left:50%;top:40%;z-index:50;transform:translate(-50%,-50%);max-width:calc(100vw - 32px);padding:10px 14px;border-radius:999px;background:rgba(17,24,39,.92);color:#fff;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .toast[hidden]{display:none!important}
 .post-ops{position:absolute;right:0;top:0;display:flex;align-items:center;gap:4px}
@@ -216,6 +220,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .btn.alt:hover{background:#f0f0f0;color:#222;border-color:#ccc}
 .btn.danger,button.danger{background:var(--danger)}
 button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid rgba(46,204,113,.28);outline-offset:2px}
+.post-action-form{display:inline-flex!important;margin:0!important;padding:0!important;gap:0!important}
+.post-action-form button{font:inherit}
 input,select,textarea{width:100%;border:1px solid #ddd;border-radius:var(--radius-sm);background:#fff;color:var(--text);font:inherit;padding:7px 9px}
 input:hover,select:hover,textarea:hover{border-color:#cfcfcf}
 input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(46,204,113,.12);outline:0}
@@ -240,16 +246,17 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .forum-group-checks .check{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:#555;font-size:12px}
 .forum-group-checks .check input{width:14px;height:14px}
 .form-panel input,.form-panel select{max-width:450px}
-.form-panel button{justify-self:start;min-width:88px}
+.form-panel button{justify-self:start;}
 .form-panel .muted{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius-sm);background:#fafafa}
 .form-error-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .reply-edit-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .reply-edit-head h2{margin:0}
 .reply-edit-ops{display:inline-flex;align-items:center;gap:10px}
-.reply-mute-link{color:#777;font-size:12px;white-space:nowrap}
-.reply-mute-link:hover{color:var(--brand)}
-.reply-delete-link{color:var(--danger);font-size:12px;white-space:nowrap}
-.reply-delete-link:hover{color:#b63a3a}
+.reply-edit-ops .post-action-form{width:auto!important;flex:0 0 auto}
+.reply-mute-link{width:auto!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;background:transparent!important;color:#777;font-size:12px;font-weight:400;line-height:1.4;white-space:nowrap}
+.reply-mute-link:hover{background:transparent!important;color:var(--brand)}
+.reply-delete-link{width:auto!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;background:transparent!important;color:var(--danger);font-size:12px;font-weight:400;line-height:1.4;white-space:nowrap}
+.reply-delete-link:hover{background:transparent!important;color:#b63a3a}
 .auth-extra{margin:8px 0 0;color:#888;font-size:12px;text-align:left}
 .auth-extra a{color:var(--brand)}
 .auth-extra a:hover{color:var(--brand-hover)}
@@ -261,6 +268,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .profile-exit a:hover{background:#fafafa;color:#222}
 .profile-exit span{font-size:13px;font-weight:500;line-height:1.3}
 .profile-exit small{color:#aaa;font-size:11px;line-height:1.3}
+.profile-exit-button{display:inline-grid!important;justify-content:start!important;min-width:148px!important;min-height:0!important;padding:8px 10px!important;border:0!important;border-radius:var(--radius-sm)!important;background:transparent!important;color:#666!important;font-size:13px!important;font-weight:500!important;line-height:1.3!important}
+.profile-exit-button:hover{background:#fafafa!important;color:#222!important}
 .topic-form-panel textarea{min-height:240px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
@@ -379,9 +388,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-content-title:hover{color:var(--brand)}
 .admin-content-text{min-width:0;color:#344054;line-height:1.65;white-space:normal}
 .admin-inline-ops{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-left:auto;font-size:12px}
-.admin-inline-ops a{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 9px;border:1px solid #e5eaf0;border-radius:6px;background:#fff;color:#667085;font-weight:500}
-.admin-inline-ops a:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
-.admin-inline-ops a.danger:hover{border-color:#f4b8b8;background:var(--danger-soft);color:var(--danger)}
+.admin-inline-ops a,.admin-inline-ops button{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 9px;border:1px solid #e5eaf0;border-radius:6px;background:#fff;color:#667085;font-size:12px;font-weight:500}
+.admin-inline-ops a:hover,.admin-inline-ops button:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.admin-inline-ops a.danger:hover,.admin-inline-ops button.danger:hover{border-color:#f4b8b8;background:var(--danger-soft);color:var(--danger)}
 .list th,.list td{max-width:420px;padding:11px 11px;border-bottom:1px solid #f1f1f1;overflow:hidden;text-overflow:ellipsis;text-align:left;vertical-align:middle}
 .list th{background:#fafafa;color:#777;font-size:12px;font-weight:600}
 .list tr:last-child td{border-bottom:none}
@@ -394,6 +403,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-bulk-list tr:hover td{background:#fbfdfc}
 .admin-bulk-list input[type=checkbox]{width:15px;height:15px}
 .admin-list-panel{border:1px solid #e7ecf1;border-radius:var(--radius);background:#fff;box-shadow:0 10px 26px rgba(16,24,40,.04);overflow:hidden}
+.admin-rebuild-fts-form{display:flex;justify-content:flex-end}
+.admin-rebuild-fts-form button{white-space:nowrap}
 .admin-list-head{padding:12px;border-bottom:1px solid #edf1f4;background:#fbfcfd}
 .admin-manage-list{list-style:none;margin:0;padding:0}
 .admin-list-item{padding:12px;border-bottom:1px solid #edf1f4}
@@ -417,6 +428,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .ops{white-space:nowrap}
 .ops a{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:2px 8px;border:1px solid #ddd;border-radius:var(--radius-sm);background:#fafafa;color:#666;font-size:12px}
 .ops a:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.ops .post-action-form{vertical-align:middle}
+.ops button{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:2px 8px;border:1px solid #ddd;border-radius:var(--radius-sm);background:#fafafa;color:#666;font-size:12px;font-weight:400}
+.ops button:hover{border-color:#f4b8b8;background:var(--danger-soft);color:var(--danger)}
 .pill{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:var(--radius-sm);background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:500}
 .avatar-picker select{min-width:0}
 .avatar-picker .avatar-img{width:100%;height:100%}

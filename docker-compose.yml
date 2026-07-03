@@ -1,12 +1,18 @@
 services:
   php:
-    build: .
+    image: php:8-fpm-bookworm
     restart: unless-stopped
+    working_dir: /var/www/html
     volumes:
+      - ./:/var/www/html:ro
       - data:/var/www/html/data
+      - avatars:/var/www/html/avatars
+      - ./docker/opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
+    tmpfs:
+      - /var/www/html/cache
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:stable-alpine
     restart: unless-stopped
     depends_on:
       - php
@@ -14,7 +20,9 @@ services:
       - "80:80"
     volumes:
       - ./:/var/www/html:ro
+      - avatars:/var/www/html/avatars:ro
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   data:
+  avatars:

@@ -28,10 +28,10 @@ https://bbs1.org
 cd /opt
 git clone https://github.com/bbs1org/bbs1org.git
 cd bbs1org
-docker compose up -d --build
+docker compose up -d
 ```
 
-构建完成后，访问 `install.php` 完成安装。
+启动完成后，访问 `install.php` 完成安装。
 
 ## 手动部署
 
@@ -46,6 +46,27 @@ chown -R www-data:www-data data cache
 2. 确保 `data/` 和 `cache/` 可写
 3. 访问 `install.php` 完成安装
 
+## 升级
+
+更新代码后，使用管理员账号登录论坛，然后访问 `update.php` 同步数据库结构和索引。`update.php` 只给管理员执行；未登录访问会提示先登录。
+
+手动部署：
+
+1. 上传或拉取新代码
+2. 登录管理员账号
+3. 浏览器访问 `https://你的域名/update.php`
+4. 点击“执行升级”
+
+Docker 部署：
+
+```bash
+cd /opt/bbs1org
+git pull
+docker compose up -d
+```
+
+然后登录管理员账号，浏览器访问 `http://服务器地址/update.php` 或你的正式域名下的 `update.php`，点击“执行升级”。
+
 ## 目录
 
 ```text
@@ -54,13 +75,13 @@ index.css           页面样式
 index.js            前端脚本
 install.php         安装脚本
 update.php          数据更新脚本
-Dockerfile          Docker 镜像
 docker-compose.yml  Compose 部署
 docker/             Nginx 配置
 data/               数据文件
 cache/              运行缓存
+avatars/            本地头像镜像
 ```
 
 ## 说明
 
-`data/` 和 `cache/` 都属于运行目录，生产环境应避免直接暴露给公网。
+`data/` 和 `cache/` 都属于运行目录，生产环境应避免直接暴露给公网。`avatars/` 用于本地头像镜像，可通过静态缓存加速访问。

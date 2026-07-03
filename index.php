@@ -3,8 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-session_start();
-define('APP_VERSION', 'v1.3');
+define('APP_VERSION', 'v1.5');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -68,6 +67,32 @@ function val(string $sql, array $p = [])
 {
     return q($sql, $p)->fetchColumn();
 }
+function tx(callable $fn)
+{
+    $db = db();
+    if ($db->inTransaction()) return $fn();
+    $db->beginTransaction();
+    try {
+        $result = $fn();
+        $db->commit();
+        return $result;
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
+    }
+}
+function secure_session_start(): void
+{
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'secure' => $secure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    session_start();
+}
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
     $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
@@ -100,6 +125,7 @@ function default_settings(): array
 {
     return [
         'site_name' => 'FORUM',
+        'site_base_url' => '',
         'site_closed' => '0',
         'pretty_url' => '0',
         'allow_register' => '1',
@@ -162,27 +188,7 @@ function clean_ip(string $value): string
 }
 function ip_addr(): string
 {
-    $headers = [
-        'HTTP_CF_CONNECTING_IP',
-        'HTTP_TRUE_CLIENT_IP',
-        'HTTP_X_REAL_IP',
-        'HTTP_X_FORWARDED_FOR',
-        'HTTP_X_FORWARDED',
-        'HTTP_FORWARDED',
-        'HTTP_CLIENT_IP',
-        'HTTP_X_APPENGINE_USER_IP',
-        'REMOTE_ADDR',
-    ];
-    foreach ($headers as $header) {
-        $value = trim((string)($_SERVER[$header] ?? ''));
-        if ($value === '') continue;
-        foreach (explode(',', $value) as $part) {
-            if (stripos($part, 'for=') !== false && preg_match('/(?:^|;)\s*for=([^;]+)/i', $part, $m)) $part = $m[1];
-            $ip = clean_ip($part);
-            if ($ip !== '') return $ip;
-        }
-    }
-    return '0.0.0.0';
+    return clean_ip((string)($_SERVER['REMOTE_ADDR'] ?? '')) ?: '0.0.0.0';
 }
 function rate_setting(string $key, string $default): int
 {
@@ -266,6 +272,17 @@ function clear_opcache_cache(): bool
         return false;
     }
 }
+function clean_site_base_url(string $url): string
+{
+    $url = rtrim(trim($url), '/');
+    if ($url === '') return '';
+    $parts = parse_url($url);
+    if (!is_array($parts)) return '';
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    $host = (string)($parts['host'] ?? '');
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') return '';
+    return $url;
+}
 function save_settings(): void
 {
     $site_name = post('site_name', 80);
@@ -274,6 +291,7 @@ function save_settings(): void
     if (!group_by_id($gid)) err('默认用户组不存在');
     $values = [
         'site_name' => $site_name,
+        'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')),
         'site_keywords' => post('site_keywords', 200),
         'site_description' => post('site_description', 500),
         'header_html' => post('header_html', 20000),
@@ -509,7 +527,8 @@ function admin_count(string $type, string $query = '', string $field = 'title', 
                 if (!$uids) return 0;
                 return (int)val("SELECT COUNT(*) FROM topics WHERE " . ($forum_id > 0 ? "forum_id=? AND " : "") . "user_id IN (" . implode(',', array_fill(0, count($uids), '?')) . ")", $forum_id > 0 ? array_merge([$forum_id], $uids) : $uids);
             }
-            return (int)val("SELECT COUNT(*) FROM topics" . ($forum_id > 0 ? " WHERE forum_id=? AND " : " WHERE ") . $field . " LIKE ? ESCAPE '\\'", $forum_id > 0 ? [$forum_id, $like] : [$like]);
+            [$condition, $search_params] = topic_search_condition($query, $field);
+            return (int)val("SELECT COUNT(*) FROM topics WHERE " . ($forum_id > 0 ? "forum_id=? AND " : "") . '(' . $condition . ')', $forum_id > 0 ? array_merge([$forum_id], $search_params) : $search_params);
         }
         return (int)val("SELECT COUNT(*) FROM topics" . ($forum_id > 0 ? " WHERE forum_id=?" : ""), $forum_id > 0 ? [$forum_id] : []);
     }
@@ -556,7 +575,8 @@ function admin_topics_list(string $query = '', int $size = 50, int $offset = 0, 
             if (!$uids) return [];
             return attach_users(q("SELECT id,forum_id,title,highlight_style,user_id,created_at FROM topics WHERE " . ($forum_id > 0 ? "forum_id=? AND " : "") . "user_id IN (" . implode(',', array_fill(0, count($uids), '?')) . ") ORDER BY id DESC LIMIT ? OFFSET ?", $forum_id > 0 ? array_merge([$forum_id], $uids, [$size, $offset]) : array_merge($uids, [$size, $offset]))->fetchAll());
         }
-        return attach_users(q("SELECT id,forum_id,title,highlight_style,user_id,created_at FROM topics" . ($forum_id > 0 ? " WHERE forum_id=? AND " : " WHERE ") . $field . " LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?", $forum_id > 0 ? [$forum_id, $like, $size, $offset] : [$like, $size, $offset])->fetchAll());
+        [$condition, $search_params] = topic_search_condition($query, $field);
+        return attach_users(q("SELECT id,forum_id,title,highlight_style,user_id,created_at FROM topics WHERE " . ($forum_id > 0 ? "forum_id=? AND " : "") . '(' . $condition . ') ORDER BY id DESC LIMIT ? OFFSET ?', $forum_id > 0 ? array_merge([$forum_id], $search_params, [$size, $offset]) : array_merge($search_params, [$size, $offset]))->fetchAll());
     }
     return attach_users(q("SELECT id,forum_id,title,highlight_style,user_id,created_at FROM topics" . ($forum_id > 0 ? " WHERE forum_id=?" : "") . " ORDER BY id DESC LIMIT ? OFFSET ?", $forum_id > 0 ? [$forum_id, $size, $offset] : [$size, $offset])->fetchAll());
 }
@@ -603,7 +623,11 @@ function admin_search_form(string $tab, string $query): string
 }
 function admin_bulk_delete_form_open(string $tab, string $query): string
 {
-    return '<form id="admin-bulk-form" method="post" action="' . h(admin_url(['do' => 'batch_action'])) . '" onsubmit="return confirm(\'确定执行批量操作？\')">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
+    return '<form id="admin-bulk-form" method="post" action="' . h(admin_url(['do' => 'batch_action'])) . '" data-confirm="确定执行批量操作？">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
+}
+function admin_rebuild_fts_form(): string
+{
+    return '<form class="admin-rebuild-fts-form" method="post" action="' . h(admin_url(['do' => 'rebuild_fts'])) . '" data-prompt-title="重建主题索引" data-prompt-message="请输入起始主题 ID，将重建该 ID 及之后的主题搜索索引。" data-prompt-field="start_id" data-prompt-value="1">' . form_token() . '<input type="hidden" name="start_id" value="1"><button class="admin-search-link" type="submit">重建索引</button></form>';
 }
 function admin_pagination(string $tab, string $query, int $total, int $page, int $size, string $field = '', int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1): string
 {
@@ -642,7 +666,7 @@ function admin_bulk_delete_bar(string $tab = ''): string
 function admin_user_row(array $u, bool $manageable = true): string
 {
     $g = group_by_id((int)$u['group_id']) ?: ['name' => ''];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'], 'danger', '确定删除？') . '</div>' : '';
     $states = array_filter([h($g['name']), (int)($u['is_banned'] ?? 0) ? '禁访' : '', (int)($u['is_muted'] ?? 0) ? '禁言' : '']);
     return '<li class="admin-list-item admin-object-row admin-user-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$u['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<div class="admin-user-text"><strong>' . h($u['username']) . '</strong><span>' . implode(' / ', $states) . ' · ID ' . (int)$u['id'] . '</span></div></div></div>' . $ops . '</li>';
 }
@@ -656,7 +680,7 @@ function user_state_tag_html(array $u): string
 function admin_topic_row(array $t, bool $manageable = true): string
 {
     $url = route_url('topic', ['id' => (int)$t['id']]);
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'], 'danger', '确定删除？') . '</div>' : '';
     $forum = forum_by_id((int)($t['forum_id'] ?? 0)) ?: ['name' => ''];
     $forum_tag = $forum['name'] !== '' ? '<span class="admin-forum-name">' . h($forum['name']) . '</span>' : '';
     return '<li class="admin-list-item admin-object-row admin-topic-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '</span><span>ID ' . (int)$t['id'] . '</span><span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</span>' . $forum_tag . '</div></div>' . $ops . '</li>';
@@ -665,7 +689,7 @@ function admin_reply_row(array $r, bool $manageable = true): string
 {
     $topic_url = route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]);
     $topic_title = (string)($r['topic_title'] ?? '主题已删除');
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a><a class="danger" href="' . h(admin_url(['do' => 'delete', 'type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'], 'danger', '确定删除？') . '</div>' : '';
     return '<li class="admin-list-item admin-object-row admin-reply-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$r['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h(cut($r['body'], 150)) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
@@ -1055,6 +1079,24 @@ function form_token(): string
 {
     return '<input type="hidden" name="_csrf" value="' . h($_SESSION['csrf'] ??= bin2hex(random_bytes(16))) . '">';
 }
+function hidden_inputs(array $fields): string
+{
+    $html = '';
+    foreach ($fields as $name => $value) {
+        if ($value === null) continue;
+        $html .= '<input type="hidden" name="' . h((string)$name) . '" value="' . h((string)$value) . '">';
+    }
+    return $html;
+}
+function post_action_form(string $action, string $label, array $fields = [], string $class = '', string $confirm = ''): string
+{
+    $confirm_attr = $confirm !== '' ? ' data-confirm="' . h($confirm) . '"' : '';
+    return '<form class="post-action-form" method="post" action="' . h($action) . '"' . $confirm_attr . '>' . form_token() . hidden_inputs($fields) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . '>' . h($label) . '</button></form>';
+}
+function require_post(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') err('请求方式错误');
+}
 function svg_icon(string $name): string
 {
     $icons = [
@@ -1425,6 +1467,77 @@ function topic_list_select_columns(string $table = 'topics'): string
     $p = $table . '.';
     return $p . 'id,' . $p . 'title,' . $p . 'highlight_style,' . $p . 'created_at,' . $p . 'updated_at,' . $p . 'reply_count,' . $p . 'last_reply_at,' . $p . 'forum_id,' . $p . 'user_id';
 }
+function topic_fts_query(string $query, string $field = ''): string
+{
+    $query = trim($query);
+    if ($query === '') $query = '__nomatch__';
+    $quoted = '"' . str_replace('"', '""', $query) . '"';
+    $field = in_array($field, ['title', 'body'], true) ? $field : '';
+    return $field !== '' ? $field . ':' . $quoted : $quoted;
+}
+function topic_fts_create(): void
+{
+    q("CREATE VIRTUAL TABLE IF NOT EXISTS topics_fts USING fts5(title, body, tokenize='trigram')");
+}
+function search_char_len(string $query): int
+{
+    preg_match_all('/./us', trim($query), $m);
+    return count($m[0] ?? []);
+}
+function topic_search_condition(string $query, string $field = '', string $prefix = ''): array
+{
+    $column_prefix = $prefix !== '' ? $prefix . '.' : '';
+    $field = in_array($field, ['title', 'body'], true) ? $field : '';
+    if (search_char_len($query) <= 2) {
+        $like = '%' . trim($query) . '%';
+        if ($field !== '') {
+            return [
+                $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE " . $field . " LIKE ?)",
+                [$like],
+            ];
+        }
+        return [
+            $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE title LIKE ? OR body LIKE ?)",
+            [$like, $like],
+        ];
+    }
+    return [
+        $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE topics_fts MATCH ?)",
+        [topic_fts_query($query, $field)],
+    ];
+}
+function topic_fts_sync(int $id, string $title, string $body): void
+{
+    q("DELETE FROM topics_fts WHERE rowid=?", [$id]);
+    q("INSERT INTO topics_fts(rowid,title,body) VALUES(?,?,?)", [$id, $title, $body]);
+}
+function topic_fts_delete(int $id): void
+{
+    q("DELETE FROM topics_fts WHERE rowid=?", [$id]);
+}
+function topic_fts_rebuild_from(int $start_id): int
+{
+    $start_id = max(1, $start_id);
+    $db = db();
+    $db->beginTransaction();
+    try {
+        if ($start_id === 1) {
+            q("DROP TABLE IF EXISTS topics_fts");
+            topic_fts_create();
+        } else {
+            topic_fts_create();
+        }
+        q("DELETE FROM topics_fts WHERE rowid>=?", [$start_id]);
+        $rows = q("SELECT id,title,body FROM topics WHERE id>=? ORDER BY id", [$start_id])->fetchAll();
+        $stmt = $db->prepare("INSERT INTO topics_fts(rowid,title,body) VALUES(?,?,?)");
+        foreach ($rows as $row) $stmt->execute([(int)$row['id'], (string)$row['title'], (string)$row['body']]);
+        $db->commit();
+        return count($rows);
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
+    }
+}
 function topic_list_row(array $t, string $sort): string
 {
     $time = (int)($t['time'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
@@ -1525,6 +1638,7 @@ function trash_restore_row(int $id): string
         $values[] = $row[$name] ?? null;
     }
     q('INSERT OR REPLACE INTO ' . $table . ' (' . implode(',', $fields) . ') VALUES(' . implode(',', array_fill(0, count($fields), '?')) . ')', $values);
+    if ($table === 'topics') topic_fts_sync((int)$row['id'], (string)($row['title'] ?? ''), (string)($row['body'] ?? ''));
     q('DELETE FROM trash WHERE id=?', [$id]);
     return $table;
 }
@@ -1552,7 +1666,7 @@ function admin_trash_row(array $row): string
     $data = json_decode((string)$row['row_data'], true);
     $title = (['users' => '用户', 'topics' => '主题', 'replies' => '回帖'][(string)$row['table_name']] ?? (string)$row['table_name']) . ' #' . (int)$row['row_id'];
     $summary = is_array($data) ? json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : (string)$row['row_data'];
-    return '<li class="admin-list-item admin-object-row admin-trash-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$row['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre></div><div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'restore', 'id' => (int)$row['id']])) . '" onclick="return confirm(\'确定恢复？\')">恢复</a></div></li>';
+    return '<li class="admin-list-item admin-object-row admin-trash-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$row['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre></div><div class="admin-inline-ops">' . post_action_form(admin_url(['do' => 'restore']), '恢复', ['id' => (int)$row['id']], '', '确定恢复？') . '</div></li>';
 }
 function refresh_topic_stats(int $tid): void
 {
@@ -1660,6 +1774,8 @@ function user_notify_page(): void
 }
 function base_url(): string
 {
+    $configured = clean_site_base_url(setting('site_base_url', ''));
+    if ($configured !== '') return $configured;
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
     return ($https ? 'https' : 'http') . '://' . $host;
@@ -1826,11 +1942,15 @@ function save_topic(): int
             $title = (string)($t['title'] ?? '');
             $body = (string)($t['body'] ?? '');
         }
-        q("UPDATE topics SET forum_id=?,title=?,body=?,updated_at=? WHERE id=?", [$fid, $title, $body, now(), id()]);
-        if ((int)$t['forum_id'] !== $fid) q("UPDATE forums SET last_topic_id=0,last_topic_title='' WHERE id=?", [(int)$t['forum_id']]);
-        q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [id(), $title, $fid]);
+        $topic_id = id();
+        tx(function () use ($topic_id, $fid, $title, $body, $t) {
+            q("UPDATE topics SET forum_id=?,title=?,body=?,updated_at=? WHERE id=?", [$fid, $title, $body, now(), $topic_id]);
+            topic_fts_sync($topic_id, $title, $body);
+            if ((int)$t['forum_id'] !== $fid) q("UPDATE forums SET last_topic_id=0,last_topic_title='' WHERE id=?", [(int)$t['forum_id']]);
+            q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$topic_id, $title, $fid]);
+        });
         forums_cache(true);
-        return id();
+        return $topic_id;
     }
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
     if ($title === '' || $body === '') err('标题和内容不能为空');
@@ -1838,10 +1958,14 @@ function save_topic(): int
     $body = (string)$author['body'];
     if ($body === '') err('内容不能为空');
     $ts = now();
-    q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, (int)$author['user_id'], $title, $body, $ts, $ts, $ts]);
-    $tid = (int)db()->lastInsertId();
-    q("UPDATE users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-    q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$tid, $title, $fid]);
+    $tid = tx(function () use ($fid, $author, $title, $body, $ts) {
+        q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, (int)$author['user_id'], $title, $body, $ts, $ts, $ts]);
+        $tid = (int)db()->lastInsertId();
+        topic_fts_sync($tid, $title, $body);
+        q("UPDATE users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
+        q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$tid, $title, $fid]);
+        return $tid;
+    });
     forums_cache(true);
     stats_cache(true);
     return $tid;
@@ -1869,11 +1993,14 @@ function save_reply(): array
     $body = (string)$author['body'];
     if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
     $ts = now();
-    q("INSERT INTO replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
-    $rid = (int)db()->lastInsertId();
-    q("UPDATE users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-    q("UPDATE topics SET updated_at=?,reply_count=reply_count+1,last_reply_at=? WHERE id=?", [$ts, $ts, $tid]);
-    create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
+    $rid = tx(function () use ($tid, $author, $body, $ts) {
+        q("INSERT INTO replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
+        $rid = (int)db()->lastInsertId();
+        q("UPDATE users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
+        q("UPDATE topics SET updated_at=?,reply_count=reply_count+1,last_reply_at=? WHERE id=?", [$ts, $ts, $tid]);
+        create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
+        return $rid;
+    });
     stats_cache(true);
     return ['topic_id' => $tid, 'reply_id' => $rid];
 }
@@ -1889,32 +2016,39 @@ function del(string $table, int $id): void
     if ($table === 'replies') {
         $r = one("SELECT * FROM replies WHERE id=?", [$id]);
         if (!$r) err('记录不存在');
-        trash_rows_copy('replies', $r);
-        q("DELETE FROM replies WHERE id=?", [$id]);
-        if ($r) refresh_topic_stats((int)$r['topic_id']);
+        tx(function () use ($id, $r) {
+            trash_rows_copy('replies', $r);
+            q("DELETE FROM replies WHERE id=?", [$id]);
+            refresh_topic_stats((int)$r['topic_id']);
+        });
         stats_cache(true);
         return;
     }
     if ($table === 'users') {
         $r = one("SELECT * FROM users WHERE id=?", [$id]);
         if (!$r) err('记录不存在');
-        trash_rows_copy('users', $r);
         $tids = q("SELECT DISTINCT topic_id FROM replies WHERE user_id=?", [$id])->fetchAll();
-        q("DELETE FROM users WHERE id=?", [$id]);
-        foreach ($tids as $r) refresh_topic_stats((int)$r['topic_id']);
+        tx(function () use ($id, $r, $tids) {
+            trash_rows_copy('users', $r);
+            q("DELETE FROM users WHERE id=?", [$id]);
+            foreach ($tids as $row) refresh_topic_stats((int)$row['topic_id']);
+        });
         stats_cache(true);
         return;
     }
     if ($table === 'topics') {
         $r = one("SELECT * FROM topics WHERE id=?", [$id]);
         if (!$r) err('记录不存在');
-        trash_rows_copy('topics', $r);
-        q("DELETE FROM topics WHERE id=?", [$id]);
-        refresh_forum_last_topic((int)$r['forum_id']);
+        tx(function () use ($id, $r) {
+            trash_rows_copy('topics', $r);
+            topic_fts_delete($id);
+            q("DELETE FROM topics WHERE id=?", [$id]);
+            refresh_forum_last_topic((int)$r['forum_id']);
+        });
         stats_cache(true);
         return;
     }
-    q("DELETE FROM $table WHERE id=?", [$id]);
+    tx(fn() => q("DELETE FROM $table WHERE id=?", [$id]));
     if ($table === 'forums') {
         forums_cache(true);
         stats_cache(true);
@@ -1966,7 +2100,7 @@ function profile_page(): void
         save_user(false);
         go(route_url('profile'));
     }
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit"><a href="' . h(route_url('logout')) . '"><span>安全退出</span><small>退出当前登录状态</small></a></div></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
 }
 function user_page(): void
 {
@@ -2016,11 +2150,11 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $params[] = $fid;
     }
     if ($q !== '') {
-        $like = '%' . strtr($q, ['\\' => '\\\\', '%' => '\%', '_' => '\_']) . '%';
         $forum_ids = [];
         foreach (forums_cache() as $f) if (stripos((string)$f['name'], $q) !== false) $forum_ids[] = (int)$f['id'];
-        $where_parts[] = "(t.title LIKE ? ESCAPE '\\' OR t.body LIKE ? ESCAPE '\\'" . ($forum_ids ? ' OR t.forum_id IN (' . implode(',', array_fill(0, count($forum_ids), '?')) . ')' : '') . ')';
-        $params = array_merge($params, [$like, $like]);
+        [$condition, $search_params] = topic_search_condition($q, '', 't');
+        $where_parts[] = '(' . $condition . ($forum_ids ? ' OR t.forum_id IN (' . implode(',', array_fill(0, count($forum_ids), '?')) . ')' : '') . ')';
+        $params = array_merge($params, $search_params);
         if ($forum_ids) $params = array_merge($params, $forum_ids);
     }
     $where = $where_parts ? 'WHERE ' . implode(' AND ', $where_parts) : '';
@@ -2237,7 +2371,7 @@ function reply_edit_page(): void
     if (id()) {
         $r = one("SELECT * FROM replies WHERE id=?", [id()]) ?: err('回复不存在');
         if (!can_manage_reply($r)) err('无权限');
-        if (($_GET['do'] ?? '') === 'mute_author') {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'mute_author') {
             if (!can_manage()) err('无权限');
             if ((int)$r['user_id'] === 1) err('不能操作超级管理员');
             q("UPDATE users SET is_muted=1 WHERE id=?", [(int)$r['user_id']]);
@@ -2262,7 +2396,7 @@ function reply_edit_page(): void
         }
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
-    $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? '<a class="reply-mute-link" href="' . h(route_url('reply_edit', ['id' => (int)$r['id'], 'do' => 'mute_author'])) . '" onclick="return confirm(\'确定禁言作者？\')">禁言作者</a>' : '') . '<a class="reply-delete-link" href="' . h(route_url('delete', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']])) . '" onclick="return confirm(\'确定删除？\')">删除</a></span>' : '';
+    $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
     page('编辑回复', form_shell('<div class="form-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . '<button>保存</button></form></div>'));
 }
 
@@ -2305,11 +2439,6 @@ function admin_page(): void
         save_settings();
         go(admin_url(['tab' => 'settings']));
     }
-    if ($tab === 'settings' && isset($_GET['clear_opcache'])) {
-        clear_opcache_cache();
-        set_flash('OPcache已清理');
-        go(admin_url(['tab' => 'settings']));
-    }
     $html = '';
     if ($tab === 'settings') {
         $s = settings_cache();
@@ -2321,7 +2450,7 @@ function admin_page(): void
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
         $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><a href="' . h(admin_url(['tab' => 'settings', 'clear_opcache' => 1])) . '" class="settings-opcache-title">清理OPcache</a><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><div class="settings-opcache-sep"></div><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
@@ -2332,7 +2461,7 @@ function admin_page(): void
         $html .= admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter);
     } elseif ($tab === 'groups') {
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th></th></tr>';
-        foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+        foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th></th></tr>';
@@ -2341,13 +2470,13 @@ function admin_page(): void
             $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
             $perm[] = '发帖:' . (forum_group_ids($f, 'allow_post_groups') ? count(forum_group_ids($f, 'allow_post_groups')) . '组' : '不限');
             $perm[] = '回帖:' . (forum_group_ids($f, 'allow_reply_groups') ? count(forum_group_ids($f, 'allow_reply_groups')) . '组' : '不限');
-            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a> <a href="' . h(admin_url(['do' => 'delete', 'type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'])) . '" onclick="return confirm(\'确定删除？\')">删除</a></td></tr>';
+            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
         }
         $html .= '</table>';
     } elseif ($tab === 'topics') {
         $total = admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id);
         if ($manageable) $html .= admin_bulk_delete_form_open('topics', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), '') . '<ul class="admin-manage-list">';
+        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), $manageable ? admin_rebuild_fts_form() : '') . '<ul class="admin-manage-list">';
         foreach (admin_topics_list($q, $admin_size, $admin_offset, $topic_field, $topic_forum_id) as $t) $html .= admin_topic_row($t, $manageable);
         $html .= '</ul></div>';
         if ($manageable) $html .= admin_bulk_delete_bar('topics');
@@ -2405,6 +2534,7 @@ function admin_edit_page(): void
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
 
+secure_session_start();
 parse_path_route();
 if (!db_schema_ready()) simple_error_page('请先安装');
 check();
@@ -2424,6 +2554,7 @@ try {
     elseif ($a === 'forgot_password') forgot_password_page();
     elseif ($a === 'reset_password') reset_password_page();
     elseif ($a === 'logout') {
+        require_post();
         session_destroy();
         go(route_url('home'));
     } elseif ($a === 'profile') profile_page();
@@ -2435,31 +2566,43 @@ try {
     elseif ($a === 'topic_edit') topic_edit_page();
     elseif ($a === 'reply_edit') reply_edit_page();
     elseif ($a === 'delete') {
+        require_post();
         need_login();
-        $type = $_GET['type'] ?? '';
+        $type = (string)($_POST['type'] ?? '');
         $row = deletable_post_row($type, id());
         if (!$row || !in_array($type, ['topics', 'replies'], true)) err('参数错误');
         if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限');
         del($type, id());
-        $back = $_GET['back'] ?? '';
-        if ($back === 'topic') go(route_url('topic', ['id' => (int)($_GET['tid'] ?? 0)]));
+        $back = (string)($_POST['back'] ?? '');
+        if ($back === 'topic') go(route_url('topic', ['id' => (int)($_POST['tid'] ?? 0)]));
         go(route_url('home'));
     } elseif ($a === 'admin') {
         if ($do === 'edit') admin_edit_page();
         elseif ($do === 'delete') {
+            require_post();
             need_admin();
-            $type = ['user' => 'users', 'group' => 'groups', 'forum' => 'forums'][$_GET['type'] ?? ''] ?? ($_GET['type'] ?? '');
+            $type = ['user' => 'users', 'group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? ($_POST['type'] ?? '');
             if (!in_array($type, ['users', 'groups', 'forums', 'topics', 'replies'], true)) err('参数错误');
             if (!can_admin_delete($type, id())) err('无权限');
             del($type, id());
-            go(admin_url(['tab' => $_GET['tab'] ?? 'settings']));
+            go(admin_url(['tab' => $_POST['tab'] ?? 'settings']));
         } elseif ($do === 'restore') {
+            require_post();
             need_admin();
             need_manage();
             $type = trash_restore_row(id());
             if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
             go(admin_url(['tab' => 'trash']));
+        } elseif ($do === 'rebuild_fts') {
+            require_post();
+            need_admin();
+            need_manage();
+            $start_id = max(1, (int)($_POST['start_id'] ?? 1));
+            $count = topic_fts_rebuild_from($start_id);
+            set_flash('已重建主题索引：' . $count . ' 条');
+            go(admin_url(['tab' => 'topics']));
         } elseif ($do === 'batch_action') {
+            require_post();
             need_admin();
             need_manage();
             $tab = $_POST['tab'] ?? '';

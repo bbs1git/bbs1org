@@ -10,7 +10,13 @@ const showToast = (message) => {
 const modal = document.getElementById("notify-modal");
 const modalBody = document.getElementById("notify-modal-body");
 const modalTitle = document.getElementById("notify-modal-title");
+let confirmResolve = null;
 const closeModal = () => {
+    if (confirmResolve) {
+        const resolve = confirmResolve;
+        confirmResolve = null;
+        resolve(false);
+    }
     if (modal) modal.hidden = true;
     if (modalBody) modalBody.innerHTML = "";
 };
@@ -20,6 +26,92 @@ const openModal = (title, html) => {
     modalBody.innerHTML = html;
     modal.hidden = false;
 };
+const finishConfirm = (ok) => {
+    const resolve = confirmResolve;
+    confirmResolve = null;
+    if (modal) modal.hidden = true;
+    if (modalBody) modalBody.innerHTML = "";
+    if (resolve) resolve(ok);
+};
+const openConfirm = (message, title = "确认操作") => new Promise(resolve => {
+    if (!modal || !modalBody) {
+        resolve(false);
+        return;
+    }
+    confirmResolve = resolve;
+    if (modalTitle) modalTitle.textContent = title;
+    modalBody.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "confirm-box";
+    const text = document.createElement("p");
+    text.className = "confirm-message";
+    text.textContent = message;
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn alt";
+    cancel.textContent = "取消";
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "danger";
+    ok.textContent = "确定";
+    cancel.addEventListener("click", () => finishConfirm(false));
+    ok.addEventListener("click", () => finishConfirm(true));
+    actions.append(cancel, ok);
+    box.append(text, actions);
+    modalBody.appendChild(box);
+    modal.hidden = false;
+    cancel.focus();
+});
+const openPrompt = (message, title = "请输入", value = "1") => new Promise(resolve => {
+    if (!modal || !modalBody) {
+        resolve(null);
+        return;
+    }
+    confirmResolve = resolve;
+    if (modalTitle) modalTitle.textContent = title;
+    modalBody.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "confirm-box prompt-box";
+    const text = document.createElement("p");
+    text.className = "confirm-message";
+    text.textContent = message;
+    const input = document.createElement("input");
+    input.className = "prompt-input";
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = String(value || "1");
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn alt";
+    cancel.textContent = "取消";
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "danger";
+    ok.textContent = "确定";
+    const done = () => {
+        const n = Math.max(1, parseInt(input.value || "1", 10) || 1);
+        finishConfirm(String(n));
+    };
+    cancel.addEventListener("click", () => finishConfirm(null));
+    ok.addEventListener("click", done);
+    input.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            done();
+        }
+    });
+    actions.append(cancel, ok);
+    box.append(text, input, actions);
+    modalBody.appendChild(box);
+    modal.hidden = false;
+    input.focus();
+    input.select();
+});
 window.openNotify = async function (url) {
     try {
         const response = await fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}});
@@ -232,6 +324,15 @@ window.toggleBulkForum = function (action) {
 document.addEventListener("click", e => {
     if (e.target?.closest("[data-modal-close]") || e.target === modal) closeModal();
 });
+document.addEventListener("click", async e => {
+    const link = e.target.closest("a[data-confirm]");
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (await openConfirm(link.dataset.confirm || "确定操作？")) {
+        window.location.href = link.href;
+    }
+});
 document.addEventListener("click", e => {
     const quote = e.target.closest(".quote-reply");
     if (!quote) return;
@@ -254,6 +355,26 @@ document.addEventListener("click", e => {
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 });
 document.addEventListener("submit", async e => {
+    if (e.defaultPrevented) return;
+    const promptField = e.submitter?.dataset?.promptField || e.target?.dataset?.promptField || "";
+    if (promptField) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        const input = e.target.elements?.[promptField];
+        const value = await openPrompt(e.submitter?.dataset?.promptMessage || e.target?.dataset?.promptMessage || "请输入", e.submitter?.dataset?.promptTitle || e.target?.dataset?.promptTitle || "请输入", e.submitter?.dataset?.promptValue || e.target?.dataset?.promptValue || input?.value || "1");
+        if (value === null || value === false) return;
+        if (input) input.value = value;
+        e.target.submit();
+        return;
+    }
+    const confirmMessage = e.submitter?.dataset?.confirm || e.target?.dataset?.confirm || "";
+    if (confirmMessage) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (!await openConfirm(confirmMessage)) return;
+    }
     const replyForm = e.target.closest(".ajax-reply-form");
     if (replyForm) {
         e.preventDefault();
