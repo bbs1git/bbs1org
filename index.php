@@ -185,6 +185,7 @@ function clean_ip(string $value): string
     $value = trim($value, " \t\n\r\0\x0B\"'");
     if ($value === '') return '';
     if (in_array(strtolower($value), ['unknown', 'null', 'undefined'], true)) return '';
+    if (($p = strpos($value, ';')) !== false) $value = substr($value, 0, $p);
     if (stripos($value, 'for=') === 0) $value = substr($value, 4);
     $value = trim($value, " \t\n\r\0\x0B\"'");
     if (preg_match('/^\[([^\]]+)\](?::\d+)?$|^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/', $value, $m)) $value = $m[1] ?: $m[2];
@@ -193,7 +194,13 @@ function clean_ip(string $value): string
 }
 function ip_addr(): string
 {
-    return clean_ip((string)($_SERVER['REMOTE_ADDR'] ?? '')) ?: '0.0.0.0';
+    foreach (['HTTP_CLIENT_IP', 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR'] as $key) {
+        foreach (explode(',', (string)($_SERVER[$key] ?? '')) as $value) {
+            $ip = clean_ip($value);
+            if ($ip !== '') return $ip;
+        }
+    }
+    return '0.0.0.0';
 }
 function rate_setting(string $key, string $default): int
 {
