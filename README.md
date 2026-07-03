@@ -80,8 +80,37 @@ docker/             Nginx 配置
 data/               数据文件
 cache/              运行缓存
 avatars/            本地头像镜像
+plugins/            插件目录
 ```
 
 ## 说明
 
 `data/` 和 `cache/` 都属于运行目录，生产环境应避免直接暴露给公网。`avatars/` 用于本地头像镜像，可通过静态缓存加速访问。
+
+## 插件
+
+插件放在 `plugins/插件ID/plugin.php`，系统会自动扫描显示。`plugin.php` 会被加载用于读取插件信息，所以不要在文件顶层写业务逻辑；业务代码应放进函数里。新插件默认停用，启用后才会执行它的钩子、路由和后台管理页。
+
+最小插件格式：
+
+```php
+<?php
+return [
+    'id' => 'hello',
+    'name' => '示例插件',
+    'version' => '1.0.0',
+    'description' => '给页脚追加内容',
+    'hooks' => [
+        'page.footer' => 'hello_footer',
+    ],
+];
+
+function hello_footer($html, array $ctx)
+{
+    return $html . '<span> Hello</span>';
+}
+```
+
+可选字段：`author`、`hooks`、`routes`、`admin_tabs`、`install`、`uninstall`。`install` 在启用插件时执行；卸载插件时如果选择不保留数据，会执行 `uninstall`。
+
+常用钩子：`app.boot`、`sidebar.stack`、`page.head`、`page.header`、`page.footer`、`page.before_render`、`markdown.before`、`markdown.after`、`topic.before_render`、`topic.after_render`、`reply.before_render`、`reply.after_render`、`topic.before_save`、`topic.after_save`、`reply.before_save`、`reply.after_save`。插件等同于站点 PHP 代码权限，只建议安装可信插件。

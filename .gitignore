@@ -7,3 +7,4 @@ cache/*
 .claude
 .DS_Store
 avatars
+plugins/*

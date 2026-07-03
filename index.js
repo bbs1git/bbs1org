@@ -64,6 +64,45 @@ const openConfirm = (message, title = "确认操作") => new Promise(resolve => 
     modal.hidden = false;
     cancel.focus();
 });
+const openPluginUninstallConfirm = (message, title = "卸载插件") => new Promise(resolve => {
+    if (!modal || !modalBody) {
+        resolve(false);
+        return;
+    }
+    confirmResolve = resolve;
+    if (modalTitle) modalTitle.textContent = title;
+    modalBody.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "confirm-box";
+    const text = document.createElement("p");
+    text.className = "confirm-message";
+    text.textContent = message;
+    const option = document.createElement("label");
+    option.className = "confirm-check";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    const labelText = document.createElement("span");
+    labelText.textContent = "保留插件数据";
+    option.append(checkbox, labelText);
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn alt";
+    cancel.textContent = "取消";
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "danger";
+    ok.textContent = "卸载";
+    cancel.addEventListener("click", () => finishConfirm(false));
+    ok.addEventListener("click", () => finishConfirm({keepData: checkbox.checked}));
+    actions.append(cancel, ok);
+    box.append(text, option, actions);
+    modalBody.appendChild(box);
+    modal.hidden = false;
+    checkbox.focus();
+});
 const openPrompt = (message, title = "请输入", value = "1") => new Promise(resolve => {
     if (!modal || !modalBody) {
         resolve(null);
@@ -369,12 +408,28 @@ document.addEventListener("submit", async e => {
         e.target.submit();
         return;
     }
-    const confirmMessage = e.submitter?.dataset?.confirm || e.target?.dataset?.confirm || "";
-    if (confirmMessage) {
+    if (e.target?.dataset?.pluginUninstall === "1") {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        if (!await openConfirm(confirmMessage)) return;
+        const result = await openPluginUninstallConfirm(e.target.dataset.confirm || "确定卸载插件？");
+        if (!result) return;
+        let input = e.target.elements?.keep_plugin_data;
+        if (!input) {
+            input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "keep_plugin_data";
+            e.target.appendChild(input);
+        }
+        input.value = result.keepData ? "1" : "0";
+    } else {
+        const confirmMessage = e.submitter?.dataset?.confirm || e.target?.dataset?.confirm || "";
+        if (confirmMessage) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            if (!await openConfirm(confirmMessage)) return;
+        }
     }
     const replyForm = e.target.closest(".ajax-reply-form");
     if (replyForm) {
