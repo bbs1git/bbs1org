@@ -4,13 +4,10 @@ services:
     restart: unless-stopped
     working_dir: /var/www/html
     volumes:
-      - ./:/var/www/html:ro
+      - ./:/var/www/html
       - data:/var/www/html/data
       - avatars:/var/www/html/avatars
       - ./docker/opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
-    tmpfs:
-      - /var/www/html/cache
-
   nginx:
     image: nginx:stable-alpine
     restart: unless-stopped
