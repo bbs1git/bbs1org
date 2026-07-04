@@ -394,8 +394,88 @@ document.addEventListener("click", e => {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 });
+const insertTextareaText = (textarea, text) => {
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const before = textarea.value.slice(0, start);
+    const after = textarea.value.slice(end);
+    const prefix = before === "" || before.endsWith("\n") ? "" : "\n";
+    const suffix = after === "" || after.startsWith("\n") ? "" : "\n";
+    const insert = prefix + text + suffix;
+    textarea.value = before + insert + after;
+    const pos = before.length + insert.length;
+    textarea.focus();
+    textarea.setSelectionRange(pos, pos);
+};
+document.addEventListener("change", async e => {
+    const input = e.target.closest("[data-attachment-input]");
+    if (!input) return;
+    const uploader = input.closest(".attachment-uploader");
+    const form = input.closest("form");
+    const textarea = form?.querySelector("textarea[name=body]");
+    const list = uploader?.querySelector("[data-attachment-list]");
+    const url = uploader?.dataset?.uploadUrl || "";
+    const token = form?.querySelector("input[name=_csrf]")?.value || "";
+    const files = Array.from(input.files || []);
+    if (!uploader || !textarea || !list || !url || files.length === 0) return;
+    const maxCount = parseInt(uploader.dataset.uploadMaxCount || "10", 10) || 10;
+    const maxMb = parseInt(uploader.dataset.uploadMaxMb || "20", 10) || 20;
+    const uploaded = parseInt(uploader.dataset.uploadedCount || "0", 10) || 0;
+    if (uploaded + files.length > maxCount) {
+        showToast("附件最多上传" + maxCount + "个");
+        input.value = "";
+        return;
+    }
+    input.disabled = true;
+    for (const file of files) {
+        const row = document.createElement("div");
+        row.className = "attachment-row";
+        const name = document.createElement("span");
+        name.className = "attachment-name";
+        name.textContent = file.name || "附件";
+        const status = document.createElement("span");
+        status.className = "attachment-status";
+        status.textContent = "上传中";
+        row.append(name, status);
+        list.appendChild(row);
+        uploader.dataset.uploadingCount = String((parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) + 1);
+        if (file.size > maxMb * 1024 * 1024) {
+            row.classList.add("error");
+            status.textContent = "超过" + maxMb + "MB";
+            uploader.dataset.uploadingCount = String(Math.max(0, (parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) - 1));
+            continue;
+        }
+        try {
+            const body = new FormData();
+            body.append("_csrf", token);
+            body.append("attachment", file);
+            const response = await fetch(url, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.message || "上传失败");
+            insertTextareaText(textarea, data.markdown || "");
+            row.classList.add("done");
+            status.textContent = "已插入";
+            uploader.dataset.uploadedCount = String((parseInt(uploader.dataset.uploadedCount || "0", 10) || 0) + 1);
+        } catch (err) {
+            row.classList.add("error");
+            status.textContent = err?.message || "上传失败";
+            showToast(status.textContent);
+        } finally {
+            uploader.dataset.uploadingCount = String(Math.max(0, (parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) - 1));
+        }
+    }
+    input.disabled = false;
+    input.value = "";
+});
 document.addEventListener("submit", async e => {
     if (e.defaultPrevented) return;
+    const uploading = e.target?.querySelector?.(".attachment-uploader[data-uploading-count]:not([data-uploading-count='0'])");
+    if (uploading) {
+        e.preventDefault();
+        showToast("附件上传中");
+        return;
+    }
     const promptField = e.submitter?.dataset?.promptField || e.target?.dataset?.promptField || "";
     if (promptField) {
         e.preventDefault();
@@ -519,8 +599,8 @@ document.addEventListener("submit", async e => {
     }
 });
 window.addEventListener("load", () => {
-    const match = window.location.hash.match(/^#post-(\d+)$/);
-    if (!match) return;
-    const target = document.getElementById("post-" + match[1]);
+    const replyId = new URLSearchParams(window.location.search).get("replyid") || "";
+    if (!/^\d+$/.test(replyId)) return;
+    const target = document.getElementById("post-" + replyId);
     if (target) target.scrollIntoView({block:"center"});
 });

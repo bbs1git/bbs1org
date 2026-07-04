@@ -198,6 +198,8 @@ $settings = [
     'login_fail_per_hour' => '5',
     'reset_fail_per_hour' => '5',
     'post_interval_seconds' => '5',
+    'attachment_max_count' => '10',
+    'attachment_max_mb' => '20',
 ];
 $stmt = $db->prepare("INSERT OR REPLACE INTO settings(name,value) VALUES(?,?)");
 foreach ($settings as $name => $value) $stmt->execute([$name, $value]);

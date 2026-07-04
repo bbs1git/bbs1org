@@ -38,12 +38,12 @@ docker compose up -d
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
 cd /var/www/bbs1org
-mkdir -p data cache avatars
-chown -R www-data:www-data data cache avatars
+mkdir -p data cache avatars upload
+chown -R www-data:www-data data cache avatars upload
 ```
 
 1. 将站点根目录指向项目目录
-2. 确保 `data/`、`cache/` 和 `avatars/` 可写
+2. 确保 `data/`、`cache/`、`avatars/` 和 `upload/` 可写
 3. 访问 `install.php` 完成安装
 
 ## 升级
@@ -80,12 +80,13 @@ docker/             Nginx 配置
 data/               数据文件
 cache/              运行缓存
 avatars/            本地头像镜像
+upload/             附件上传目录
 plugins/            插件目录
 ```
 
 ## 说明
 
-`data/` 和 `cache/` 都属于运行目录，生产环境应避免直接暴露给公网。`avatars/` 用于本地头像镜像，可通过静态缓存加速访问。
+`data/` 和 `cache/` 都属于运行目录，生产环境应避免直接暴露给公网。`avatars/` 用于本地头像镜像，可通过静态缓存加速访问。`upload/` 用于帖子附件，附件数量和单个大小可在后台站点设置中调整；文件按 `substr(文件hash,0,2)` 自动分目录保存，同一文件全站只存一份；图片保存为 `文件hash.原后缀` 并以图片方式插入帖子，其他附件保存为 `文件hash.attach` 并通过 PHP 下载为原文件名。
 
 ## 插件
 

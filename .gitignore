@@ -7,4 +7,6 @@ cache/*
 .claude
 .DS_Store
 avatars
+upload/*
+!upload/.gitkeep
 plugins/*

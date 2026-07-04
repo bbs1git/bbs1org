@@ -11,6 +11,7 @@ define('DB_FILE', db_file_path());
 define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
 define('CACHE_DIR', __DIR__ . '/cache');
 define('AVATAR_DIR', __DIR__ . '/avatars');
+define('UPLOAD_DIR', __DIR__ . '/upload');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
@@ -147,6 +148,8 @@ function default_settings(): array
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
         'post_interval_seconds' => '5',
+        'attachment_max_count' => '10',
+        'attachment_max_mb' => '20',
     ];
 }
 function settings_cache(bool $refresh = false): array
@@ -439,6 +442,8 @@ function save_settings(): void
         'login_fail_per_hour' => (string)min(100, max(1, (int)($_POST['login_fail_per_hour'] ?? 5))),
         'reset_fail_per_hour' => (string)min(100, max(1, (int)($_POST['reset_fail_per_hour'] ?? 5))),
         'post_interval_seconds' => (string)min(3600, max(0, (int)($_POST['post_interval_seconds'] ?? 5))),
+        'attachment_max_count' => (string)max(0, (int)($_POST['attachment_max_count'] ?? 10)),
+        'attachment_max_mb' => (string)max(0, (int)($_POST['attachment_max_mb'] ?? 20)),
     ];
     foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
     settings_cache(true);
@@ -627,7 +632,8 @@ function notification_row_html(array $n): string
     $unread = (int)($n['read_at'] ?? 0) === 0;
     $quote = notification_excerpt($body, 100);
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
-    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head"><a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a><span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
+    $sender_title = $sender_id > 0 ? '<a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a>' : '<span class="post-title">' . h($sender_name) . '</span>';
+    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
 }
 function admin_user_form_data(int $id): array
 {
@@ -1464,6 +1470,113 @@ function asset_url(string $file): string
 {
     return app_url($file);
 }
+function markdown_link_text(string $text): string
+{
+    return str_replace([']', '['], ['\]', '\['], $text);
+}
+function upload_image_ext(string $ext): bool
+{
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+}
+function upload_allowed_ext(string $ext): bool
+{
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'txt', 'zip', 'rar', '7z', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'mp3', 'mp4', 'mov'], true);
+}
+function upload_hash_dir(string $hash): string
+{
+    return substr($hash, 0, 2);
+}
+function attachment_max_count(): int
+{
+    return max(0, (int)setting('attachment_max_count', '10'));
+}
+function attachment_max_mb(): int
+{
+    return max(0, (int)setting('attachment_max_mb', '20'));
+}
+function attachment_max_bytes(): int
+{
+    return attachment_max_mb() * 1024 * 1024;
+}
+function upload_attachment_markdown(array $file): string
+{
+    if (attachment_max_count() <= 0 || attachment_max_mb() <= 0) err('附件上传已关闭');
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) err('请选择附件');
+    if ($error !== UPLOAD_ERR_OK) err('附件上传失败');
+    $size = (int)($file['size'] ?? 0);
+    if ($size <= 0) err('附件不能为空');
+    if ($size > attachment_max_bytes()) err('单个附件不能超过' . attachment_max_mb() . 'MB');
+    $original = trim(preg_replace('/[\r\n]+/', ' ', basename((string)($file['name'] ?? ''))) ?? '');
+    $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+    if ($ext === '' || !upload_allowed_ext($ext)) err('附件格式不允许');
+    if (!is_uploaded_file((string)($file['tmp_name'] ?? ''))) err('附件保存失败');
+    $hash = hash_file('sha256', (string)$file['tmp_name']);
+    if (!is_string($hash) || $hash === '') err('附件保存失败');
+    $hash_dir = upload_hash_dir($hash);
+    $dir = UPLOAD_DIR . '/' . $hash_dir;
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('附件目录不可写');
+    $is_image = upload_image_ext($ext);
+    $name = $hash . ($is_image ? '.' . $ext : '.attach');
+    $target = $dir . '/' . $name;
+    if (!is_file($target) && !move_uploaded_file((string)$file['tmp_name'], $target)) err('附件保存失败');
+    $label = markdown_link_text($original !== '' ? $original : $name);
+    if ($is_image) return '![' . $label . '](' . base_url() . asset_url('upload/' . $hash_dir . '/' . $name) . ')';
+    return '[' . $label . '](' . base_url() . route_url('attachment', ['f' => $name, 'name' => $original !== '' ? $original : '附件.' . $ext]) . ')';
+}
+function attachment_upload_page(): void
+{
+    require_post();
+    need_speak();
+    try {
+        $markdown = upload_attachment_markdown(is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : []);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (Throwable $e) {
+        ajax_error(database_error($e) ? '数据库出了点小问题' : ($e->getMessage() ?: '附件上传失败'));
+    }
+}
+function topic_upload_attachments_markdown(): string
+{
+    $files = $_FILES['attachments'] ?? null;
+    if (!is_array($files) || !is_array($files['name'] ?? null)) return '';
+    $items = [];
+    $count = count((array)$files['name']);
+    $max_count = attachment_max_count();
+    if ($max_count <= 0) {
+        foreach ((array)$files['error'] as $error) if ((int)$error !== UPLOAD_ERR_NO_FILE) err('附件上传已关闭');
+        return '';
+    }
+    if ($count > $max_count) err('附件最多上传' . $max_count . '个');
+    for ($i = 0; $i < $count; $i++) {
+        if ((int)($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+        $items[] = upload_attachment_markdown([
+            'name' => $files['name'][$i] ?? '',
+            'type' => $files['type'][$i] ?? '',
+            'tmp_name' => $files['tmp_name'][$i] ?? '',
+            'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'][$i] ?? 0,
+        ]);
+    }
+    return $items ? "\n\n附件：\n" . implode("\n", $items) : '';
+}
+function attachment_page(): void
+{
+    $file = (string)($_GET['f'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}\.attach$/', $file) !== 1) not_found('附件不存在');
+    $hash = substr($file, 0, 64);
+    $path = UPLOAD_DIR . '/' . upload_hash_dir($hash) . '/' . $file;
+    if (!is_file($path)) not_found('附件不存在');
+    $name = trim(preg_replace('/[\r\n"\\\\\/]+/', ' ', basename((string)($_GET['name'] ?? '附件'))) ?? '');
+    if ($name === '') $name = '附件';
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . filesize($path));
+    header('Content-Disposition: attachment; filename="' . rawurlencode($name) . '"; filename*=UTF-8\'\'' . rawurlencode($name));
+    header('X-Content-Type-Options: nosniff');
+    readfile($path);
+    exit;
+}
 function parse_path_route(): void
 {
     $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
@@ -1777,6 +1890,13 @@ function input(string $label, string $name, $value = '', string $type = 'text', 
 function textarea(string $label, string $name, $value = '', bool $required = false): string
 {
     return '<label class="grid"><span>' . h($label) . '</span><textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
+}
+function attachment_uploader_html(): string
+{
+    $count = attachment_max_count();
+    $mb = attachment_max_mb();
+    if ($count <= 0 || $mb <= 0) return '';
+    return '<label class="grid attachment-field"><span>附件</span><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-count="' . $count . '" data-upload-max-mb="' . $mb . '"><input class="attachment-input" type="file" multiple data-attachment-input><div class="attachment-drop"><strong>选择附件</strong><span>最多' . $count . '个，单个不超过' . $mb . 'MB。</span></div><div class="attachment-list" data-attachment-list></div></div></label>';
 }
 function select_group(int $gid): string
 {
@@ -2101,6 +2221,7 @@ function save_topic(): int
     $forum = forum_by_id($fid) ?: err('版块不存在');
     $title = post('title', 120);
     $body = post('body', 20000);
+    if (!id()) $body .= topic_upload_attachments_markdown();
     $filtered = hook('topic.before_save', ['title' => $title, 'body' => $body, 'forum_id' => $fid], ['id' => id(), 'action' => $action]);
     if (is_array($filtered)) {
         $title = cut((string)($filtered['title'] ?? $title), 120);
@@ -2548,7 +2669,6 @@ function topic_page(): void
         $main .= '<div class="reply-login-box disabled">当前用户禁止发言</div>';
     }
     $main .= '</div>';
-    if ($replyid > 0) $main .= '<a id="post-' . $replyid . '"></a>';
     page($t['title'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html(), sidebar_stats_card_html()])));
 }
 function topic_edit_page(): void
@@ -2571,7 +2691,8 @@ function topic_edit_page(): void
         $swatches .= '</div>';
         $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="unpin">取消置顶</option><option value="highlight">高亮</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-highlight-field is-hidden" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label>';
     }
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
+    $attachments = attachment_uploader_html();
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
 }
 function reply_edit_page(): void
 {
@@ -2606,7 +2727,7 @@ function reply_edit_page(): void
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
     $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
-    page('编辑回复', form_shell('<div class="form-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . '<button>保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . attachment_uploader_html() . '<button>保存</button></form></div>'));
 }
 
 function admin_nav(string $tab): string
@@ -2730,6 +2851,8 @@ function admin_page(): void
         $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
         $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
         $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
+        $security_fields .= '<label class="grid"><span>附件数量限制<small>设置为 0 可关闭附件上传。</small></span><input name="attachment_max_count" type="number" min="0" value="' . h($s['attachment_max_count']) . '" required></label>';
+        $security_fields .= '<label class="grid"><span>单个附件大小（MB）<small>设置为 0 可关闭附件上传，实际上限受服务器配置影响。</small></span><input name="attachment_max_mb" type="number" min="0" value="' . h($s['attachment_max_mb']) . '" required></label>';
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
         $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
@@ -2741,11 +2864,11 @@ function admin_page(): void
         if ($manageable) $html .= admin_bulk_delete_bar('users');
         $html .= admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter);
     } elseif ($tab === 'groups') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th></th></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (groups_cache() as $g) $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
         $html .= '</table>';
     } elseif ($tab === 'forums') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th></th></tr>';
+        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (forums_cache() as $f) {
             $perm = [];
             $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
@@ -2835,6 +2958,8 @@ try {
     $do = $_GET['do'] ?? '';
     if ($a === 'home') home_page();
     elseif ($a === 'search') search_page();
+    elseif ($a === 'attachment') attachment_page();
+    elseif ($a === 'attachment_upload') attachment_upload_page();
     elseif ($a === 'form_error') {
         $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
         unset($_SESSION['form_error']);

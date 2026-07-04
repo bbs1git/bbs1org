@@ -253,6 +253,21 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0
 input.readonly-input:disabled{border-color:#e5e7eb;background:#f8fafc;color:#667085;opacity:1;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--brand)}
 textarea{min-height:120px;resize:vertical;line-height:1.6}
+.attachment-uploader{display:grid;gap:8px}
+.attachment-input{position:absolute;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
+.attachment-drop{display:grid;gap:2px;padding:12px;border:1px dashed #cfd8e3;border-radius:7px;background:#fbfcfd;color:#667085;cursor:pointer}
+.attachment-drop strong{color:#344054;font-size:13px;line-height:1.4}
+.attachment-drop span{font-size:12px;line-height:1.45}
+.attachment-uploader:focus-within .attachment-drop,.attachment-drop:hover{border-color:var(--brand);background:var(--brand-soft)}
+.attachment-list{display:grid;gap:6px}
+.attachment-list:empty{display:none}
+.attachment-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px;padding:5px 8px;border:1px solid #edf1f4;border-radius:6px;background:#fff;color:#667085;font-size:12px}
+.attachment-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-status{flex:0 0 auto;color:#98a2b3}
+.attachment-row.done{border-color:#d9f4e4;background:#fbfffd}
+.attachment-row.done .attachment-status{color:var(--brand)}
+.attachment-row.error{border-color:#ffd8d8;background:#fff8f8}
+.attachment-row.error .attachment-status{color:#d94b4b}
 .grid{display:grid;grid-template-columns:98px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}
 .grid>span{padding-top:6px;color:#666;font-size:12px}
 .form-panel{margin: 12px 0;}
@@ -299,6 +314,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .profile-exit-button{display:inline-grid!important;justify-content:start!important;justify-items:start!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#666!important;font-size:13px!important;font-weight:500!important;line-height:1.3!important;text-align:left!important}
 .profile-exit-button:hover{background:#fafafa!important;color:#222!important}
 .topic-form-panel textarea{min-height:240px}
+.reply-edit-panel textarea[name=body]{min-height:220px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .avatar-mirror-box{display:grid;gap:8px}
@@ -376,7 +392,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-head-left{flex:1;min-width:0}
 .admin-head-add{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:0 12px;border:1px solid #bfe9cf;border-radius:6px;background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:600}
 .admin-head-add:hover{border-color:var(--brand);background:#e5f7ed;color:var(--brand-hover)}
-.admin-bulk-list th .admin-head-add{min-height:0;padding:0;justify-content:flex-end}
+.admin-bulk-list th .admin-head-add{min-height:26px;padding:0 10px;justify-content:center}
 .admin-head-inline{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .admin-head-left-slot,.admin-head-right-slot{display:flex;align-items:center;min-width:0}
 .admin-head-left-slot{flex:1 1 320px}
@@ -439,6 +455,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-list-item:last-child{border-bottom:none}
 .admin-list-item:hover{background:#fbfdfc}
 .admin-object-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:64px}
+.admin-object-row.daily-checkin-row{grid-template-columns:minmax(0,1fr)}
 .admin-row-check{width:15px;height:15px;margin:0}
 .admin-row-main{display:grid;gap:6px;min-width:0}
 .admin-row-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;color:#98a2b3;font-size:11px;line-height:1.35}
@@ -493,8 +510,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .bar{height:44px;padding:0 12px;gap:10px;flex-wrap:nowrap}
     .brand{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
     .forum-nav{display:none}
-    .search-form{display:none}
-    .nav-mine{display:inline-flex;align-items:center;margin-left:auto}
+    .search-form{display:flex;flex:0 1 120px;width:min(34vw,120px);min-width:82px;margin-left:auto}
+    .search-input{flex:1;min-width:0;width:100%}
+    .nav-mine{display:inline-flex;align-items:center;margin-left:0}
     .wrap{padding: 5px;}
     .home-shell{padding:10px}
     .forum-layout{display:block}
@@ -529,6 +547,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .plugin-list-panel .admin-head-add{padding:0 12px}
     .admin-bulk-list .admin-content-cell,.admin-bulk-list .admin-content-text,.admin-bulk-list .admin-content-title{white-space:normal}
     .admin-object-row{grid-template-columns:18px minmax(0,1fr);gap:10px}
+    .admin-object-row.daily-checkin-row{grid-template-columns:minmax(0,1fr)}
     .admin-object-row .admin-inline-ops{grid-column:2;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
     .plugin-item.admin-object-row{grid-template-columns:1fr;gap:8px}
     .plugin-item.admin-object-row .admin-inline-ops{grid-column:1}
