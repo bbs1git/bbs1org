@@ -517,6 +517,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .home-shell{padding:10px}
     .forum-layout{display:block}
     .sidebar{display:none}
+    .home-mobile-sidebar .sidebar{position:static;display:grid;width:auto;margin-top:12px}
     .tab-bar{align-items:center}
     .profile-toolbar{gap:6px}
     .profile-toolbar .tab-actions{display:inline-flex;align-items:center;gap:14px;margin-left:auto;flex-shrink:0;font-size:12px;font-weight:500}

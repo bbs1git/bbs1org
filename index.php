@@ -894,9 +894,9 @@ function sidebar_notice_card_html(string $title, array $items): string
     foreach ($items as $item) $html .= '<li>' . h($item) . '</li>';
     return $html . '</ul></div></div>';
 }
-function shell_html(string $main, string $sidebar): string
+function shell_html(string $main, string $sidebar, string $class = ''): string
 {
-    return '<div class="home-shell"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . '</div></div>' . $sidebar . '</div></div>';
+    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . '</div></div>' . $sidebar . '</div></div>';
 }
 function tab_bar_html(array $items, string $active, string $class = ''): string
 {
@@ -2585,7 +2585,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . sidebar_stats_card_html() : '')]);
-    page($profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页'), shell_html($main, $sidebar));
+    page($profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页'), shell_html($main, $sidebar, (!$profile_uid && !$filter_forum) ? 'home-mobile-sidebar' : ''));
 }
 function home_page(): void
 {
