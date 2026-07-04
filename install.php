@@ -185,6 +185,7 @@ $settings = [
     'site_name' => $site_name,
     'site_base_url' => '',
     'site_closed' => '0',
+    'debug_mode' => '0',
     'pretty_url' => '0',
     'allow_register' => '1',
     'reserved_usernames' => 'admin,administrator,root,system',

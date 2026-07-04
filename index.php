@@ -17,6 +17,7 @@ define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
+define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 function db_file_path(): string
 {
     if (is_file(DB_CONFIG_FILE)) {
@@ -135,6 +136,7 @@ function default_settings(): array
         'site_name' => 'FORUM',
         'site_base_url' => '',
         'site_closed' => '0',
+        'debug_mode' => '0',
         'pretty_url' => '0',
         'allow_register' => '1',
         'reserved_usernames' => 'admin,administrator,root,system',
@@ -173,6 +175,43 @@ function setting(string $key, string $default = ''): string
     $settings = settings_cache();
     return (string)($settings[$key] ?? $default);
 }
+function exception_detail(Throwable $e): string
+{
+    $parts = [];
+    do {
+        $parts[] = get_class($e) . ': ' . $e->getMessage() . "\n" . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString();
+        $e = $e->getPrevious();
+    } while ($e);
+    return implode("\n\nPrevious:\n", $parts);
+}
+function debug_mode_enabled(): bool
+{
+    try {
+        return db_schema_ready() && setting('debug_mode', '0') === '1';
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+function debug_log_write(string $message, ?Throwable $e = null): void
+{
+    if (!debug_mode_enabled()) return;
+    $line = '[' . date('Y-m-d H:i:s') . '] ' . trim($message);
+    $uri = trim((string)($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . (string)($_SERVER['REQUEST_URI'] ?? ''));
+    if ($uri !== '') $line .= "\n" . $uri;
+    if ($e) $line .= "\n" . exception_detail($e);
+    $line .= "\n\n";
+    @file_put_contents(DEBUG_LOG_FILE, $line, FILE_APPEND | LOCK_EX);
+}
+set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
+    if (error_reporting() === 0) return false;
+    debug_log_write('PHP error [' . $severity . '] ' . $message . "\n" . $file . ':' . $line);
+    return false;
+});
+register_shutdown_function(function (): void {
+    $error = error_get_last();
+    if (!$error || !in_array((int)$error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) return;
+    debug_log_write('PHP fatal [' . (int)$error['type'] . '] ' . (string)$error['message'] . "\n" . (string)$error['file'] . ':' . (int)$error['line']);
+});
 function plugin_id_valid(string $id): bool
 {
     return preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id) === 1;
@@ -428,6 +467,7 @@ function save_settings(): void
         'header_html' => post('header_html', 20000),
         'footer_html' => post('footer_html', 20000),
         'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
+        'debug_mode' => isset($_POST['debug_mode']) ? '1' : '0',
         'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
@@ -1022,7 +1062,8 @@ function is_muted(): bool
 }
 function can_speak(): bool
 {
-    return uid() && !is_muted();
+    if (!uid() || is_muted()) return false;
+    return hook('user.can_speak', true, ['user' => me()]) === true;
 }
 function need_login(): void
 {
@@ -1031,6 +1072,8 @@ function need_login(): void
 function need_speak(): void
 {
     need_login();
+    $allowed = hook('user.can_speak', true, ['user' => me()]);
+    if ($allowed !== true) ajax_request() ? ajax_error(is_string($allowed) ? $allowed : '禁止发言') : err(is_string($allowed) ? $allowed : '禁止发言');
     if (is_muted()) ajax_request() ? ajax_error('禁止发言') : err('禁止发言');
 }
 function need_admin(): void
@@ -1048,7 +1091,7 @@ function need_site_access(): void
     if (!db_schema_ready()) simple_error_page('请先安装');
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
-    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error'], true)) err('网站已关闭');
+    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) err('网站已关闭');
 }
 function check(): void
 {
@@ -1077,8 +1120,9 @@ function form_error_redirect(string $message): never
     ];
     go(route_url('form_error'));
 }
-function ajax_error(string $m): never
+function ajax_error(string $m, bool $log = true): never
 {
+    if ($log) debug_log_write($m);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['ok' => 0, 'message' => $m], JSON_UNESCAPED_UNICODE);
     exit;
@@ -1119,14 +1163,15 @@ function database_error(Throwable $e): bool
 }
 function err(string $m): never
 {
-    if (ajax_request()) ajax_error($m);
+    debug_log_write($m);
+    if (ajax_request()) ajax_error($m, false);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
     if ($_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
     error_page('错误', $m);
 }
 function not_found(string $m): never
 {
-    if (ajax_request()) ajax_error($m);
+    if (ajax_request()) ajax_error($m, false);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
     error_page('404', $m, 404);
 }
@@ -1534,6 +1579,7 @@ function attachment_upload_page(): void
         echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
         exit;
     } catch (Throwable $e) {
+        debug_log_write('附件上传失败', $e);
         ajax_error(database_error($e) ? '数据库出了点小问题' : ($e->getMessage() ?: '附件上传失败'));
     }
 }
@@ -1857,21 +1903,24 @@ function topic_stats_html(int $view_count, int $reply_count): string
     if ($reply_count > 0) $stats .= '<span>' . svg_icon('reply') . $reply_count . '</span>';
     return $stats ? '<div class="post-content-stats">' . $stats . '</div>' : '';
 }
-function page(string $title, string $body): void
+function page(string $title, string $body, array $seo = []): void
 {
     $settings = settings_cache();
     $body = (string)hook('page.before_render', $body, ['title' => $title]);
     $site_name = trim((string)$settings['site_name']) ?: 'FORUM';
     $page_title = $title === '' || $title === $site_name ? $site_name : $title . ' - ' . $site_name;
     $meta = '';
-    if (($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
-    if (($settings['site_description'] ?? '') !== '') $meta .= '<meta name="description" content="' . h($settings['site_description'] ?? '') . '">';
-    $meta .= (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title]);
+    $description = trim((string)($seo['description'] ?? ($settings['site_description'] ?? '')));
+    $is_home = ($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '';
+    if ($is_home && ($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
+    if ($description !== '') $meta .= '<meta name="description" content="' . h($description) . '">';
+    if (!empty($seo['canonical'])) $meta .= '<link rel="canonical" href="' . h((string)$seo['canonical']) . '">';
+    $meta .= (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title, 'seo' => $seo]);
     $q = trim((string)($_GET['q'] ?? ''));
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
     if ($flash !== '' && !headers_sent()) setcookie('__flash', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="' . h(asset_url('index.css')) . '"></head><body>';
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="/index.css?v=' . h(APP_VERSION) . '"></head><body>';
     $mine = me();
     $mine_unread = $mine ? (int)($mine['unread_notifications'] ?? 0) : 0;
     $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => $mine_unread > 0 ? 'notifications' : null]) : route_url('login');
@@ -1881,7 +1930,7 @@ function page(string $title, string $body): void
     echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
     $footer_html = (string)($settings['footer_html'] ?? '') . (string)hook('page.footer', '', ['title' => $title]);
-    echo $header_html . '<main class="wrap">' . $body . '</main><footer class="footer">' . $footer_html . 'Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="' . h(asset_url('index.js')) . '" defer></script></body></html>';
+    echo $header_html . '<main class="wrap">' . $body . '</main><footer class="footer">' . $footer_html . 'Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="/index.js?v=' . h(APP_VERSION) . '" defer></script></body></html>';
 }
 function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
 {
@@ -2015,6 +2064,32 @@ function save_user(bool $admin = false): void
     $pwd = (string)($_POST['password'] ?? '');
     $pwd2 = (string)($_POST['password2'] ?? '');
     if ($pwd !== '' && $pwd !== $pwd2) err('两次密码不一致');
+    $filtered = hook('user.before_save', [
+        'username' => $username,
+        'email' => $email,
+        'bio' => $bio,
+        'avatar_style' => $avatar_style,
+        'avatar_seed' => $avatar_seed,
+        'group_id' => $gid,
+        'points' => $points,
+        'is_banned' => $is_banned,
+        'is_muted' => $is_muted,
+    ], ['id' => $user_id, 'admin' => $admin, 'creating' => !$user_id]);
+    if (is_array($filtered)) {
+        $username = cut((string)($filtered['username'] ?? $username), 40);
+        $email = cut((string)($filtered['email'] ?? $email), 120);
+        $bio = cut((string)($filtered['bio'] ?? $bio), 1000);
+        $avatar_style = avatar_style(cut((string)($filtered['avatar_style'] ?? $avatar_style), 40));
+        $avatar_seed = cut((string)($filtered['avatar_seed'] ?? $avatar_seed), 80);
+        $gid = max(1, (int)($filtered['group_id'] ?? $gid));
+        if (!group_by_id($gid)) err('用户组不存在');
+        $points = (int)($filtered['points'] ?? $points);
+        $is_banned = (int)($filtered['is_banned'] ?? $is_banned) ? 1 : 0;
+        $is_muted = (int)($filtered['is_muted'] ?? $is_muted) ? 1 : 0;
+    }
+    if ($username === '') err('用户名不能为空');
+    $exists = $user_id ? one("SELECT id FROM users WHERE username=? AND id<>?", [$username, $user_id]) : one("SELECT id FROM users WHERE username=?", [$username]);
+    if ($exists) err('用户名已存在');
     if ($user_id) {
         $p = [$username, $email, $bio, $avatar_style, $avatar_seed, $gid, $is_banned, $is_muted, $user_id];
         $sql = "UPDATE users SET username=?,email=?,bio=?,avatar_style=?,avatar_seed=?,group_id=?,is_banned=?,is_muted=? WHERE id=?";
@@ -2024,10 +2099,13 @@ function save_user(bool $admin = false): void
         }
         q($sql, $p);
         if ($admin) user_points_set($user_id, $points, '管理员调整');
+        fire('user.after_save', ['id' => $user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => false]);
     } else {
         if ($pwd === '') err('密码不能为空');
         q("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,points,is_banned,is_muted,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $email, $bio, $avatar_style, $avatar_seed, $gid, $points, $is_banned, $is_muted, now()]);
+        $new_user_id = (int)db()->lastInsertId();
         if (!$admin && !id()) rate_hit_register($ip);
+        fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
     }
     stats_cache(true);
 }
@@ -2092,6 +2170,25 @@ function base_url(): string
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
     return ($https ? 'https' : 'http') . '://' . $host;
+}
+function absolute_url(string $url): string
+{
+    if (preg_match('/^https?:\/\//i', $url)) return $url;
+    return rtrim(base_url(), '/') . '/' . ltrim($url, '/');
+}
+function seo_text(string $text, int $max = 160): string
+{
+    $text = strip_tags(markdown_html($text));
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+    return cut($text, $max);
+}
+function page_seo(string $route, array $params = [], string $description = ''): array
+{
+    $seo = ['canonical' => absolute_url(route_url($route, $params))];
+    $description = seo_text($description);
+    if ($description !== '') $seo['description'] = $description;
+    return $seo;
 }
 function send_mail_text(string $to, string $subject, string $body): bool
 {
@@ -2399,7 +2496,7 @@ function login_page(): void
             go(route_url('home'));
         }
         rate_hit_login_fail($ip);
-        err('用户名或错误');
+        err('用户名或密码错误');
     }
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
@@ -2585,7 +2682,11 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . sidebar_stats_card_html() : '')]);
-    page($profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页'), shell_html($main, $sidebar, (!$profile_uid && !$filter_forum) ? 'home-mobile-sidebar' : ''));
+    $title = $profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页');
+    $seo = [];
+    if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));
+    elseif ($filter_forum) $seo = page_seo('forum', ['id' => $fid], (string)($filter_forum['description'] ?? $filter_forum['name']));
+    page($title, shell_html($main, $sidebar, (!$profile_uid && !$filter_forum) ? 'home-mobile-sidebar' : ''), $seo);
 }
 function home_page(): void
 {
@@ -2643,7 +2744,8 @@ function topic_page(): void
     if (uid()) $topic_ops .= quote_reply_action($t);
     if (uid()) $topic_ops .= '<a class="fav-btn' . ($fav ? ' active' : '') . '" href="' . h(route_url('favorite', ['id' => (int)$t['id']])) . '" title="' . ($fav ? '已收藏' : '收藏') . '" aria-label="' . ($fav ? '已收藏' : '收藏') . '">' . svg_icon($fav ? 'favorite_fill' : 'favorite') . '<span>' . ($fav ? '已收藏' : '收藏') . '</span></a>';
     if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
-    $main = '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
+    $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
+    $main = $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
     if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
     foreach ($replies as $r) {
         $reply_ops = uid() ? quote_reply_action($r) : '';
@@ -2669,7 +2771,7 @@ function topic_page(): void
         $main .= '<div class="reply-login-box disabled">当前用户禁止发言</div>';
     }
     $main .= '</div>';
-    page($t['title'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html(), sidebar_stats_card_html()])));
+    page($t['title'] . ' - ' . $forum['name'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html(), sidebar_stats_card_html()])), page_seo('topic', ['id' => (int)$t['id']], (string)$t['body']));
 }
 function topic_edit_page(): void
 {
@@ -2854,7 +2956,7 @@ function admin_page(): void
         $security_fields .= '<label class="grid"><span>附件数量限制<small>设置为 0 可关闭附件上传。</small></span><input name="attachment_max_count" type="number" min="0" value="' . h($s['attachment_max_count']) . '" required></label>';
         $security_fields .= '<label class="grid"><span>单个附件大小（MB）<small>设置为 0 可关闭附件上传，实际上限受服务器配置影响。</small></span><input name="attachment_max_mb" type="number" min="0" value="' . h($s['attachment_max_mb']) . '" required></label>';
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>Debug模式</span><input type="checkbox" name="debug_mode" value="1"' . ((int)($s['debug_mode'] ?? 0) ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
         $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
         if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
@@ -2943,6 +3045,40 @@ function admin_edit_page(): void
     } else err('参数错误');
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
+function robots_page(): void
+{
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "User-agent: *\nDisallow:\nSitemap: " . absolute_url(app_url('sitemap.xml')) . "\n";
+    exit;
+}
+function sitemap_page(): void
+{
+    $urls = [
+        ['loc' => absolute_url(route_url('home')), 'lastmod' => time()],
+    ];
+    foreach (forums_cache() as $f) {
+        if ((string)($f['allow_view_groups'] ?? '') !== '') continue;
+        $urls[] = ['loc' => absolute_url(route_url('forum', ['id' => (int)$f['id']])), 'lastmod' => time()];
+    }
+    foreach (q("SELECT t.id,t.created_at,t.updated_at FROM topics t JOIN forums f ON f.id=t.forum_id WHERE f.allow_view_groups='' ORDER BY t.id DESC LIMIT 5000")->fetchAll() as $t) {
+        $urls[] = ['loc' => absolute_url(route_url('topic', ['id' => (int)$t['id']])), 'lastmod' => max((int)$t['created_at'], (int)$t['updated_at'])];
+    }
+    foreach (q("SELECT id FROM users ORDER BY id DESC LIMIT 5000")->fetchAll() as $u) {
+        $urls[] = ['loc' => absolute_url(route_url('user', ['id' => (int)$u['id']])), 'lastmod' => time()];
+    }
+    header('Content-Type: application/xml; charset=utf-8');
+    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+    foreach ($urls as $url) {
+        echo "  <url><loc>" . h($url['loc']) . "</loc><lastmod>" . date('c', (int)$url['lastmod']) . "</lastmod></url>\n";
+    }
+    echo "</urlset>\n";
+    exit;
+}
+function favicon_page(): void
+{
+    header('Location: ' . asset_url('logo.svg'), true, 302);
+    exit;
+}
 
 secure_session_start();
 parse_path_route();
@@ -2957,6 +3093,9 @@ try {
     $a = $_GET['a'] ?? 'home';
     $do = $_GET['do'] ?? '';
     if ($a === 'home') home_page();
+    elseif ($a === 'robots.txt') robots_page();
+    elseif ($a === 'sitemap.xml') sitemap_page();
+    elseif (in_array($a, ['favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) favicon_page();
     elseif ($a === 'search') search_page();
     elseif ($a === 'attachment') attachment_page();
     elseif ($a === 'attachment_upload') attachment_upload_page();
@@ -3054,5 +3193,6 @@ try {
     } elseif (plugin_route((string)$a)) {
     } else not_found('你访问的页面不存在');
 } catch (Throwable $e) {
-    err(database_error($e) ? '数据库出了点小问题' : '操作失败');
+    debug_log_write('未捕获异常', $e);
+    err(uid() === 1 ? exception_detail($e) : (database_error($e) ? '数据库出了点小问题' : '操作失败'));
 }

@@ -98,6 +98,9 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .post-meta a:hover{color:var(--brand)}
 .meta-icon{width:13px;height:13px;flex:0 0 13px;color:#aaa}
 .post-meta .post-forum-meta{display:none}
+.breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 8px;color:#aaa;font-size:12px}
+.breadcrumb a{color:#777}
+.breadcrumb a:hover{color:var(--brand)}
 .post-entry{display:grid;grid-template-columns:36px minmax(0,1fr);grid-template-areas:"avatar body" "content content";column-gap:10px;align-items:start}
 .post-entry.has-title{grid-template-areas:"title title" "avatar body" "content content";row-gap:8px}
 .post-topic-title{grid-area:title;display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-bottom:6px}
@@ -220,6 +223,8 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .daily-checkin-action button{border:1px solid var(--brand);background:var(--brand);color:#fff}
 .daily-checkin-action button:hover{border-color:var(--brand-hover);background:var(--brand-hover);color:#fff}
 .daily-checkin-done{border:1px solid #d9f4e4;background:var(--brand-soft);color:var(--brand)}
+.user-review-action a{display:flex;align-items:center;justify-content:center;width:100%;min-height:32px;padding:0 10px;border:1px solid var(--brand);border-radius:7px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;text-decoration:none}
+.user-review-action a:hover{border-color:var(--brand-hover);background:var(--brand-hover);color:#fff}
 .quick-wrap{padding:10px 14px}
 .quick-title,.stats-title,.new-users-title{font-size:12px;color:#333;margin-bottom:6px;font-weight:600}
 .quick-links{list-style:none;margin:0;padding:0}
@@ -456,6 +461,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-list-item:hover{background:#fbfdfc}
 .admin-object-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:64px}
 .admin-object-row.daily-checkin-row{grid-template-columns:minmax(0,1fr)}
+.admin-object-row.user-review-row{grid-template-columns:minmax(0,1fr) auto}
+.user-review-row .admin-content-text{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:#667085}
 .admin-row-check{width:15px;height:15px;margin:0}
 .admin-row-main{display:grid;gap:6px;min-width:0}
 .admin-row-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;color:#98a2b3;font-size:11px;line-height:1.35}
@@ -549,7 +556,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .admin-bulk-list .admin-content-cell,.admin-bulk-list .admin-content-text,.admin-bulk-list .admin-content-title{white-space:normal}
     .admin-object-row{grid-template-columns:18px minmax(0,1fr);gap:10px}
     .admin-object-row.daily-checkin-row{grid-template-columns:minmax(0,1fr)}
+    .admin-object-row.user-review-row{grid-template-columns:minmax(0,1fr)}
     .admin-object-row .admin-inline-ops{grid-column:2;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
+    .admin-object-row.user-review-row .admin-inline-ops{grid-column:1}
     .plugin-item.admin-object-row{grid-template-columns:1fr;gap:8px}
     .plugin-item.admin-object-row .admin-inline-ops{grid-column:1}
     .plugin-title-line{align-items:flex-start;flex-direction:column;gap:5px}

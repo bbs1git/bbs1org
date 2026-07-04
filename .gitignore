@@ -6,6 +6,7 @@ cache/*
 *.lock
 .claude
 .DS_Store
+data/debug.log
 avatars
 upload/*
 !upload/.gitkeep

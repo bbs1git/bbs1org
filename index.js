@@ -592,6 +592,12 @@ document.addEventListener("submit", async e => {
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
         showToast(data.message || "操作完成");
+        const removeTarget = form.dataset.removeTarget || "";
+        const removeEl = removeTarget ? form.closest(removeTarget) : null;
+        if (removeEl) {
+            removeEl.remove();
+            return;
+        }
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
         showToast(err?.message || "操作失败");
