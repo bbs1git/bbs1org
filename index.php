@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v2.2');
+define('APP_VERSION', 'v2.3');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -863,12 +863,16 @@ function admin_bulk_delete_bar(string $tab = ''): string
     else $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option></select>';
     return '<div class="bulk-bar"><label class="bulk-select-all"><input type="checkbox" data-select-all><span>全选</span></label>' . $actions . '<button class="danger bulk-delete" type="submit" form="admin-bulk-form">执行</button></div>';
 }
+function admin_row_check_html(int $id): string
+{
+    return '<input class="admin-row-check" type="checkbox" name="ids[]" value="' . $id . '" form="admin-bulk-form" aria-label="选择">';
+}
 function admin_user_row(array $u, bool $manageable = true): string
 {
     $g = group_by_id((int)$u['group_id']) ?: ['name' => ''];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'], 'danger', '确定删除？') . '</div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'], 'danger', '确定删除？') . admin_row_check_html((int)$u['id']) . '</div>' : '';
     $states = array_filter([h($g['name']), '积分 ' . (int)($u['points'] ?? 0), (int)($u['is_banned'] ?? 0) ? '禁访' : '', (int)($u['is_muted'] ?? 0) ? '禁言' : '']);
-    return '<li class="admin-list-item admin-object-row admin-user-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$u['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<div class="admin-user-text"><strong>' . h($u['username']) . '</strong><span>' . implode(' / ', $states) . ' · ID ' . (int)$u['id'] . '</span></div></div></div>' . $ops . '</li>';
+    return '<li class="admin-list-item admin-object-row admin-user-row"><div class="admin-row-main"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<div class="admin-user-text"><strong>' . h($u['username']) . '</strong><span>' . implode(' / ', $states) . ' · ID ' . (int)$u['id'] . '</span></div></div></div>' . $ops . '</li>';
 }
 function user_state_tag_html(array $u): string
 {
@@ -880,17 +884,17 @@ function user_state_tag_html(array $u): string
 function admin_topic_row(array $t, bool $manageable = true): string
 {
     $url = route_url('topic', ['id' => (int)$t['id']]);
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'], 'danger', '确定删除？') . '</div>' : '';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'], 'danger', '确定删除？') . admin_row_check_html((int)$t['id']) . '</div>' : '';
     $forum = forum_by_id((int)($t['forum_id'] ?? 0)) ?: ['name' => ''];
     $forum_tag = $forum['name'] !== '' ? '<span class="admin-forum-name">' . h($forum['name']) . '</span>' : '';
-    return '<li class="admin-list-item admin-object-row admin-topic-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$t['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '</span><span>ID ' . (int)$t['id'] . '</span><span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</span>' . $forum_tag . '</div></div>' . $ops . '</li>';
+    return '<li class="admin-list-item admin-object-row admin-topic-row"><div class="admin-row-main"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '</span><span>ID ' . (int)$t['id'] . '</span><span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</span>' . $forum_tag . '</div></div>' . $ops . '</li>';
 }
 function admin_reply_row(array $r, bool $manageable = true): string
 {
     $topic_url = route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]);
     $topic_title = (string)($r['topic_title'] ?? '主题已删除');
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'], 'danger', '确定删除？') . '</div>' : '';
-    return '<li class="admin-list-item admin-object-row admin-reply-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$r['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h(cut($r['body'], 150)) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
+    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'], 'danger', '确定删除？') . admin_row_check_html((int)$r['id']) . '</div>' : '';
+    return '<li class="admin-list-item admin-object-row admin-reply-row"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h(cut($r['body'], 150)) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
 {
@@ -2104,6 +2108,7 @@ function save_user(bool $admin = false): void
         if ($pwd === '') err('密码不能为空');
         q("INSERT INTO users(username,password,email,bio,avatar_style,avatar_seed,group_id,points,is_banned,is_muted,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $email, $bio, $avatar_style, $avatar_seed, $gid, $points, $is_banned, $is_muted, now()]);
         $new_user_id = (int)db()->lastInsertId();
+        $GLOBALS['__last_saved_user_id'] = $new_user_id;
         if (!$admin && !id()) rate_hit_register($ip);
         fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
     }
@@ -2510,13 +2515,14 @@ function register_page(): void
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false);
-        $_SESSION['uid'] = (int)db()->lastInsertId();
+        $_SESSION['uid'] = (int)($GLOBALS['__last_saved_user_id'] ?? db()->lastInsertId());
         go(route_url('home'));
     }
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
     ]);
-    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . '<button>注册</button></form></div>', $sidebar));
+    $form_extra = (string)hook('register.form_extra', '', []);
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
@@ -2653,6 +2659,14 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         if ($own_profile) $tab_items['notifications'] = ['label' => '通知', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'tab=notifications')];
         $main .= '<div class="profile-toolbar">' . tab_bar_html($tab_items, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="' . h(route_url('profile')) . '">设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="' . h(route_url('notify', ['id' => $profile_uid])) . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
     } else {
+        if (!$profile_uid && $q === '') {
+            $forum_links = '<div class="mobile-forum-strip"><a class="mobile-forum-link' . ($fid ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部</a>';
+            foreach (forums_cache() as $f) {
+                if (!forum_group_allowed($f, 'allow_view_groups')) continue;
+                $forum_links .= '<a class="mobile-forum-link' . ((int)$f['id'] === $fid ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+            }
+            $main .= $forum_links . '</div>';
+        }
         $tab_items = [
             'comment' => ['label' => '新评论', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment')],
             'post' => ['label' => '新帖子', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=post')],
@@ -2687,7 +2701,8 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $seo = [];
     if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));
     elseif ($filter_forum) $seo = page_seo('forum', ['id' => $fid], (string)($filter_forum['description'] ?? $filter_forum['name']));
-    page($title, shell_html($main, $sidebar, (!$profile_uid && !$filter_forum) ? 'home-mobile-sidebar' : ''), $seo);
+    $show_mobile_sidebar = !$profile_uid && !$filter_forum && $q === '' && $p === 1;
+    page($title, shell_html($main, $sidebar, $show_mobile_sidebar ? 'home-mobile-sidebar' : ''), $seo);
 }
 function home_page(): void
 {
