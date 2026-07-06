@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v2.3');
+define('APP_VERSION', 'v2.3.1');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -960,9 +960,9 @@ function auth_tabs_html(string $active): string
         'register' => ['label' => '注册', 'href' => route_url('register')],
     ], $active, 'auth-tabs');
 }
-function sidebar_stack_html(array $parts): string
+function sidebar_stack_html(array $parts, array $ctx = []): string
 {
-    $filtered = hook('sidebar.stack', $parts);
+    $filtered = hook('sidebar.stack', $parts, $ctx);
     if (is_array($filtered)) $parts = $filtered;
     $html = '<aside class="sidebar">';
     foreach ($parts as $part) if ($part !== '') $html .= $part;
@@ -2696,13 +2696,13 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $pagination = ($profile_uid && $profile_tab === 'replies') ? simple_paginate($p > 1, (bool)($has_next_reply_page ?? false), $p, $url($page_query)) : paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
-    $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . sidebar_stats_card_html() : '')]);
+    $is_home_first_page = !$profile_uid && !$filter_forum && $q === '' && $p === 1;
+    $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . ($is_home_first_page ? sidebar_stats_card_html() : '') : '')], ['is_home_first_page' => $is_home_first_page]);
     $title = $profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页');
     $seo = [];
     if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));
     elseif ($filter_forum) $seo = page_seo('forum', ['id' => $fid], (string)($filter_forum['description'] ?? $filter_forum['name']));
-    $show_mobile_sidebar = !$profile_uid && !$filter_forum && $q === '' && $p === 1;
-    page($title, shell_html($main, $sidebar, $show_mobile_sidebar ? 'home-mobile-sidebar' : ''), $seo);
+    page($title, shell_html($main, $sidebar, $is_home_first_page ? 'home-mobile-sidebar' : ''), $seo);
 }
 function home_page(): void
 {
@@ -2787,7 +2787,7 @@ function topic_page(): void
         $main .= '<div class="reply-login-box disabled">当前用户禁止发言</div>';
     }
     $main .= '</div>';
-    page($t['title'] . ' - ' . $forum['name'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html(), sidebar_stats_card_html()])), page_seo('topic', ['id' => (int)$t['id']], (string)$t['body']));
+    page($t['title'] . ' - ' . $forum['name'], shell_html($main, sidebar_stack_html([sidebar_user_card_html(null, true), quick_forums_html()])), page_seo('topic', ['id' => (int)$t['id']], (string)$t['body']));
 }
 function topic_edit_page(): void
 {

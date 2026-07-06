@@ -59,7 +59,7 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .main-panel{background:#fff;border-radius:var(--radius);overflow:hidden}
 .user-panel{box-shadow:0 6px 18px rgba(16,24,40,.035)}
 .user-shell{padding:12px}
-.sidebar{position:sticky;top:56px;width:230px;flex-shrink:0;display:grid;gap:12px;align-content:start}
+.sidebar{width:230px;flex-shrink:0;display:grid;gap:12px;align-content:start}
 .tab-bar{display:flex;align-items:center;gap:0;margin: 0 0 20px 0;}
 .tab-bar>.pagination{margin:0 0 0 auto;padding:0}
 .profile-toolbar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
