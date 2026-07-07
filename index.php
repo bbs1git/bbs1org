@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v2.3.1');
+define('APP_VERSION', 'v2.3.2');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -18,6 +18,7 @@ define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
+define('SEARCH_MIN_CHARS', 3);
 function db_file_path(): string
 {
     if (is_file(DB_CONFIG_FILE)) {
@@ -815,7 +816,7 @@ function admin_search_form(string $tab, string $query): string
     if ($tab === 'users') $has_clear = $has_clear || $group_id > 0 || ($_GET['is_banned'] ?? '') !== '' || ($_GET['is_muted'] ?? '') !== '';
     if ($tab === 'topics') $has_clear = $has_clear || (int)($_GET['forum_id'] ?? 0) > 0 || $field !== 'title';
     $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="' . h($tab) . '">';
-    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索" minlength="' . SEARCH_MIN_CHARS . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
 }
 function admin_bulk_delete_form_open(string $tab, string $query): string
 {
@@ -1829,23 +1830,18 @@ function search_char_len(string $query): int
     preg_match_all('/./us', trim($query), $m);
     return count($m[0] ?? []);
 }
+function search_min_chars_message(): string
+{
+    return '请至少输入' . SEARCH_MIN_CHARS . '个字符再搜索';
+}
+function require_search_min_chars(string $query): void
+{
+    if (trim($query) !== '' && search_char_len($query) < SEARCH_MIN_CHARS) err(search_min_chars_message());
+}
 function topic_search_condition(string $query, string $field = '', string $prefix = ''): array
 {
     $column_prefix = $prefix !== '' ? $prefix . '.' : '';
     $field = in_array($field, ['title', 'body'], true) ? $field : '';
-    if (search_char_len($query) <= 2) {
-        $like = '%' . trim($query) . '%';
-        if ($field !== '') {
-            return [
-                $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE " . $field . " LIKE ?)",
-                [$like],
-            ];
-        }
-        return [
-            $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE title LIKE ? OR body LIKE ?)",
-            [$like, $like],
-        ];
-    }
     return [
         $column_prefix . "id IN (SELECT rowid FROM topics_fts WHERE topics_fts MATCH ?)",
         [topic_fts_query($query, $field)],
@@ -1931,7 +1927,7 @@ function page(string $title, string $body, array $seo = []): void
     $mine_label = $mine ? '我的' . notification_badge_html($mine_unread) : '登录';
     echo '<div class="top"><div class="bar"><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
     foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
-    echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
+    echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
     $footer_html = (string)($settings['footer_html'] ?? '') . (string)hook('page.footer', '', ['title' => $title]);
     echo $header_html . '<main class="wrap">' . $body . '</main><footer class="footer">' . $footer_html . 'Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="/index.js?v=' . h(APP_VERSION) . '" defer></script></body></html>';
@@ -2576,6 +2572,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $sort = $profile_uid ? 'post' : (($_GET['sort'] ?? 'comment') === 'post' ? 'post' : 'comment');
     $order = $sort === 'post' ? 't.created_at DESC,t.id DESC' : 't.last_reply_at DESC,t.id DESC';
     $q = trim((string)($_GET['q'] ?? ''));
+    require_search_min_chars($q);
     $pinned_ids = (!$profile_uid && !$fid && $q === '') ? pinned_topic_ids() : [];
     $where_parts = [];
     $params = [];
@@ -2711,12 +2708,14 @@ function home_page(): void
 function search_page(): void
 {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') go(route_url('home'));
+    $q = post('q', 120);
+    if ($q === '') go(route_url('home'));
+    require_search_min_chars($q);
     $seconds = post_interval_seconds();
     $wait = $seconds - (time() - (int)($_SESSION['last_search_at'] ?? 0));
     if ($seconds > 0 && $wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
     $_SESSION['last_search_at'] = time();
-    $q = post('q', 120);
-    go(route_url('home', $q !== '' ? ['q' => $q] : []));
+    go(route_url('home', ['q' => $q]));
 }
 function forum_page(): void
 {
@@ -2925,6 +2924,7 @@ function admin_page(): void
     need_admin();
     $tab = $_GET['tab'] ?? 'settings';
     $q = trim((string)($_GET['q'] ?? ''));
+    require_search_min_chars($q);
     $topic_field = admin_topic_field((string)($_GET['field'] ?? 'title'));
     $reply_field = admin_reply_field((string)($_GET['reply_field'] ?? 'body'));
     $topic_forum_id = max(0, (int)($_GET['forum_id'] ?? 0));
