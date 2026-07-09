@@ -11,3 +11,4 @@ avatars
 upload/*
 !upload/.gitkeep
 plugins/*
+插件向导.md

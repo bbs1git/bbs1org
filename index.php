@@ -1919,6 +1919,50 @@ function markdown_inline(string $text): string
     }, $text) ?? $text;
     return strtr($text, $codes);
 }
+function markdown_table_cells(string $line): array
+{
+    $line = trim($line);
+    if (str_starts_with($line, '|')) $line = substr($line, 1);
+    if (str_ends_with($line, '|')) $line = substr($line, 0, -1);
+    return array_map(fn($cell) => trim(str_replace('\\|', '|', $cell)), preg_split('/(?<!\\\\)\|/u', $line) ?: []);
+}
+function markdown_table_aligns(string $line): ?array
+{
+    $cells = markdown_table_cells($line);
+    if (!$cells) return null;
+    $aligns = [];
+    foreach ($cells as $cell) {
+        $cell = trim($cell);
+        if (!preg_match('/^:?-{3,}:?$/', $cell)) return null;
+        $left = str_starts_with($cell, ':');
+        $right = str_ends_with($cell, ':');
+        $aligns[] = $left && $right ? 'center' : ($right ? 'right' : ($left ? 'left' : ''));
+    }
+    return $aligns;
+}
+function markdown_table_html(array $lines): string
+{
+    if (count($lines) < 2) return '';
+    $aligns = markdown_table_aligns($lines[1]);
+    if ($aligns === null) return '';
+    $headers = markdown_table_cells($lines[0]);
+    if (!$headers || count($headers) !== count($aligns)) return '';
+    $cell_attr = fn(string $align) => $align !== '' ? ' style="text-align:' . $align . '"' : '';
+    $html = '<div class="markdown-table-wrap"><table><thead><tr>';
+    foreach ($headers as $i => $cell) $html .= '<th' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline($cell) . '</th>';
+    $html .= '</tr></thead><tbody>';
+    foreach (array_slice($lines, 2) as $line) {
+        if (trim($line) === '') continue;
+        $cells = markdown_table_cells($line);
+        if (!$cells) continue;
+        $html .= '<tr>';
+        for ($i = 0, $count = count($headers); $i < $count; $i++) {
+            $html .= '<td' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline((string)($cells[$i] ?? '')) . '</td>';
+        }
+        $html .= '</tr>';
+    }
+    return $html . '</tbody></table></div>';
+}
 function markdown_html(string $text): string
 {
     $text = (string)hook('markdown.before', $text);
@@ -1946,6 +1990,8 @@ function markdown_html(string $text): string
                 $level = strlen($m[1]);
                 return '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
             }
+            $table = markdown_table_html($lines);
+            if ($table !== '') return $table;
             if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
                 $items = '';
                 foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
@@ -3065,7 +3111,7 @@ function topic_edit_page(): void
     }
     $attachments = attachment_uploader_html();
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => id() > 0]);
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
 }
 function reply_edit_page(): void
 {
