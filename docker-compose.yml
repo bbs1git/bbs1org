@@ -3,12 +3,13 @@ services:
     image: php:8-fpm-bookworm
     restart: unless-stopped
     working_dir: /var/www/html
-    command: sh -c "mkdir -p /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload && chown -R www-data:www-data /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload && php-fpm"
+    command: sh -c "mkdir -p /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload /var/www/html/plugins && chown -R www-data:www-data /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload /var/www/html/plugins && php-fpm"
     volumes:
       - ./:/var/www/html
       - data:/var/www/html/data
       - avatars:/var/www/html/avatars
       - upload:/var/www/html/upload
+      - plugins:/var/www/html/plugins
       - ./docker/opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
   nginx:
     image: nginx:stable-alpine
@@ -27,3 +28,4 @@ volumes:
   data:
   avatars:
   upload:
+  plugins:

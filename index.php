@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v3.0');
+define('APP_VERSION', 'v3.1');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -391,6 +391,11 @@ function plugin_market_fetch(): array
     }
     return ['ok' => (int)($data['ok'] ?? 1), 'message' => (string)($data['message'] ?? ''), 'plugins' => $plugins];
 }
+function plugin_dir_require_writable(): void
+{
+    if (!is_dir(PLUGIN_DIR) && !mkdir(PLUGIN_DIR, 0755, true)) err('插件目录不可写，请检查 plugins 目录权限');
+    if (!is_writable(PLUGIN_DIR)) err('插件目录不可写，请检查 plugins 目录权限');
+}
 function plugin_market_install(string $id): void
 {
     need_admin();
@@ -402,6 +407,7 @@ function plugin_market_install(string $id): void
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)($item['sha256'] ?? '') !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
     if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $code, $m) !== 1 || (string)$m[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
+    plugin_dir_require_writable();
     $dir = PLUGIN_DIR . '/' . $id;
     $file = $dir . '/plugin.php';
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('插件目录创建失败');
