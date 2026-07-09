@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v2.3.2');
+define('APP_VERSION', 'v3.0');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -19,6 +19,8 @@ define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('SEARCH_MIN_CHARS', 3);
+define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
+define('PLUGIN_SHARE_BODY_MAX', 200000);
 function db_file_path(): string
 {
     if (is_file(DB_CONFIG_FILE)) {
@@ -260,6 +262,28 @@ function plugin_enabled(array $plugin): bool
 {
     return setting('plugin_' . (string)$plugin['id'] . '_enabled', '0') === '1';
 }
+function plugin_entry_hook_name(string $entry): string
+{
+    return ['feature_links' => 'sidebar.feature_links', 'sidebar_cards' => 'sidebar.stack'][$entry] ?? '';
+}
+function plugin_uses_entry(array $plugin, string $entry): bool
+{
+    $hook = plugin_entry_hook_name($entry);
+    return $hook !== '' && isset($plugin['hooks'][$hook]);
+}
+function plugin_entry_enabled(array $plugin, string $entry): bool
+{
+    if (!plugin_uses_entry($plugin, $entry)) return false;
+    return setting('plugin_' . (string)$plugin['id'] . '_entry_' . $entry, '1') === '1';
+}
+function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): void
+{
+    if (!plugin_id_valid($id) || plugin_entry_hook_name($entry) === '') err('参数错误');
+    $plugin = plugins()[$id] ?? null;
+    if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
+    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_entry_' . $entry, $enabled ? '1' : '0']);
+    settings_cache(true);
+}
 function plugin_config(string $id, array $defaults = []): array
 {
     if (!plugin_id_valid($id)) return $defaults;
@@ -300,10 +324,124 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
     q("DELETE FROM settings WHERE name IN (?,?,?)", ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config']);
     settings_cache(true);
 }
+function plugin_share_topic_title(array $plugin): string
+{
+    $id = (string)($plugin['id'] ?? '');
+    $name = trim((string)($plugin['name'] ?? ''));
+    return '[' . $id . ']' . ($name !== '' ? $name : $id);
+}
+function plugin_share_markdown_body(string $code): string
+{
+    if (preg_match('/^\s*```\s*[\w-]*\s*$/m', $code)) err('插件代码包含独立的 Markdown 代码块标记，无法安全分享');
+    return "```php\n" . rtrim($code) . "\n```";
+}
+function plugin_market_url(string $action): string
+{
+    return append_url_query(PLUGIN_MARKET_BASE_URL, ['a' => $action]);
+}
+function plugin_share_post_page(string $id): void
+{
+    need_admin();
+    if (!plugin_id_valid($id)) err('插件不存在');
+    $plugin = plugins()[$id] ?? null;
+    if (!$plugin) err('插件不存在');
+    $file = (string)($plugin['file'] ?? '');
+    if ($file === '' || !is_file($file)) err('插件文件不存在');
+    $code = file_get_contents($file);
+    if (!is_string($code) || trim($code) === '') err('插件文件为空');
+    $title = plugin_share_topic_title($plugin);
+    $body = plugin_share_markdown_body($code);
+    if (strlen($body) > PLUGIN_SHARE_BODY_MAX) err('插件代码超过分享长度限制');
+    $share_form = '<form class="post-action-form" method="post" action="' . h(plugin_market_url('plugin_share_receive')) . '" data-no-ajax="1" data-plugin-share-auto="1"><input type="hidden" name="title" value="' . h($title) . '"><textarea name="body" hidden>' . h($body) . '</textarea><button type="submit" class="plugin-enable">立即继续</button></form>';
+    $head = '<div class="admin-plugin-summary"><strong>正在前往插件市场</strong><span>插件代码已准备好，请在官方站点确认后发布。</span></div>';
+    $plugin_author = trim((string)($plugin['author'] ?? ''));
+    $row = '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h((string)($plugin['name'] ?? $id)) . '</strong><span class="admin-flag on">分享</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ((string)($plugin['version'] ?? '') !== '' ? '<span>版本 ' . h((string)$plugin['version']) . '</span>' : '') . ($plugin_author !== '' ? '<span>插件作者 ' . h($plugin_author) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div><div class="plugin-file">' . h($file) . '</div></div><div class="admin-inline-ops plugin-ops">' . $share_form . '</div></li>';
+    $tip = '<p class="muted" style="margin:8px 0 0">插件安装更新方法：后台 -> 插件 -> 插件市场 -> 搜索插件ID ' . h($id) . '</p>';
+    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, '') . '<ul class="admin-manage-list plugin-list">' . $row . '</ul></div>' . $tip;
+    page('分享插件', shell_html($html, sidebar_stack_html([sidebar_user_card_html()])));
+}
+function plugin_market_fetch(): array
+{
+    $context = stream_context_create(['http' => ['timeout' => 8, 'ignore_errors' => true]]);
+    $json = @file_get_contents(plugin_market_url('plugin_market_feed'), false, $context);
+    if (!is_string($json) || trim($json) === '') return ['ok' => 0, 'message' => '无法连接插件市场', 'plugins' => []];
+    $data = json_decode($json, true);
+    if (!is_array($data)) return ['ok' => 0, 'message' => '插件市场返回格式错误', 'plugins' => []];
+    $plugins = [];
+    foreach ((array)($data['plugins'] ?? []) as $item) {
+        if (!is_array($item)) continue;
+        $id = (string)($item['id'] ?? '');
+        $code = (string)($item['code'] ?? '');
+        if (!plugin_id_valid($id) || trim($code) === '') continue;
+        $plugins[$id] = [
+            'id' => $id,
+            'title' => (string)($item['title'] ?? ''),
+            'name' => (string)($item['name'] ?? $id),
+            'version' => (string)($item['version'] ?? ''),
+            'description' => (string)($item['description'] ?? ''),
+            'author' => (string)($item['author'] ?? ''),
+            'creator' => (string)($item['creator'] ?? ($item['username'] ?? ($item['author'] ?? ''))),
+            'creator_id' => (int)($item['creator_id'] ?? 0),
+            'topic_id' => (int)($item['topic_id'] ?? 0),
+            'updated_at' => (int)($item['updated_at'] ?? 0),
+            'sha256' => (string)($item['sha256'] ?? hash('sha256', $code)),
+            'url' => clean_site_base_url((string)($item['url'] ?? '')),
+            'code' => $code,
+        ];
+    }
+    return ['ok' => (int)($data['ok'] ?? 1), 'message' => (string)($data['message'] ?? ''), 'plugins' => $plugins];
+}
+function plugin_market_install(string $id): void
+{
+    need_admin();
+    if (!plugin_id_valid($id)) err('插件不存在');
+    $market = plugin_market_fetch();
+    $item = $market['plugins'][$id] ?? null;
+    if (!is_array($item)) err((string)($market['message'] ?? '') ?: '插件市场没有返回该插件');
+    $code = (string)($item['code'] ?? '');
+    if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
+    if ((string)($item['sha256'] ?? '') !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
+    if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $code, $m) !== 1 || (string)$m[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
+    $dir = PLUGIN_DIR . '/' . $id;
+    $file = $dir . '/plugin.php';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('插件目录创建失败');
+    if (is_file($file)) {
+        $backup_dir = CACHE_DIR . '/plugin-backups';
+        if (!is_dir($backup_dir) && !mkdir($backup_dir, 0755, true)) err('插件备份目录创建失败');
+        $backup = $backup_dir . '/' . $id . '-' . date('YmdHis') . '.php';
+        if (!copy($file, $backup)) err('现有插件备份失败');
+    }
+    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
+    if (file_put_contents($tmp, $code, LOCK_EX) === false) err('插件写入失败');
+    if (!rename($tmp, $file)) {
+        @unlink($tmp);
+        err('插件安装失败');
+    }
+    if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_sha256', (string)($item['sha256'] ?? hash('sha256', $code))]);
+    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_topic_id', (string)(int)($item['topic_id'] ?? 0)]);
+    settings_cache(true);
+}
+function plugin_market_update_info(array $plugin, ?array $item): ?array
+{
+    if (!$item) return null;
+    $id = (string)($plugin['id'] ?? '');
+    if (!plugin_id_valid($id)) return null;
+    $remote_sha = (string)($item['sha256'] ?? '');
+    $local_sha = setting('plugin_' . $id . '_market_sha256', '');
+    $remote_version = trim((string)($item['version'] ?? ''));
+    $local_version = trim((string)($plugin['version'] ?? ''));
+    $sha_update = $remote_sha !== '' && $local_sha !== '' && !hash_equals($local_sha, $remote_sha);
+    $version_update = $remote_version !== '' && $local_version !== '' && version_compare($remote_version, $local_version, '>');
+    if (!$sha_update && !$version_update) return null;
+    return ['version' => $remote_version, 'sha256' => $remote_sha];
+}
 function hook(string $name, mixed $value = null, array $ctx = []): mixed
 {
     foreach (plugins() as $plugin) {
         if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
+        if ($name === 'sidebar.feature_links' && !plugin_entry_enabled($plugin, 'feature_links')) continue;
+        if ($name === 'sidebar.stack' && !plugin_entry_enabled($plugin, 'sidebar_cards')) continue;
         $fn = $plugin['hooks'][$name] ?? null;
         if (is_string($fn) && function_exists($fn)) {
             $next = $fn($value, $ctx);
@@ -929,8 +1067,8 @@ function mark_viewed(int $tid): bool
 }
 function quick_forums_html(): string
 {
-    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">最近浏览版块</div><ul class="quick-links">';
-    foreach (recent_forums() as $f) $html .= '<li><a href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a></li>';
+    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">最近浏览版块</div><ul class="quick-links quick-forum-links">';
+    foreach (recent_forums() as $f) $html .= '<li><a href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '"><span class="quick-link-text">' . h($f['name']) . '</span></a></li>';
     return $html . '</ul></div></div>';
 }
 function sidebar_notice_card_html(string $title, array $items): string
@@ -938,6 +1076,88 @@ function sidebar_notice_card_html(string $title, array $items): string
     $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">' . h($title) . '</div><ul class="quick-links notice-links">';
     foreach ($items as $item) $html .= '<li>' . h($item) . '</li>';
     return $html . '</ul></div></div>';
+}
+function sidebar_feature_links_html(array $ctx = []): string
+{
+    $links = hook('sidebar.feature_links', [], $ctx);
+    if (!is_array($links) || !$links) return '';
+    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">快捷功能</div><ul class="quick-links feature-links">';
+    $count = 0;
+    foreach ($links as $key => $link) {
+        if (is_array($link)) {
+            $text = trim((string)($link['text'] ?? $link['title'] ?? $link['label'] ?? ''));
+            $url = trim((string)($link['url'] ?? $link['href'] ?? ''));
+            $badge = trim((string)($link['badge'] ?? ''));
+            $badge_dot = !empty($link['badge_dot']) || !empty($link['dot']);
+            $target = !empty($link['target']) ? ' target="' . h((string)$link['target']) . '"' : '';
+            $rel = !empty($link['rel']) ? ' rel="' . h((string)$link['rel']) . '"' : '';
+        } elseif (is_string($key) && is_string($link)) {
+            $text = trim($key);
+            $url = trim($link);
+            $badge = '';
+            $badge_dot = false;
+            $target = $rel = '';
+        } else continue;
+        if ($text === '' || $url === '') continue;
+        $badge_html = !$badge_dot && $badge !== '' ? '<span class="notify-badge">' . h($badge) . '</span>' : '';
+        $html .= '<li' . ($badge_dot ? ' class="notify-dot-link"' : '') . '><a href="' . h($url) . '"' . $target . $rel . '><span class="feature-link-text">' . h($text) . '</span>' . $badge_html . '</a></li>';
+        $count++;
+    }
+    return $count > 0 ? $html . '</ul></div></div>' : '';
+}
+function mobile_menu_link_html(string $url, string $text): string
+{
+    return '<a class="mobile-menu-link" href="' . h($url) . '">' . h($text) . '</a>';
+}
+function mobile_menu_section_html(string $title, array $links): string
+{
+    $html = '<section class="mobile-menu-section"><h3>' . h($title) . '</h3><nav class="mobile-menu-links">';
+    foreach ($links as $link) {
+        $url = (string)($link['url'] ?? '');
+        $text = trim((string)($link['text'] ?? ''));
+        if ($url === '' || $text === '') continue;
+        $html .= mobile_menu_link_html($url, $text);
+    }
+    return $html . '</nav></section>';
+}
+function mobile_menu_html(?array $mine = null): string
+{
+    $forum_links = [['text' => '全部版块', 'url' => route_url('home')]];
+    foreach (forums_cache() as $f) {
+        if (!forum_group_allowed($f, 'allow_view_groups')) continue;
+        $forum_links[] = ['text' => (string)$f['name'], 'url' => route_url('forum', ['id' => (int)$f['id']])];
+    }
+    $my_links = [];
+    if ($mine) {
+        $uid = (int)$mine['id'];
+        $my_links[] = ['text' => '我的主页', 'url' => route_url('user', ['id' => $uid])];
+        $my_links[] = ['text' => '我的主题', 'url' => route_url('user', ['id' => $uid, 'tab' => 'topics'])];
+        $my_links[] = ['text' => '我的回帖', 'url' => route_url('user', ['id' => $uid, 'tab' => 'replies'])];
+        $my_links[] = ['text' => '我的收藏', 'url' => route_url('user', ['id' => $uid, 'tab' => 'favorites'])];
+        $my_links[] = ['text' => '我的通知', 'url' => route_url('user', ['id' => $uid, 'tab' => 'notifications'])];
+        $my_links[] = ['text' => '个人设置', 'url' => route_url('profile')];
+        if (can_access_admin()) $my_links[] = ['text' => '后台面板', 'url' => route_url('admin')];
+    } else {
+        $my_links[] = ['text' => '登录', 'url' => route_url('login')];
+        if (setting('allow_register', '1') === '1') $my_links[] = ['text' => '注册', 'url' => route_url('register')];
+    }
+    $quick_links = [];
+    $raw_links = hook('sidebar.feature_links', [], ['is_mobile_menu' => true]);
+    if (is_array($raw_links)) {
+        foreach ($raw_links as $key => $link) {
+            if (is_array($link)) {
+                $text = trim((string)($link['text'] ?? $link['title'] ?? $link['label'] ?? ''));
+                $url = trim((string)($link['url'] ?? $link['href'] ?? ''));
+            } elseif (is_string($key) && is_string($link)) {
+                $text = trim($key);
+                $url = trim($link);
+            } else {
+                continue;
+            }
+            if ($text !== '' && $url !== '') $quick_links[] = ['text' => $text, 'url' => $url];
+        }
+    }
+    return '<div class="mobile-menu-backdrop" id="mobile-menu" hidden><aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="移动端菜单"><div class="mobile-menu-head"><strong>菜单</strong><button type="button" class="mobile-menu-close" data-mobile-menu-close aria-label="关闭菜单">×</button></div><div class="mobile-menu-body">' . mobile_menu_section_html('版块列表', $forum_links) . mobile_menu_section_html('我的菜单', $my_links) . mobile_menu_section_html('快捷功能', $quick_links) . '</div></aside></div>';
 }
 function shell_html(string $main, string $sidebar, string $class = ''): string
 {
@@ -965,6 +1185,8 @@ function sidebar_stack_html(array $parts, array $ctx = []): string
 {
     $filtered = hook('sidebar.stack', $parts, $ctx);
     if (is_array($filtered)) $parts = $filtered;
+    $entries = array_values(array_filter([sidebar_feature_links_html($ctx)], fn($part) => $part !== ''));
+    if ($entries) array_splice($parts, 1, 0, $entries);
     $html = '<aside class="sidebar">';
     foreach ($parts as $part) if ($part !== '') $html .= $part;
     return $html . '</aside>';
@@ -1070,6 +1292,22 @@ function can_speak(): bool
     if (!uid() || is_muted()) return false;
     return hook('user.can_speak', true, ['user' => me()]) === true;
 }
+function set_auth_return_url(string $url): void
+{
+    if ($url !== '' && !preg_match('/^https?:\/\//i', $url)) $_SESSION['auth_return_url'] = $url;
+}
+function consume_auth_return_url(): string
+{
+    $url = (string)($_SESSION['auth_return_url'] ?? '');
+    unset($_SESSION['auth_return_url']);
+    return $url !== '' && !preg_match('/^https?:\/\//i', $url) ? $url : route_url('home');
+}
+function complete_login(int $user_id): never
+{
+    session_regenerate_id(true);
+    $_SESSION['uid'] = $user_id;
+    go(consume_auth_return_url());
+}
 function need_login(): void
 {
     if (!uid()) go(route_url('login'));
@@ -1096,10 +1334,11 @@ function need_site_access(): void
     if (!db_schema_ready()) simple_error_page('请先安装');
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
-    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) err('网站已关闭');
+    if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'two_factor', 'form_error', 'plugin_share_receive', 'plugin_market_feed', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) err('网站已关闭');
 }
 function check(): void
 {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_GET['a'] ?? '') === 'plugin_share_receive') return;
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && !hash_equals($_SESSION['csrf'] ?? '', $_POST['_csrf'] ?? '')) {
         ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
     }
@@ -1682,7 +1921,13 @@ function markdown_html(string $text): string
     $html = [];
     $paragraph = [];
     $code = [];
+    $code_lang = '';
     $in_code = false;
+    $code_block_html = function (array $lines, string $lang = ''): string {
+        $lang = strtolower(trim($lang));
+        $class = preg_match('/^[a-z0-9_-]{1,32}$/', $lang) ? ' class="language-' . h($lang) . '"' : '';
+        return '<pre><code' . $class . '>' . h(rtrim(implode("\n", $lines), "\n")) . '</code></pre>';
+    };
     $flush = function () use (&$html, &$paragraph) {
         $block = trim(implode("\n", $paragraph));
         $paragraph = [];
@@ -1734,13 +1979,15 @@ function markdown_html(string $text): string
         $append_chunk();
     };
     foreach (explode("\n", $text) as $line) {
-        if (preg_match('/^\s*```\s*[\w-]*\s*$/u', $line)) {
+        if (preg_match('/^\s*```\s*([\w-]*)\s*$/u', $line, $m)) {
             if ($in_code) {
-                $html[] = '<pre><code>' . h(rtrim(implode("\n", $code), "\n")) . '</code></pre>';
+                $html[] = $code_block_html($code, $code_lang);
                 $code = [];
+                $code_lang = '';
                 $in_code = false;
             } else {
                 $flush();
+                $code_lang = (string)($m[1] ?? '');
                 $in_code = true;
             }
             continue;
@@ -1761,7 +2008,7 @@ function markdown_html(string $text): string
         }
         $paragraph[] = $line;
     }
-    if ($in_code) $html[] = '<pre><code>' . h(rtrim(implode("\n", $code), "\n")) . '</code></pre>';
+    if ($in_code) $html[] = $code_block_html($code, $code_lang);
     else $flush();
     return (string)hook('markdown.after', implode('', $html), ['text' => $text]);
 }
@@ -1925,9 +2172,9 @@ function page(string $title, string $body, array $seo = []): void
     $mine_unread = $mine ? (int)($mine['unread_notifications'] ?? 0) : 0;
     $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => $mine_unread > 0 ? 'notifications' : null]) : route_url('login');
     $mine_label = $mine ? '我的' . notification_badge_html($mine_unread) : '登录';
-    echo '<div class="top"><div class="bar"><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
+    echo '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
     foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) echo '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
-    echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>';
+    echo '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
     $footer_html = (string)($settings['footer_html'] ?? '') . (string)hook('page.footer', '', ['title' => $title]);
     echo $header_html . '<main class="wrap">' . $body . '</main><footer class="footer">' . $footer_html . 'Powered by <a href="https://bbs1.org" target="_blank">bbs1org</a> ' . h(APP_VERSION) . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="/index.js?v=' . h(APP_VERSION) . '" defer></script></body></html>';
@@ -1961,7 +2208,8 @@ function select_forum(int $fid): string
 }
 function can_manage_topic(array $t): bool
 {
-    return can_manage() || (uid() && (int)$t['user_id'] === uid());
+    $allowed = can_manage() || (uid() && (int)$t['user_id'] === uid());
+    return hook('topic.can_manage', $allowed, ['topic' => $t]) === true;
 }
 function can_manage_reply(array $r): bool
 {
@@ -2487,15 +2735,15 @@ function del(string $table, int $id): void
 }
 function login_page(): void
 {
-    if (uid()) go(route_url('home'));
+    if (uid()) go(consume_auth_return_url());
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
         if (!rate_allow_login_fail($ip)) err('同一IP 1小时内错误次数已达上限');
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
-            session_regenerate_id(true);
-            $_SESSION['uid'] = (int)$u['id'];
-            go(route_url('home'));
+            $auth = hook('auth.password_verified', ['continue' => true, 'user_id' => (int)$u['id']], ['user' => $u]);
+            if (!is_array($auth) || !empty($auth['continue'])) complete_login((int)$u['id']);
+            return;
         }
         rate_hit_login_fail($ip);
         err('用户名或密码错误');
@@ -2507,12 +2755,12 @@ function login_page(): void
 }
 function register_page(): void
 {
-    if (uid()) go(route_url('home'));
+    if (uid()) go(consume_auth_return_url());
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false);
         $_SESSION['uid'] = (int)($GLOBALS['__last_saved_user_id'] ?? db()->lastInsertId());
-        go(route_url('home'));
+        go(consume_auth_return_url());
     }
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
@@ -2530,7 +2778,8 @@ function profile_page(): void
         save_user(false);
         go(route_url('profile'));
     }
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form><div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
+    $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
 }
 function user_page(): void
 {
@@ -2850,7 +3099,7 @@ function reply_edit_page(): void
 
 function admin_nav(string $tab): string
 {
-    return '<aside class="sidebar">' . sidebar_user_card_html() . '</aside>';
+    return sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => $tab]);
 }
 function admin_tabs(string $tab): string
 {
@@ -2871,13 +3120,25 @@ function admin_plugin_uninstall_form(string $id): string
 {
     return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-confirm="确定卸载插件？">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
 }
+function admin_plugin_share_form(string $id): string
+{
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'share']) . '<button type="submit">分享</button></form>';
+}
+function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
+{
+    if (!plugin_uses_entry($plugin, $entry)) return '';
+    $id = (string)$plugin['id'];
+    $checked = plugin_entry_enabled($plugin, $entry);
+    return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0']) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
+}
 function admin_plugins_page_html(): string
 {
     $plugins = plugins();
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = '<div class="plugin-head-actions"><a class="admin-search-clear" href="https://bbs1.org" target="_blank" rel="noopener">获取更多插件</a></div>';
+    $market_url = admin_url(['tab' => 'plugins', 'view' => 'market']);
+    $head_right = '<div class="plugin-head-actions"><a class="admin-head-add plugin-market-entry" href="' . h($market_url) . '">插件市场</a></div>';
     $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
@@ -2896,6 +3157,9 @@ function admin_plugins_page_html(): string
         $ops .= $enabled
             ? admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？')
             : admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable');
+        $entry_ops = admin_plugin_entry_toggle_form($plugin, 'feature_links', '快捷功能');
+        $entry_ops .= admin_plugin_entry_toggle_form($plugin, 'sidebar_cards', '边栏卡片');
+        $ops .= admin_plugin_share_form($id);
         $ops .= admin_plugin_uninstall_form($id);
         $meta = [];
         if ((string)($plugin['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$plugin['version'];
@@ -2905,9 +3169,66 @@ function admin_plugins_page_html(): string
         if (!empty($plugin['routes'])) $features[] = count($plugin['routes']) . ' 个路由';
         if (!empty($plugin['admin_tabs'])) $features[] = count($plugin['admin_tabs']) . ' 个后台页';
         $file = str_replace(__DIR__ . '/', '', (string)($plugin['file'] ?? ''));
-        $html .= '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong><span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div><div class="plugin-file">' . h($file) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
+        $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong><span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div><div class="plugin-file">' . h($file) . '</div></div>' . $entry_line . '<div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
     if (!$plugins) $html .= '<li class="empty-state">暂无插件，放入 plugins/*/plugin.php 后即可自动显示。</li>';
+    $html .= '<li class="plugin-market-more"><a class="admin-head-add plugin-market-entry" href="' . h($market_url) . '">获取更多插件</a></li>';
+    return $html . '</ul></div>';
+}
+function plugin_market_search_form(string $query): string
+{
+    $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="plugins"><input type="hidden" name="view" value="market">';
+    $clear = $query !== '' ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">清空</a>' : '';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者" minlength="' . SEARCH_MIN_CHARS . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
+}
+function plugin_market_item_matches_query(array $item, string $query): bool
+{
+    if ($query === '') return true;
+    foreach (['title', 'name', 'id', 'creator', 'description'] as $key) {
+        if (stripos((string)($item[$key] ?? ''), $query) !== false) return true;
+    }
+    return false;
+}
+function admin_plugins_market_page_html(): string
+{
+    $market = plugin_market_fetch();
+    $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
+    $local = plugins();
+    $query = trim((string)($_GET['q'] ?? ''));
+    $head_left = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。</span></div>';
+    $head_right = '<div class="plugin-head-actions">' . plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">刷新</a></div>';
+    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    if (!(int)($market['ok'] ?? 0)) {
+        $html .= '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li>';
+        return $html . '</ul></div>';
+    }
+    $shown = 0;
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $id = (string)($item['id'] ?? '');
+        if (!plugin_id_valid($id)) continue;
+        if (!plugin_market_item_matches_query($item, $query)) continue;
+        $shown++;
+        $installed = isset($local[$id]);
+        $remote_sha = (string)($item['sha256'] ?? '');
+        $needs_update = $installed && plugin_market_update_info($local[$id], $item) !== null;
+        $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
+        $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
+        $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        $meta = [];
+        if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
+        $creator = trim((string)($item['creator'] ?? ''));
+        $meta[] = '插件制作者 ' . ($creator !== '' ? $creator : '未声明');
+        if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
+        $topic_url = (string)($item['url'] ?? '');
+        $title = h((string)($item['name'] ?? $id));
+        if ($topic_url !== '') $title = '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>';
+        else $title = '<strong class="admin-content-title">' . $title . '</strong>';
+        $flag = $installed ? '<span class="admin-flag on">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr($remote_sha, 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
+    }
+    if ($shown === 0) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : '暂无已审核通过的插件。') . '</li>';
     return $html . '</ul></div>';
 }
 function admin_plugin_tab_html(string $tab): ?string
@@ -2948,8 +3269,22 @@ function admin_page(): void
             $keep_data = (string)($_POST['keep_plugin_data'] ?? '1') === '1';
             plugin_uninstall($plugin_id, $keep_data);
             set_flash($keep_data ? '插件已卸载，数据已保留' : '插件已卸载，数据已清理');
+        } elseif ($plugin_action === 'share') {
+            plugin_share_post_page($plugin_id);
+            return;
+        } elseif ($plugin_action === 'entry_toggle') {
+            plugin_set_entry_enabled($plugin_id, (string)($_POST['entry'] ?? ''), (string)($_POST['entry_enabled'] ?? '0') === '1');
+            if (ajax_request()) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => 1, 'message' => '插件入口显示已更新'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            set_flash('插件入口显示已更新');
+        } elseif ($plugin_action === 'market_install') {
+            plugin_market_install($plugin_id);
+            set_flash('插件已安装或更新，请确认后手动启用。');
         } else err('参数错误');
-        go(admin_url(['tab' => 'plugins']));
+        go(admin_url(['tab' => 'plugins', 'view' => (string)($_GET['view'] ?? '') === 'market' ? 'market' : null]));
     }
     if ($tab === 'settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['clear_opcache'])) {
@@ -3025,7 +3360,7 @@ function admin_page(): void
         $phtml = paginate($total, $admin_page, $admin_size, $url);
         $html .= $phtml === '' ? '' : '<div class="pagination-bar">' . $phtml . '</div>';
     } elseif ($tab === 'plugins') {
-        $html .= admin_plugins_page_html();
+        $html .= (string)($_GET['view'] ?? '') === 'market' ? admin_plugins_market_page_html() : admin_plugins_page_html();
     } else {
         $plugin_html = admin_plugin_tab_html((string)$tab);
         if ($plugin_html === null) not_found('你访问的页面不存在');

@@ -90,28 +90,50 @@ plugins/            插件目录
 
 ## 插件
 
-插件放在 `plugins/插件ID/plugin.php`，系统会自动扫描显示。`plugin.php` 会被加载用于读取插件信息，所以不要在文件顶层写业务逻辑；业务代码应放进函数里。新插件默认停用，启用后才会执行它的钩子、路由和后台管理页。
+插件放在 `plugins/插件ID/plugin.php`，后台“插件”页会自动扫描。新插件默认停用，启用后才会执行。插件 ID 建议使用小写字母、数字、下划线或短横线。
 
-最小插件格式：
+最小示例：
 
 ```php
 <?php
+
+function hello_footer($html, array $ctx): string
+{
+    return (string)$html . '<span> Hello</span>';
+}
+
 return [
     'id' => 'hello',
-    'name' => '示例插件',
+    'name' => 'Hello',
     'version' => '1.0.0',
     'description' => '给页脚追加内容',
+    'author' => 'your-name',
     'hooks' => [
         'page.footer' => 'hello_footer',
     ],
 ];
-
-function hello_footer($html, array $ctx)
-{
-    return $html . '<span> Hello</span>';
-}
 ```
 
-可选字段：`author`、`hooks`、`routes`、`admin_tabs`、`install`、`uninstall`。`install` 在启用插件时执行；卸载插件时如果选择不保留数据，会执行 `uninstall`。
+`hooks` 用来挂载核心位置，函数签名通常是 `function xxx($value, array $ctx)`，返回新值；返回 `null` 表示不修改。常用 Hook 有 `page.footer`、`page.head`、`sidebar.stack`、`topic.before_save`、`topic.after_render`。
 
-常用钩子：`app.boot`、`sidebar.stack`、`page.head`、`page.header`、`page.footer`、`page.before_render`、`markdown.before`、`markdown.after`、`topic.before_render`、`topic.after_render`、`reply.before_render`、`reply.after_render`、`topic.before_save`、`topic.after_save`、`reply.before_save`、`reply.after_save`。插件等同于站点 PHP 代码权限，只建议安装可信插件。
+如果需要前台页面，可在 manifest 中添加：
+
+```php
+'routes' => [
+    'hello' => 'hello_page',
+],
+```
+
+然后通过 `route_url('hello')` 访问。
+
+如果需要后台页面，可添加：
+
+```php
+'admin_tabs' => [
+    'hello' => 'hello_admin_page',
+],
+```
+
+插件可以调用核心函数，例如 `q()`、`one()`、`uid()`、`me()`、`route_url()`、`page()`、`form_token()`、`plugin_config()`、`plugin_save_config()`。
+
+插件拥有和站点代码相同的权限，可以读写数据库、文件和请求数据，只建议安装可信插件。插件自己的数据表建议使用 `plugin_插件ID_` 前缀。

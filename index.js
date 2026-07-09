@@ -26,6 +26,32 @@ const openModal = (title, html) => {
     modalBody.innerHTML = html;
     modal.hidden = false;
 };
+const mobileMenu = document.getElementById("mobile-menu");
+const mobileMenuOpen = document.querySelector("[data-mobile-menu-open]");
+const closeMobileMenu = () => {
+    if (!mobileMenu) return;
+    mobileMenu.hidden = true;
+    document.body.classList.remove("mobile-menu-open");
+    if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "false");
+};
+const openMobileMenu = () => {
+    if (!mobileMenu) return;
+    mobileMenu.hidden = false;
+    document.body.classList.add("mobile-menu-open");
+    if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
+};
+if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
+document.addEventListener("click", e => {
+    const target = e.target instanceof Element ? e.target : null;
+    if (target && target.closest("[data-mobile-menu-close]")) {
+        closeMobileMenu();
+        return;
+    }
+    if (mobileMenu && !mobileMenu.hidden && target === mobileMenu) closeMobileMenu();
+});
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeMobileMenu();
+});
 const finishConfirm = (ok) => {
     const resolve = confirmResolve;
     confirmResolve = null;
@@ -324,6 +350,25 @@ document.addEventListener("change", e => {
         box.checked = all.checked;
     });
 });
+document.addEventListener("change", async e => {
+    const input = e.target.closest("[data-auto-submit]");
+    if (!input) return;
+    const form = input.closest("form");
+    if (!form) return;
+    const previous = input.checked;
+    input.disabled = true;
+    try {
+        const response = await fetch(form.action || window.location.href, {method: "POST", body: new FormData(form), headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const data = await response.json();
+        if (!data?.ok) throw new Error(data?.message || "保存失败");
+        showToast(data.message || "已保存");
+    } catch (err) {
+        input.checked = !previous;
+        showToast(err.message || "保存失败");
+    } finally {
+        input.disabled = false;
+    }
+});
 document.addEventListener("change", e => {
     const action = e.target.closest("[data-bulk-action]");
     if (!action) return;
@@ -591,6 +636,11 @@ document.addEventListener("submit", async e => {
             throw new Error("操作失败");
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
+        if (data.modal && typeof data.modal === "object") {
+            openModal(data.modal.title || data.message || "提示", data.modal.html || "");
+            if (button) button.disabled = false;
+            return;
+        }
         showToast(data.message || "操作完成");
         const removeTarget = form.dataset.removeTarget || "";
         const removeEl = removeTarget ? form.closest(removeTarget) : null;
@@ -605,6 +655,11 @@ document.addEventListener("submit", async e => {
     }
 });
 window.addEventListener("load", () => {
+    const shareForm = document.querySelector("form[data-plugin-share-auto='1']");
+    if (shareForm) {
+        shareForm.submit();
+        return;
+    }
     const replyId = new URLSearchParams(window.location.search).get("replyid") || "";
     if (!/^\d+$/.test(replyId)) return;
     const target = document.getElementById("post-" + replyId);
