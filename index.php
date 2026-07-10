@@ -1818,12 +1818,11 @@ function upload_image_valid(string $path, string $ext, string $mime): bool
     if ($expected === '' || $mime !== $expected) return false;
     $info = @getimagesize($path);
     if (!is_array($info) || (string)($info['mime'] ?? '') !== $expected) return false;
-    if (!function_exists('imagecreatefromstring')) return false;
+    if (!function_exists('imagecreatefromstring')) return true;
     $bytes = @file_get_contents($path);
     if (!is_string($bytes) || $bytes === '') return false;
     $image = @imagecreatefromstring($bytes);
     if (!$image) return false;
-    if (function_exists('imagedestroy')) imagedestroy($image);
     return true;
 }
 function upload_allowed_ext(string $ext): bool
