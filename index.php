@@ -2400,6 +2400,7 @@ function render_form_fields(array $fields, array $values = []): string
         $value = array_key_exists('value', $field) ? $field['value'] : ($values[$name] ?? '');
         $help = (string)($field['help'] ?? '');
         $class = (string)($field['class'] ?? '');
+        if ($help !== '' && !str_contains(' ' . $class . ' ', ' settings-help-field ')) $class = trim($class . ' settings-help-field');
         if ($type === 'checkbox') $html .= checkbox($label, (string)$name, (bool)(int)$value, $help, $class);
         elseif ($type === 'number') $html .= number_input($label, (string)$name, $value, $field['min'] ?? null, $field['max'] ?? null, (bool)($field['required'] ?? true), $help, $class);
         elseif ($type === 'select') $html .= select_input($label, (string)$name, $value, (array)($field['options'] ?? []), $help, $class);
@@ -3503,6 +3504,11 @@ function admin_page(): void
     $admin_size = 50;
     $admin_page = max(1, (int)($_GET['p'] ?? 1));
     $admin_offset = ($admin_page - 1) * $admin_size;
+    if ($tab === 'settings' && (string)($_GET['debug_log'] ?? '') === 'view') {
+        header('Content-Type: text/plain; charset=utf-8');
+        echo is_file(DEBUG_LOG_FILE) ? (string)file_get_contents(DEBUG_LOG_FILE) : '';
+        exit;
+    }
     if ($tab === 'plugins' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $plugin_action = (string)($_POST['plugin_action'] ?? '');
         $plugin_id = (string)($_POST['plugin_id'] ?? '');
@@ -3537,6 +3543,12 @@ function admin_page(): void
         go(admin_url(['tab' => 'plugins', 'view' => (string)($_GET['view'] ?? '') === 'market' ? 'market' : null]));
     }
     if ($tab === 'settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if ((string)($_POST['debug_log_action'] ?? '') === 'clear') {
+            if (!is_dir(dirname(DEBUG_LOG_FILE))) mkdir(dirname(DEBUG_LOG_FILE), 0755, true);
+            file_put_contents(DEBUG_LOG_FILE, '', LOCK_EX);
+            set_flash('Debug日志已清空');
+            go(admin_url(['tab' => 'settings']));
+        }
         if (isset($_POST['clear_opcache'])) {
             clear_opcache_cache();
             set_flash('OPcache已清理');
@@ -3571,11 +3583,15 @@ function admin_page(): void
             'register_per_hour' => ['label' => '1小时内注册限制', 'type' => 'number', 'min' => 1, 'max' => 100],
             'login_fail_per_hour' => ['label' => '1小时内登录错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
             'reset_fail_per_hour' => ['label' => '1小时内操作错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
-            'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。', 'class' => 'settings-interval-field'],
+            'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
             'attachment_max_count' => ['label' => '附件数量限制', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传。'],
             'attachment_max_mb' => ['label' => '单个附件大小（MB）', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传，实际上限受服务器配置影响。'],
         ];
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $debug_cards = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
+        if ((string)($s['debug_mode'] ?? '0') === '1') {
+            $debug_cards .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
+        }
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $debug_cards . '</div></div>';
     } elseif ($tab === 'users') {
         $html .= admin_object_list_html('users', $q, $manageable,
             fn(): int => admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter),
