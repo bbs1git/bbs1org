@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v3.5');
+define('APP_VERSION', 'v3.6');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -79,6 +79,21 @@ function cache_write_php(string $file, mixed $value): void
     if (!is_dir(dirname($file))) mkdir(dirname($file), 0755, true);
     file_put_contents($file, "<?php\nreturn " . var_export($value, true) . ";\n", LOCK_EX);
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+}
+function load_array_cache(string $file, bool $refresh, callable $reload, ?array $fallback = null, ?callable $validate = null): array
+{
+    static $memory = [];
+    if (!$refresh && isset($memory[$file])) return $memory[$file];
+    if (!$refresh && is_file($file)) {
+        $cached = include $file;
+        if (is_array($cached) && (!$validate || $validate($cached))) return $memory[$file] = array_merge($fallback ?? [], $cached);
+    }
+    $memory[$file] = $fallback;
+    try {
+        $memory[$file] = array_merge($fallback ?? [], $reload());
+        cache_write_php($file, $memory[$file]);
+    } catch (Throwable $e) { if ($fallback === null) throw $e; }
+    return $memory[$file] ?? [];
 }
 function tx(callable $fn)
 {
@@ -160,24 +175,18 @@ function default_settings(): array
 }
 function settings_cache(bool $refresh = false): array
 {
-    static $settings = null;
-    if (!$refresh && $settings !== null) return $settings;
-    if (!$refresh && is_file(SETTING_CACHE_FILE)) {
-        $cached = include SETTING_CACHE_FILE;
-        if (is_array($cached)) return $settings = array_merge(default_settings(), $cached);
-    }
-    $settings = default_settings();
-    try {
-        foreach (q("SELECT name,value FROM settings") as $row) $settings[(string)$row['name']] = (string)$row['value'];
-        cache_write_php(SETTING_CACHE_FILE, $settings);
-    } catch (Throwable $e) {
-    }
-    return $settings;
+    return load_array_cache(SETTING_CACHE_FILE, $refresh, fn(): array => array_column(q("SELECT name,value FROM settings")->fetchAll(), 'value', 'name'), default_settings());
 }
 function setting(string $key, string $default = ''): string
 {
     $settings = settings_cache();
     return (string)($settings[$key] ?? $default);
+}
+function save_settings_values(array $values): void
+{
+    $stmt = db()->prepare("REPLACE INTO settings(name,value) VALUES(?,?)");
+    foreach ($values as $name => $value) $stmt->execute([$name, $value]);
+    settings_cache(true);
 }
 function exception_detail(Throwable $e): string
 {
@@ -307,8 +316,7 @@ function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): voi
     if (!plugin_id_valid($id) || plugin_entry_hook_name($entry) === '') err('参数错误');
     $plugin = plugins()[$id] ?? null;
     if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_entry_' . $entry, $enabled ? '1' : '0']);
-    settings_cache(true);
+    save_settings_values(['plugin_' . $id . '_entry_' . $entry => $enabled ? '1' : '0']);
 }
 function plugin_config(string $id, array $defaults = []): array
 {
@@ -320,8 +328,7 @@ function plugin_config(string $id, array $defaults = []): array
 function plugin_save_config(string $id, array $config): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_config', json_encode($config, JSON_UNESCAPED_UNICODE)]);
-    settings_cache(true);
+    save_settings_values(['plugin_' . $id . '_config' => json_encode($config, JSON_UNESCAPED_UNICODE)]);
 }
 function plugin_set_enabled(string $id, bool $enabled): void
 {
@@ -332,9 +339,7 @@ function plugin_set_enabled(string $id, bool $enabled): void
     if ($enabled && !plugin_enabled($plugin) && !empty($plugin['install']) && function_exists((string)$plugin['install'])) {
         call_user_func((string)$plugin['install'], $plugin);
     }
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_enabled', $enabled ? '1' : '0']);
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_version', (string)($plugin['version'] ?? '')]);
-    settings_cache(true);
+    save_settings_values(['plugin_' . $id . '_enabled' => $enabled ? '1' : '0', 'plugin_' . $id . '_version' => (string)($plugin['version'] ?? '')]);
 }
 function plugin_uninstall(string $id, bool $keep_data = true): void
 {
@@ -451,9 +456,7 @@ function plugin_market_install(string $id): void
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
     plugins(true);
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_sha256', (string)($item['sha256'] ?? hash('sha256', $code))]);
-    q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_topic_id', (string)(int)($item['topic_id'] ?? 0)]);
-    settings_cache(true);
+    save_settings_values(['plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)), 'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0)]);
 }
 function plugin_market_update_info(array $plugin, ?array $item): ?array
 {
@@ -513,8 +516,7 @@ function set_pinned_topic(int $tid, bool $pin): void
 {
     $ids = pinned_topic_ids();
     $ids = $pin ? array_values(array_unique(array_merge([$tid], $ids))) : array_values(array_diff($ids, [$tid]));
-    q("REPLACE INTO settings(name,value) VALUES('pinned_topic_ids',?)", [implode(',', $ids)]);
-    settings_cache(true);
+    save_settings_values(['pinned_topic_ids' => implode(',', $ids)]);
 }
 function clean_ip(string $value): string
 {
@@ -622,7 +624,7 @@ function save_settings(): void
     if ($site_name === '') err('网站名不能为空');
     $gid = max(1, (int)($_POST['default_group_id'] ?? 2));
     if (!group_by_id($gid)) err('默认用户组不存在');
-    $values = [
+    save_settings_values([
         'site_name' => $site_name,
         'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')),
         'site_keywords' => post('site_keywords', 200),
@@ -647,21 +649,11 @@ function save_settings(): void
         'post_interval_seconds' => (string)min(3600, max(0, (int)($_POST['post_interval_seconds'] ?? 5))),
         'attachment_max_count' => (string)max(0, (int)($_POST['attachment_max_count'] ?? 10)),
         'attachment_max_mb' => (string)max(0, (int)($_POST['attachment_max_mb'] ?? 20)),
-    ];
-    foreach ($values as $name => $value) q("REPLACE INTO settings(name,value) VALUES(?,?)", [$name, $value]);
-    settings_cache(true);
+    ]);
 }
 function forums_cache(bool $refresh = false): array
 {
-    static $forums = null;
-    if (!$refresh && $forums !== null) return $forums;
-    if (!$refresh && is_file(FORUM_CACHE_FILE)) {
-        $cached = include FORUM_CACHE_FILE;
-        if (is_array($cached)) return $forums = $cached;
-    }
-    $forums = q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll();
-    cache_write_php(FORUM_CACHE_FILE, $forums);
-    return $forums;
+    return load_array_cache(FORUM_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM forums ORDER BY sort,id")->fetchAll());
 }
 function forum_by_id(int $id): ?array
 {
@@ -697,15 +689,8 @@ function forum_group_allowed(?array $forum, string $field): bool
 }
 function groups_cache(bool $refresh = false): array
 {
-    static $groups = null;
-    if (!$refresh && $groups !== null) return $groups;
-    if (!$refresh && is_file(GROUP_CACHE_FILE)) {
-        $cached = include GROUP_CACHE_FILE;
-        if (is_array($cached) && (!$cached || array_key_exists('upload_quota_mb', (array)reset($cached)))) return $groups = $cached;
-    }
-    $groups = q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM groups ORDER BY id")->fetchAll();
-    cache_write_php(GROUP_CACHE_FILE, $groups);
-    return $groups;
+    return load_array_cache(GROUP_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM groups ORDER BY id")->fetchAll(),
+        null, fn(array $cached): bool => !$cached || array_key_exists('upload_quota_mb', (array)reset($cached)));
 }
 function group_by_id(int $id): ?array
 {
@@ -997,6 +982,17 @@ function admin_list_head(string $left = '', string $right = ''): string
 {
     return '<div class="admin-list-head"><div class="admin-head-inline"><div class="admin-head-left-slot">' . $left . '</div><div class="admin-head-right-slot">' . $right . '</div></div></div>';
 }
+function admin_object_list_html(string $tab, string $query, bool $manageable, callable $count_rows, callable $load_rows, callable $render_pagination, string $head_right = ''): string
+{
+    $render_row = ['users' => 'admin_user_row', 'topics' => 'admin_topic_row', 'replies' => 'admin_reply_row'][$tab] ?? throw new InvalidArgumentException('不支持的后台列表类型');
+    $total = (int)$count_rows();
+    $html = $manageable ? admin_bulk_delete_form_open($tab, $query) : '';
+    $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form($tab, $query), $head_right) . '<ul class="admin-manage-list">';
+    foreach ($load_rows() as $row) $html .= $render_row($row, $manageable);
+    $html .= '</ul></div>';
+    if ($manageable) $html .= admin_bulk_delete_bar($tab);
+    return $html . $render_pagination($total);
+}
 function admin_bulk_delete_bar(string $tab = ''): string
 {
     if ($tab === 'users') $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option><option value="mute">禁止发言</option><option value="unmute">取消禁止发言</option><option value="ban">禁止访问</option><option value="unban">取消禁止访问</option></select>';
@@ -1240,20 +1236,12 @@ function form_shell(string $body, ?array $m = null): string
 }
 function stats_cache(bool $refresh = false): array
 {
-    static $stats = null;
-    if (!$refresh && $stats !== null) return $stats;
-    if (!$refresh && is_file(STATS_CACHE_FILE)) {
-        $cached = include STATS_CACHE_FILE;
-        if (is_array($cached)) return $stats = $cached;
-    }
-    $stats = [
+    return load_array_cache(STATS_CACHE_FILE, $refresh, fn(): array => [
         'topics' => (int)val("SELECT COUNT(*) FROM topics"),
         'replies' => (int)val("SELECT COUNT(*) FROM replies"),
         'users' => (int)val("SELECT COUNT(*) FROM users"),
         'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM users ORDER BY id DESC LIMIT 8")->fetchAll(),
-    ];
-    cache_write_php(STATS_CACHE_FILE, $stats);
-    return $stats;
+    ]);
 }
 function now(): int
 {
@@ -1700,8 +1688,7 @@ function avatar_mirror_page(): void
     $seed = avatar_seed($style, (string)($_REQUEST['seed'] ?? ''));
     if (($_POST['complete'] ?? '') === '1') {
         $text = avatar_mirror_styles_text(setting('avatar_mirror_styles', ''), $style);
-        q("REPLACE INTO settings(name,value) VALUES('avatar_mirror_styles',?)", [$text]);
-        settings_cache(true);
+        save_settings_values(['avatar_mirror_styles' => $text]);
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => 1, 'style' => $style, 'styles' => setting('avatar_mirror_styles', '')], JSON_UNESCAPED_UNICODE);
         exit;
@@ -2347,13 +2334,53 @@ function page(string $title, string $body, array $seo = []): void
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
     echo page_head_html($page_title, $meta) . page_nav_html($site_name) . $header_html . '<main class="wrap">' . $body . '</main>' . page_footer_html($settings, $title, $flash);
 }
-function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false): string
+function form_field_caption(string $label, string $help = ''): string
 {
-    return '<label class="grid"><span>' . h($label) . '</span><input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
+    return '<span>' . h($label) . ($help !== '' ? '<small>' . h($help) . '</small>' : '') . '</span>';
 }
-function textarea(string $label, string $name, $value = '', bool $required = false): string
+function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false, string $help = '', string $class = ''): string
 {
-    return '<label class="grid"><span>' . h($label) . '</span><textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
+}
+function textarea(string $label, string $name, $value = '', bool $required = false, string $help = '', string $class = ''): string
+{
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
+}
+function checkbox(string $label, string $name, bool $checked = false, string $help = '', string $class = ''): string
+{
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input type="checkbox" name="' . h($name) . '" value="1"' . ($checked ? ' checked' : '') . '></label>';
+}
+function number_input(string $label, string $name, $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = ''): string
+{
+    $limits = ($min !== null ? ' min="' . h($min) . '"' : '') . ($max !== null ? ' max="' . h($max) . '"' : '');
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="number" value="' . h($value) . '"' . $limits . ($required ? ' required' : '') . '></label>';
+}
+function select_input(string $label, string $name, $value, array $options, string $help = '', string $class = ''): string
+{
+    $html = '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<select name="' . h($name) . '">';
+    foreach ($options as $option_value => $option_label) $html .= '<option value="' . h($option_value) . '"' . ((string)$option_value === (string)$value ? ' selected' : '') . '>' . h($option_label) . '</option>';
+    return $html . '</select></label>';
+}
+function render_form_fields(array $fields, array $values = []): string
+{
+    $html = '';
+    foreach ($fields as $name => $field) {
+        if (isset($field['html'])) {
+            $html .= (string)$field['html'];
+            continue;
+        }
+        $type = (string)($field['type'] ?? 'text');
+        $label = (string)($field['label'] ?? $name);
+        $value = array_key_exists('value', $field) ? $field['value'] : ($values[$name] ?? '');
+        $help = (string)($field['help'] ?? '');
+        $class = (string)($field['class'] ?? '');
+        if ($type === 'checkbox') $html .= checkbox($label, (string)$name, (bool)(int)$value, $help, $class);
+        elseif ($type === 'number') $html .= number_input($label, (string)$name, $value, $field['min'] ?? null, $field['max'] ?? null, (bool)($field['required'] ?? true), $help, $class);
+        elseif ($type === 'select') $html .= select_input($label, (string)$name, $value, (array)($field['options'] ?? []), $help, $class);
+        elseif ($type === 'textarea') $html .= textarea($label, (string)$name, $value, !empty($field['required']), $help, $class);
+        else $html .= input($label, (string)$name, $value, $type, !empty($field['required']), $help, $class);
+    }
+    return $html;
 }
 function attachment_uploader_html(): string
 {
@@ -2364,15 +2391,13 @@ function attachment_uploader_html(): string
 }
 function select_group(int $gid): string
 {
-    $html = '<label class="grid"><span>用户组</span><select name="group_id">';
-    foreach (groups_cache() as $g) $html .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === $gid ? ' selected' : '') . '>' . h($g['name']) . '</option>';
-    return $html . '</select></label>';
+    return select_input('用户组', 'group_id', $gid, array_column(groups_cache(), 'name', 'id'));
 }
 function select_forum(int $fid): string
 {
-    $html = '<label class="grid"><span>版块</span><select name="forum_id">';
-    foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_post_groups')) $html .= '<option value="' . (int)$f['id'] . '"' . ((int)$f['id'] === $fid ? ' selected' : '') . '>' . h($f['name']) . '</option>';
-    return $html . '</select></label>';
+    $options = [];
+    foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_post_groups')) $options[(int)$f['id']] = (string)$f['name'];
+    return select_input('版块', 'forum_id', $fid, $options);
 }
 function can_manage_topic(array $t): bool
 {
@@ -3495,25 +3520,40 @@ function admin_page(): void
     $html = '';
     if ($tab === 'settings') {
         $s = settings_cache();
-        $group_select = '<label class="grid"><span>新用户默认用户组</span><select name="default_group_id">';
-        foreach (groups_cache() as $g) $group_select .= '<option value="' . (int)$g['id'] . '"' . ((int)$g['id'] === (int)$s['default_group_id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
-        $group_select .= '</select></label>';
-        $security_fields = '<label class="grid"><span>是否允许注册</span><input type="checkbox" name="allow_register" value="1"' . ((int)$s['allow_register'] ? ' checked' : '') . '></label>';
-        $security_fields .= $group_select . textarea('保留用户名', 'reserved_usernames', $s['reserved_usernames']);
-        $security_fields .= input('1小时内注册限制', 'register_per_hour', $s['register_per_hour'], 'number', true) . input('1小时内登录错误限制', 'login_fail_per_hour', $s['login_fail_per_hour'], 'number', true) . input('1小时内操作错误限制', 'reset_fail_per_hour', $s['reset_fail_per_hour'], 'number', true);
-        $security_fields .= '<label class="grid settings-interval-field"><span>发帖/回复间隔（秒）<small>发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。</small></span><input name="post_interval_seconds" type="number" value="' . h($s['post_interval_seconds']) . '" required></label>';
-        $security_fields .= '<label class="grid"><span>附件数量限制<small>设置为 0 可关闭附件上传。</small></span><input name="attachment_max_count" type="number" min="0" value="' . h($s['attachment_max_count']) . '" required></label>';
-        $security_fields .= '<label class="grid"><span>单个附件大小（MB）<small>设置为 0 可关闭附件上传，实际上限受服务器配置影响。</small></span><input name="attachment_max_mb" type="number" min="0" value="' . h($s['attachment_max_mb']) . '" required></label>';
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . input('网站名', 'site_name', $s['site_name'], 'text', true) . input('网站固定地址', 'site_base_url', $s['site_base_url'] ?? '', 'url') . input('关键字', 'site_keywords', $s['site_keywords'] ?? '') . textarea('网站介绍', 'site_description', $s['site_description'] ?? '') . input('系统发件邮箱', 'mail_from', $s['mail_from'] ?? '', 'email') . input('置顶主题ID', 'pinned_topic_ids', $s['pinned_topic_ids'] ?? '') . textarea('页头HTML代码', 'header_html', $s['header_html'] ?? '') . textarea('页脚HTML代码', 'footer_html', $s['footer_html'] ?? '') . input('列表单页数量', 'topics_per_page', $s['topics_per_page'], 'number', true) . input('回帖单页数量', 'replies_per_page', $s['replies_per_page'], 'number', true) . '<label class="grid"><span>是否虚拟发送邮件</span><input type="checkbox" name="mail_virtual" value="1"' . ((int)$s['mail_virtual'] ? ' checked' : '') . '></label><label class="grid"><span>是否开启rewrite</span><input type="checkbox" name="pretty_url" value="1"' . ((int)$s['pretty_url'] ? ' checked' : '') . '></label>' . $avatar_mirror_field . '<label class="grid"><span>是否关闭</span><input type="checkbox" name="site_closed" value="1"' . ((int)$s['site_closed'] ? ' checked' : '') . '></label><label class="grid"><span>Debug模式</span><input type="checkbox" name="debug_mode" value="1"' . ((int)($s['debug_mode'] ?? 0) ? ' checked' : '') . '></label>' . $security_fields . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
+        $fields = [
+            'site_name' => ['label' => '网站名', 'required' => true],
+            'site_base_url' => ['label' => '网站固定地址', 'type' => 'url'],
+            'site_keywords' => ['label' => '关键字'],
+            'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
+            'mail_from' => ['label' => '系统发件邮箱', 'type' => 'email'],
+            'pinned_topic_ids' => ['label' => '置顶主题ID'],
+            'header_html' => ['label' => '页头HTML代码', 'type' => 'textarea'],
+            'footer_html' => ['label' => '页脚HTML代码', 'type' => 'textarea'],
+            'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+            'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+            'mail_virtual' => ['label' => '是否虚拟发送邮件', 'type' => 'checkbox'],
+            'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
+            'avatar_mirror' => ['html' => $avatar_mirror_field],
+            'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
+            'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
+            'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
+            'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
+            'reserved_usernames' => ['label' => '保留用户名', 'type' => 'textarea'],
+            'register_per_hour' => ['label' => '1小时内注册限制', 'type' => 'number', 'min' => 1, 'max' => 100],
+            'login_fail_per_hour' => ['label' => '1小时内登录错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
+            'reset_fail_per_hour' => ['label' => '1小时内操作错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
+            'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。', 'class' => 'settings-interval-field'],
+            'attachment_max_count' => ['label' => '附件数量限制', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传。'],
+            'attachment_max_mb' => ['label' => '单个附件大小（MB）', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传，实际上限受服务器配置影响。'],
+        ];
+        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div><div class="settings-opcache-box"><button type="submit" name="clear_opcache" value="1" class="settings-opcache-title">清理OPcache</button><div class="settings-opcache-sub">刷新已编译脚本缓存，适合代码更新后手动触发。</div></div></form></div>';
     } elseif ($tab === 'users') {
-        $total = admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter);
-        if ($manageable) $html .= admin_bulk_delete_form_open('users', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('users', $q), '') . '<ul class="admin-manage-list">';
-        foreach (admin_users_list($q, $admin_size, $admin_offset, $user_group_id, $user_banned_filter, $user_muted_filter) as $u) $html .= admin_user_row($u, $manageable);
-        $html .= '</ul></div>';
-        if ($manageable) $html .= admin_bulk_delete_bar('users');
-        $html .= admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter);
+        $html .= admin_object_list_html('users', $q, $manageable,
+            fn(): int => admin_count('users', $q, 'title', $user_group_id, $user_banned_filter, $user_muted_filter),
+            fn(): array => admin_users_list($q, $admin_size, $admin_offset, $user_group_id, $user_banned_filter, $user_muted_filter),
+            fn(int $total): string => admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter)
+        );
     } elseif ($tab === 'groups') {
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>上传空间</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (groups_cache() as $g) {
@@ -3532,21 +3572,18 @@ function admin_page(): void
         }
         $html .= '</table>';
     } elseif ($tab === 'topics') {
-        $total = admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id);
-        if ($manageable) $html .= admin_bulk_delete_form_open('topics', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('topics', $q), $manageable ? admin_topics_tools_html() : '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a>') . '<ul class="admin-manage-list">';
-        foreach (admin_topics_list($q, $admin_size, $admin_offset, $topic_field, $topic_forum_id) as $t) $html .= admin_topic_row($t, $manageable);
-        $html .= '</ul></div>';
-        if ($manageable) $html .= admin_bulk_delete_bar('topics');
-        $html .= admin_pagination('topics', $q, $total, $admin_page, $admin_size, $topic_field);
+        $html .= admin_object_list_html('topics', $q, $manageable,
+            fn(): int => admin_count('topics', $q, $topic_field, 0, -1, -1, $topic_forum_id),
+            fn(): array => admin_topics_list($q, $admin_size, $admin_offset, $topic_field, $topic_forum_id),
+            fn(int $total): string => admin_pagination('topics', $q, $total, $admin_page, $admin_size, $topic_field),
+            $manageable ? admin_topics_tools_html() : '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a>'
+        );
     } elseif ($tab === 'replies') {
-        $total = admin_count('replies', $q, $reply_field);
-        if ($manageable) $html .= admin_bulk_delete_form_open('replies', $q);
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form('replies', $q), '') . '<ul class="admin-manage-list">';
-        foreach (admin_replies_list($q, $admin_size, $admin_offset, $reply_field) as $r) $html .= admin_reply_row($r, $manageable);
-        $html .= '</ul></div>';
-        if ($manageable) $html .= admin_bulk_delete_bar('replies');
-        $html .= admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field);
+        $html .= admin_object_list_html('replies', $q, $manageable,
+            fn(): int => admin_count('replies', $q, $reply_field),
+            fn(): array => admin_replies_list($q, $admin_size, $admin_offset, $reply_field),
+            fn(int $total): string => admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field)
+        );
     } elseif ($tab === 'trash') {
         $trash_table = in_array((string)($_GET['table'] ?? ''), ['users', 'topics', 'replies'], true) ? (string)$_GET['table'] : '';
         $total = admin_trash_count($trash_table);
@@ -3584,16 +3621,16 @@ function admin_edit_page(): void
         $u = admin_user_form_data(id());
         $tab = 'users';
         $is_new = id() === 0;
-        $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . input('积分', 'points', (int)($u['points'] ?? 0), 'number', true) . '<label class="grid"><span>禁止访问</span><input type="checkbox" name="is_banned" value="1"' . ((int)($u['is_banned'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>禁止发言</span><input type="checkbox" name="is_muted" value="1"' . ((int)($u['is_muted'] ?? 0) ? ' checked' : '') . '></label>' . textarea('简介', 'bio', $u['bio']);
+        $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . number_input('积分', 'points', (int)($u['points'] ?? 0)) . checkbox('禁止访问', 'is_banned', (bool)(int)($u['is_banned'] ?? 0)) . checkbox('禁止发言', 'is_muted', (bool)(int)($u['is_muted'] ?? 0)) . textarea('简介', 'bio', $u['bio']);
     } elseif ($type === 'group') {
         $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0, 'upload_quota_mb' => 0];
         $tab = 'groups';
-        $body = input('名称', 'name', $g['name'], 'text', true) . '<label class="grid"><span>上传空间（MB）<small>0 表示不限制。</small></span><input name="upload_quota_mb" type="number" min="0" value="' . h((int)($g['upload_quota_mb'] ?? 0)) . '" required></label><label class="grid"><span>允许用户和内容管理</span><input type="checkbox" name="allow_manage" value="1"' . ((int)($g['allow_manage'] ?? 0) ? ' checked' : '') . '></label><label class="grid"><span>允许后台管理</span><input type="checkbox" name="allow_admin" value="1"' . ((int)($g['allow_admin'] ?? 0) ? ' checked' : '') . '></label>';
+        $body = input('名称', 'name', $g['name'], 'text', true) . number_input('上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), 0, null, true, '0 表示不限制。') . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
     } elseif ($type === 'forum') {
         $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => ''];
         if (!$f) err('版块不存在');
         $tab = 'forums';
-        $body = input('名称', 'name', $f['name'], 'text', true) . input('排序', 'sort', $f['sort'], 'number', true) . textarea('描述', 'description', $f['description']) . forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
+        $body = input('名称', 'name', $f['name'], 'text', true) . number_input('排序', 'sort', $f['sort']) . textarea('描述', 'description', $f['description']) . forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
     } else err('参数错误');
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
