@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v3.6');
+define('APP_VERSION', 'v3.7');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -370,6 +370,30 @@ function plugin_market_url(string $action): string
 {
     return append_url_query(PLUGIN_MARKET_BASE_URL, ['a' => $action]);
 }
+function remote_http_get(string $url, int $timeout = 8, array $headers = []): array
+{
+    if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
+    $ch = curl_init($url);
+    if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => min(4, max(1, $timeout)),
+        CURLOPT_TIMEOUT => max(1, $timeout),
+        CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
+    ];
+    if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
+    if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+    if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+    curl_setopt_array($ch, $options);
+    $body = curl_exec($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    if ($body === false) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => $error !== '' ? $error : '请求失败'];
+    if ($status < 200 || $status >= 300) return ['ok' => false, 'status' => $status, 'body' => (string)$body, 'error' => 'HTTP ' . $status];
+    return ['ok' => true, 'status' => $status, 'body' => (string)$body, 'error' => ''];
+}
 function plugin_share_post_page(string $id): void
 {
     need_admin();
@@ -393,8 +417,9 @@ function plugin_share_post_page(string $id): void
 }
 function plugin_market_fetch(): array
 {
-    $context = stream_context_create(['http' => ['timeout' => 8, 'ignore_errors' => true]]);
-    $json = @file_get_contents(plugin_market_url('plugin_market_feed'), false, $context);
+    $response = remote_http_get(plugin_market_url('plugin_market_feed'), 8, ['Accept: application/json']);
+    if (!$response['ok']) return ['ok' => 0, 'message' => '无法连接插件市场' . ((string)$response['error'] !== '' ? '：' . (string)$response['error'] : ''), 'plugins' => []];
+    $json = (string)$response['body'];
     if (!is_string($json) || trim($json) === '') return ['ok' => 0, 'message' => '无法连接插件市场', 'plugins' => []];
     $data = json_decode($json, true);
     if (!is_array($data)) return ['ok' => 0, 'message' => '插件市场返回格式错误', 'plugins' => []];
@@ -1666,8 +1691,9 @@ function cache_avatar_url(string $style, string $seed): string
     $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
     if (is_file($file)) return asset_url('avatars/' . basename($file));
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
-    $context = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
-    $svg = @file_get_contents($remote, false, $context);
+    $response = remote_http_get($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
+    if (!$response['ok']) return $remote;
+    $svg = (string)$response['body'];
     if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
     if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
     if (!@rename($tmp, $file)) {
@@ -2293,9 +2319,9 @@ function topic_stats_html(int $view_count, int $reply_count): string
     if ($reply_count > 0) $stats .= '<span>' . svg_icon('reply') . $reply_count . '</span>';
     return $stats ? '<div class="post-content-stats">' . $stats . '</div>' : '';
 }
-function page_head_html(string $page_title, string $meta): string
+function page_head_html(string $page_title, string $meta, string $head_extra = ''): string
 {
-    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="/index.css?v=' . h(APP_VERSION) . '"></head><body>';
+    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="/index.css?v=' . h(APP_VERSION) . '">' . $head_extra . '</head><body>';
 }
 function page_nav_html(string $site_name): string
 {
@@ -2328,11 +2354,11 @@ function page(string $title, string $body, array $seo = []): void
     if ($is_home && ($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
     if ($description !== '') $meta .= '<meta name="description" content="' . h($description) . '">';
     if (!empty($seo['canonical'])) $meta .= '<link rel="canonical" href="' . h((string)$seo['canonical']) . '">';
-    $meta .= (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title, 'seo' => $seo]);
+    $head_extra = (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title, 'seo' => $seo]);
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
     if ($flash !== '' && !headers_sent()) setcookie('__flash', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
-    echo page_head_html($page_title, $meta) . page_nav_html($site_name) . $header_html . '<main class="wrap">' . $body . '</main>' . page_footer_html($settings, $title, $flash);
+    echo page_head_html($page_title, $meta, $head_extra) . page_nav_html($site_name) . $header_html . '<main class="wrap">' . $body . '</main>' . page_footer_html($settings, $title, $flash);
 }
 function form_field_caption(string $label, string $help = ''): string
 {
