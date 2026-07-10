@@ -2999,7 +2999,8 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             'comment' => ['label' => '新评论', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=comment')],
             'post' => ['label' => '新帖子', 'href' => $url(($q !== '' ? 'q=' . rawurlencode($q) . '&' : '') . 'sort=post')],
         ];
-        $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
+        $toolbar_actions = (string)hook('topic.toolbar_actions', '', ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
+        $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
     }
     $main .= '<ul class="post-list">';
     if ($profile_uid && $profile_tab === 'notifications') {
