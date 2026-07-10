@@ -3101,6 +3101,7 @@ function topic_page(): void
         $reply_ops = $reply_ops !== '' ? '<div class="post-ops">' . $reply_ops . '</div>' : '';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', (int)$r['id'] === $replyid);
     }
+    fire('topic.page_replies_rendered', ['topic' => $t, 'replies' => $replies, 'page' => $p]);
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
     $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]));
     if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
