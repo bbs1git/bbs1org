@@ -3071,6 +3071,7 @@ function topic_page(): void
         q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;
     }
+    fire('topic.after_view', ['topic' => $t]);
     $size = max(1, (int)setting('replies_per_page', '50'));
     $replyid = id('replyid');
     if ($replyid > 0) {
