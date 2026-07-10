@@ -3072,7 +3072,6 @@ function topic_page(): void
         q("UPDATE topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;
     }
-    fire('topic.after_view', ['topic' => $t]);
     $size = max(1, (int)setting('replies_per_page', '50'));
     $replyid = id('replyid');
     if ($replyid > 0) {
@@ -3087,6 +3086,7 @@ function topic_page(): void
     $p = max(1, (int)($_GET['p'] ?? 1));
     $off = ($p - 1) * $size;
     $replies = attach_users(q("SELECT * FROM replies WHERE topic_id=? ORDER BY created_at,id LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll());
+    fire('topic.after_view', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
     $fav = uid() ? one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), (int)$t['id']]) : null;
     $topic_ops = '';
     if (uid()) $topic_ops .= quote_reply_action($t);
@@ -3101,7 +3101,6 @@ function topic_page(): void
         $reply_ops = $reply_ops !== '' ? '<div class="post-ops">' . $reply_ops . '</div>' : '';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', (int)$r['id'] === $replyid, ['reply_position' => $off + $i + 1]);
     }
-    fire('topic.page_replies_rendered', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
     $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]));
     if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
