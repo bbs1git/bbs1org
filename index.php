@@ -3219,9 +3219,7 @@ function admin_plugins_page_html(): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $market_url = admin_url(['tab' => 'plugins', 'view' => 'market']);
-    $head_right = '<div class="plugin-head-actions"><a class="admin-head-add plugin-market-entry" href="' . h($market_url) . '">插件市场</a></div>';
-    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, '') . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
         $id = (string)$plugin['id'];
@@ -3255,8 +3253,14 @@ function admin_plugins_page_html(): string
         $html .= '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong><span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div><div class="plugin-file">' . h($file) . '</div></div>' . $entry_line . '<div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
     if (!$plugins) $html .= '<li class="empty-state">暂无插件，放入 plugins/*/plugin.php 后即可自动显示。</li>';
-    $html .= '<li class="plugin-market-more"><a class="admin-head-add plugin-market-entry" href="' . h($market_url) . '">获取更多插件</a></li>';
     return $html . '</ul></div>';
+}
+function admin_plugins_tabs_html(string $active): string
+{
+    return tab_bar_html([
+        'local' => ['label' => '本地插件', 'href' => admin_url(['tab' => 'plugins'])],
+        'market' => ['label' => '插件市场', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
+    ], $active, 'plugin-tabs');
 }
 function plugin_market_search_form(string $query): string
 {
@@ -3280,7 +3284,7 @@ function admin_plugins_market_page_html(): string
     $query = trim((string)($_GET['q'] ?? ''));
     $head_left = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。</span></div>';
     $head_right = '<div class="plugin-head-actions">' . plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">刷新</a></div>';
-    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    $html = admin_plugins_tabs_html('market') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     if (!(int)($market['ok'] ?? 0)) {
         $html .= '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li>';
         return $html . '</ul></div>';
