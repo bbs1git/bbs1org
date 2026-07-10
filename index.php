@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v3.1');
+define('APP_VERSION', 'v3.2');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -17,6 +17,7 @@ define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
+define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('SEARCH_MIN_CHARS', 3);
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
@@ -245,17 +246,38 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
     foreach (['install', 'uninstall'] as $key) if ($base[$key] !== '' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $base[$key]) !== 1) $base[$key] = '';
     return $base;
 }
-function plugins(): array
+function plugin_files_state(): array
+{
+    $files = glob(PLUGIN_DIR . '/*/plugin.php') ?: [];
+    sort($files);
+    $state = [];
+    foreach ($files as $file) if (is_file($file)) $state[$file] = (int)filemtime($file);
+    return $state;
+}
+function plugin_load(array $plugin): void
+{
+    $file = (string)($plugin['file'] ?? '');
+    if ($file !== '' && is_file($file)) include_once $file;
+}
+function plugins(bool $refresh = false): array
 {
     static $plugins = null;
-    if ($plugins !== null) return $plugins;
+    if (!$refresh && $plugins !== null) return $plugins;
+    $files_state = plugin_files_state();
+    if (!$refresh && is_file(PLUGIN_CACHE_FILE)) {
+        $cached = include PLUGIN_CACHE_FILE;
+        if (is_array($cached) && ($cached['files'] ?? null) === $files_state && is_array($cached['plugins'] ?? null)) {
+            return $plugins = $cached['plugins'];
+        }
+    }
     $plugins = [];
-    foreach (glob(PLUGIN_DIR . '/*/plugin.php') ?: [] as $file) {
+    foreach (array_keys($files_state) as $file) {
         $raw = include_once $file;
         if (!is_array($raw)) continue;
         $plugin = plugin_normalize($raw, $file);
         if ($plugin) $plugins[$plugin['id']] = $plugin;
     }
+    cache_write_php(PLUGIN_CACHE_FILE, ['files' => $files_state, 'plugins' => $plugins]);
     return $plugins;
 }
 function plugin_enabled(array $plugin): bool
@@ -302,7 +324,7 @@ function plugin_set_enabled(string $id, bool $enabled): void
     if (!plugin_id_valid($id)) err('插件不存在');
     $plugin = plugins()[$id] ?? null;
     if (!$plugin) err('插件不存在');
-    if ($enabled && is_file((string)($plugin['file'] ?? ''))) include_once (string)$plugin['file'];
+    if ($enabled) plugin_load($plugin);
     if ($enabled && !plugin_enabled($plugin) && !empty($plugin['install']) && function_exists((string)$plugin['install'])) {
         call_user_func((string)$plugin['install'], $plugin);
     }
@@ -315,7 +337,7 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
     if (!plugin_id_valid($id)) err('插件不存在');
     $plugin = plugins()[$id] ?? null;
     if (!$plugin) err('插件不存在');
-    if (is_file((string)($plugin['file'] ?? ''))) include_once (string)$plugin['file'];
+    plugin_load($plugin);
     if (!$keep_data) {
         $fn = (string)($plugin['uninstall'] ?? '');
         if ($fn === '' || !function_exists($fn)) $fn = str_replace('-', '_', $id) . '_uninstall';
@@ -424,6 +446,7 @@ function plugin_market_install(string $id): void
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+    plugins(true);
     q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_sha256', (string)($item['sha256'] ?? hash('sha256', $code))]);
     q("REPLACE INTO settings(name,value) VALUES(?,?)", ['plugin_' . $id . '_market_topic_id', (string)(int)($item['topic_id'] ?? 0)]);
     settings_cache(true);
@@ -449,9 +472,12 @@ function hook(string $name, mixed $value = null, array $ctx = []): mixed
         if ($name === 'sidebar.feature_links' && !plugin_entry_enabled($plugin, 'feature_links')) continue;
         if ($name === 'sidebar.stack' && !plugin_entry_enabled($plugin, 'sidebar_cards')) continue;
         $fn = $plugin['hooks'][$name] ?? null;
-        if (is_string($fn) && function_exists($fn)) {
-            $next = $fn($value, $ctx);
-            if ($next !== null) $value = $next;
+        if (is_string($fn)) {
+            plugin_load($plugin);
+            if (function_exists($fn)) {
+                $next = $fn($value, $ctx);
+                if ($next !== null) $value = $next;
+            }
         }
     }
     return $value;
@@ -465,9 +491,12 @@ function plugin_route(string $action): bool
     foreach (plugins() as $plugin) {
         if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
         $fn = $plugin['routes'][$action] ?? null;
-        if (is_string($fn) && function_exists($fn)) {
-            $fn($plugin);
-            return true;
+        if (is_string($fn)) {
+            plugin_load($plugin);
+            if (function_exists($fn)) {
+                $fn($plugin);
+                return true;
+            }
         }
     }
     return false;
@@ -792,7 +821,7 @@ function notifications_unread_total(int $uid): int
 }
 function mark_notifications_read(int $uid): void
 {
-    q("UPDATE notifications SET read_at=CASE WHEN read_at=0 THEN ? ELSE read_at END WHERE recipient_id=?", [now(), $uid]);
+    q("UPDATE notifications SET read_at=? WHERE recipient_id=? AND read_at=0", [now(), $uid]);
     q("UPDATE users SET unread_notifications=0 WHERE id=?", [$uid]);
     $GLOBALS['__me_cache'] = null;
 }
@@ -3288,7 +3317,10 @@ function admin_plugin_tab_html(string $tab): ?string
     foreach (plugins() as $plugin) {
         if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
         $fn = $plugin['admin_tabs'][$tab] ?? null;
-        if (is_string($fn) && function_exists($fn)) return (string)$fn($plugin);
+        if (is_string($fn)) {
+            plugin_load($plugin);
+            if (function_exists($fn)) return (string)$fn($plugin);
+        }
     }
     return null;
 }
