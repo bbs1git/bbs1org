@@ -496,7 +496,13 @@ document.addEventListener("change", async e => {
             body.append("_csrf", token);
             body.append("attachment", file);
             const response = await fetch(url, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
-            const data = await response.json();
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (_) {
+                throw new Error("上传失败");
+            }
             if (!data.ok) throw new Error(data.message || "上传失败");
             insertTextareaText(textarea, data.markdown || "");
             row.classList.add("done");

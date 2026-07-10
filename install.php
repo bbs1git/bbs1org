@@ -147,7 +147,7 @@ if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $a
 if (is_file(INSTALL_LOCK_FILE)) i_locked();
 $db = i_db();
 $db->exec("
-CREATE TABLE IF NOT EXISTS groups(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS groups(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0,upload_quota_mb INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE,password TEXT NOT NULL,email TEXT NOT NULL DEFAULT '',bio TEXT NOT NULL DEFAULT '',avatar_style TEXT NOT NULL DEFAULT '',avatar_seed TEXT NOT NULL DEFAULT '',group_id INTEGER NOT NULL DEFAULT 2,points INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications INTEGER NOT NULL DEFAULT 0,last_post_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,row_data TEXT NOT NULL,deleted_by INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,recipient_id INTEGER NOT NULL,sender_id INTEGER DEFAULT NULL,kind TEXT NOT NULL DEFAULT 'direct',content TEXT NOT NULL,topic_id INTEGER DEFAULT NULL,reply_id INTEGER DEFAULT NULL,read_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS forums(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT
 CREATE TABLE IF NOT EXISTS topics(id INTEGER PRIMARY KEY AUTOINCREMENT,forum_id INTEGER NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,highlight_style TEXT NOT NULL DEFAULT '',reply_count INTEGER NOT NULL DEFAULT 0,view_count INTEGER NOT NULL DEFAULT 0,last_reply_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS topics_fts USING fts5(title, body, tokenize='trigram');
 CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT,topic_id INTEGER NOT NULL,user_id INTEGER NOT NULL,body TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,hash TEXT NOT NULL,file_name TEXT NOT NULL,original_name TEXT NOT NULL DEFAULT '',ext TEXT NOT NULL DEFAULT '',mime TEXT NOT NULL DEFAULT '',size INTEGER NOT NULL DEFAULT 0,is_image INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS favorites(user_id INTEGER NOT NULL,topic_id INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,topic_id));
 CREATE TABLE IF NOT EXISTS password_resets(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS ip_logs(ip TEXT PRIMARY KEY,register_count INTEGER NOT NULL DEFAULT 0,register_at INTEGER NOT NULL DEFAULT 0,login_fail_count INTEGER NOT NULL DEFAULT 0,login_fail_at INTEGER NOT NULL DEFAULT 0,reset_fail_count INTEGER NOT NULL DEFAULT 0,reset_fail_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
@@ -167,6 +168,8 @@ $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_topic_time ON replies(topic_id
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user ON replies(user_id,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user_time ON replies(user_id,created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_replies_user_topic_time ON replies(user_id,topic_id,created_at DESC,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id,created_at DESC,id DESC)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_attachments_hash ON attachments(hash)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id,read_at,created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_recipient_time ON notifications(recipient_id,created_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_notifications_sender ON notifications(sender_id,id DESC)");
@@ -179,7 +182,7 @@ $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_created ON topics(forum_i
 $db->exec("CREATE INDEX IF NOT EXISTS idx_topics_forum_last_reply ON topics(forum_id,last_reply_at DESC,id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_users_created ON users(id DESC)");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_favorites_user_created ON favorites(user_id,created_at DESC)");
-$db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin) VALUES(1,'管理员',1,1),(2,'会员',0,0)");
+$db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin,upload_quota_mb) VALUES(1,'管理员',1,1,0),(2,'会员',0,0,0)");
 $db->exec("INSERT OR IGNORE INTO forums(id,name,description,sort,last_topic_id,last_topic_title) VALUES(1," . $db->quote($forum_name) . ",'欢迎发帖',0,0,'')");
 $settings = [
     'site_name' => $site_name,

@@ -197,6 +197,24 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .post-tag{margin-left:auto;flex-shrink:0;padding:2px 8px;border:1px solid #ddd;border-radius:3px;background:#fafafa;color:#777;font-size:11px;white-space:nowrap}
 .post-tag:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
 .post-forum-badge{display:inline-flex}
+.profile-file-summary{display:block;margin:0 0 10px;color:#777;font-size:12px}
+.profile-file-summary span{display:inline-flex;align-items:center}
+.profile-file-summary .profile-file-usage{display:grid;gap:5px;max-width:260px}
+.profile-file-usage-head{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;color:#777;font-size:12px;line-height:1.3}
+.profile-file-summary .profile-file-usage-head,.profile-file-summary .profile-file-usage-head span{min-height:0;padding:0;border:0;border-radius:0;background:transparent}
+.profile-file-progress{display:block!important;width:100%;height:4px;min-height:0!important;overflow:hidden;padding:0!important;border:0!important;border-radius:999px!important;background:#edf1f4!important}
+.profile-file-progress span{display:block;height:100%;min-height:0;padding:0;border:0;border-radius:inherit;background:var(--brand)}
+.profile-file-row{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:64px;padding:10px 0;border-bottom:1px solid #f5f5f5;list-style:none}
+.profile-file-row:last-child{border-bottom:none}
+.profile-file-row:hover{background:#fafafa}
+.profile-file-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #e6edf3;border-radius:6px;background:#fbfcfd;color:#667085;font-size:10px;font-weight:700;line-height:1;text-transform:uppercase;overflow:hidden}
+.profile-file-main{min-width:0}
+.profile-file-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#222;font-size:13px;font-weight:600;line-height:1.4}
+.profile-file-name:hover{color:var(--brand)}
+.profile-file-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;margin-top:4px;color:#999;font-size:11px;line-height:1.4}
+.profile-file-meta span{display:inline-flex;align-items:center;min-width:0}
+.profile-file-download{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid #ddd;border-radius:var(--radius-sm);background:#fafafa;color:#666;font-size:12px;white-space:nowrap}
+.profile-file-download:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
 .pagination-bar{display:flex;align-items:center;justify-content:center;padding: 12px 0;}
 .pagination-bar .pagination{margin:0}
 .sidebar .card{margin-bottom:0}
@@ -623,6 +641,11 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .post-tag{display:none}
     .notification-reply-action{display:inline-flex;margin-left:auto}
     .post-title{white-space:normal}
+    .profile-file-row{grid-template-columns:38px minmax(0,1fr);align-items:start;gap:8px;padding:10px 0}
+    .profile-file-icon{width:38px;height:38px;font-size:9px}
+    .profile-file-name{white-space:normal;overflow-wrap:anywhere}
+    .profile-file-download{grid-column:2;justify-self:start;min-height:24px;padding:0;color:#666;border:0;background:transparent}
+    .profile-file-download:hover{background:transparent;color:var(--brand)}
     .row{align-items:flex-start}
     .grid,.admin{grid-template-columns:1fr}
     .grid>span{padding-top:0}
