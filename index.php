@@ -1793,7 +1793,6 @@ function upload_detect_mime(string $path): string
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         if ($finfo) {
             $mime = @finfo_file($finfo, $path);
-            finfo_close($finfo);
             if (is_string($mime) && $mime !== '') return strtolower($mime);
         }
     }
