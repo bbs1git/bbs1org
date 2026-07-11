@@ -649,6 +649,12 @@ document.addEventListener("submit", async e => {
             return;
         }
         showToast(data.message || "操作完成");
+        const replaceTarget = form.dataset.replaceTarget || "";
+        const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
+        if (replaceEl && data.html) {
+            replaceEl.outerHTML = data.html;
+            return;
+        }
         const removeTarget = form.dataset.removeTarget || "";
         const removeEl = removeTarget ? form.closest(removeTarget) : null;
         if (removeEl) {
