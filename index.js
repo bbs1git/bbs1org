@@ -590,11 +590,13 @@ document.addEventListener("submit", async e => {
                 } else if (stats) stats.remove();
             }
             replyForm.reset();
+            if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
             if (status) status.textContent = "已回复";
         } catch (err) {
             const message = err?.message || "提交失败";
             if (status) status.textContent = message;
             showToast(message);
+            if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
         } finally {
             button.disabled = false;
         }
@@ -664,6 +666,7 @@ document.addEventListener("submit", async e => {
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
         showToast(err?.message || "操作失败");
+        if (window.turnstile && form.querySelector(".cf-turnstile")) window.turnstile.reset(form.querySelector(".cf-turnstile"));
         if (button) button.disabled = false;
     }
 });
