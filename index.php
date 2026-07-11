@@ -1902,6 +1902,8 @@ function upload_attachment_markdown(array $file): string
     if (attachment_max_count() <= 0 || attachment_max_mb() <= 0) err('附件上传已关闭');
     $user_id = uid();
     if ($user_id <= 0) err('请先登录');
+    $allowed = hook('attachment.before_upload', true, ['user_id' => $user_id]);
+    if ($allowed !== true) err(is_string($allowed) ? $allowed : '禁止上传附件');
     $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
     if ($error === UPLOAD_ERR_NO_FILE) err('请选择附件');
     if ($error !== UPLOAD_ERR_OK) err('附件上传失败');
