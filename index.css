@@ -539,7 +539,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .plugin-title-line .admin-flag{flex:0 0 auto}
 .plugin-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .plugin-desc{color:#475467}
-.plugin-file{display:block;width:max-content;max-width:100%;padding:2px 7px;border:1px solid #edf1f4;border-radius:6px;background:#fbfcfd;color:#98a2b3;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.plugin-file{display:block;width:100%;min-width:0;box-sizing:border-box;padding:2px 7px;border:1px solid #edf1f4;border-radius:6px;background:#fbfcfd;color:#98a2b3;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;white-space:normal;overflow-wrap:anywhere;word-break:break-all}
 .plugin-ops{grid-column:1;justify-content:flex-start;align-self:start;margin:2px 0 0;overflow-x:auto}
 .plugin-ops .plugin-enable,.plugin-ops .plugin-manage-link{border-color:#bfe9cf;background:var(--brand-soft);color:var(--brand);font-weight:600}
 .plugin-ops .plugin-enable:hover,.plugin-ops .plugin-manage-link:hover{border-color:var(--brand);background:#e5f7ed;color:var(--brand-hover)}
