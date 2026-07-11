@@ -2701,6 +2701,7 @@ function forgot_password_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
         if (!rate_allow_bucket($ip, 'reset_fail')) err('同一IP 1小时内错误次数已达上限');
+        hook('forgot_password.before_submit', true, []);
         $username = post('username', 40);
         $email = post('email', 120);
         $u = one("SELECT id,username,email FROM users WHERE username=? AND email=?", [$username, $email]);
@@ -2724,7 +2725,8 @@ function forgot_password_page(): void
     if ($sent) {
         $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     } else {
-        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
+        $form_extra = (string)hook('forgot_password.form_extra', '', []);
+        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . $form_extra . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     }
     page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
 }
@@ -2958,6 +2960,7 @@ function login_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
         if (!rate_allow_bucket($ip, 'login_fail')) err('同一IP 1小时内错误次数已达上限');
+        hook('login.before_submit', true, []);
         $u = one("SELECT id,password FROM users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             $auth = hook('auth.password_verified', ['continue' => true, 'user_id' => (int)$u['id']], ['user' => $u]);
@@ -2970,7 +2973,8 @@ function login_page(): void
     $sidebar = sidebar_stack_html([
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
     ]);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
+    $form_extra = (string)hook('login.form_extra', '', []);
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
 }
 function register_page(): void
 {
