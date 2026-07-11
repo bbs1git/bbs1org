@@ -370,7 +370,7 @@ function plugin_market_url(string $action): string
 {
     return append_url_query(PLUGIN_MARKET_BASE_URL, ['a' => $action]);
 }
-function remote_http_get(string $url, int $timeout = 8, array $headers = []): array
+function remote_http_request(string $url, int $timeout = 8, array $headers = [], ?array $post_fields = null): array
 {
     if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
     $ch = curl_init($url);
@@ -384,6 +384,10 @@ function remote_http_get(string $url, int $timeout = 8, array $headers = []): ar
         CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
     ];
     if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
+    if ($post_fields !== null) {
+        $options[CURLOPT_POST] = true;
+        $options[CURLOPT_POSTFIELDS] = http_build_query($post_fields);
+    }
     if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
     if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
     curl_setopt_array($ch, $options);
@@ -417,7 +421,7 @@ function plugin_share_post_page(string $id): void
 }
 function plugin_market_fetch(): array
 {
-    $response = remote_http_get(plugin_market_url('plugin_market_feed'), 8, ['Accept: application/json']);
+    $response = remote_http_request(plugin_market_url('plugin_market_feed'), 8, ['Accept: application/json']);
     if (!$response['ok']) return ['ok' => 0, 'message' => '无法连接插件市场' . ((string)$response['error'] !== '' ? '：' . (string)$response['error'] : ''), 'plugins' => []];
     $json = (string)$response['body'];
     if (!is_string($json) || trim($json) === '') return ['ok' => 0, 'message' => '无法连接插件市场', 'plugins' => []];
@@ -1691,7 +1695,7 @@ function cache_avatar_url(string $style, string $seed): string
     $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
     if (is_file($file)) return asset_url('avatars/' . basename($file));
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
-    $response = remote_http_get($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
+    $response = remote_http_request($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
     if (!$response['ok']) return $remote;
     $svg = (string)$response['body'];
     if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
