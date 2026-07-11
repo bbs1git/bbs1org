@@ -3072,7 +3072,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         [$topic_meta, $has_next_reply_page] = user_reply_topics_page($profile_uid, $p, $size);
         $total = $p * $size + ($has_next_reply_page ? 1 : 0);
         $topic_ids = array_keys($topic_meta);
-        $rows = $topic_ids ? q("SELECT " . topic_list_select_columns('topics') . " FROM topics WHERE id IN (" . implode(',', array_fill(0, count($topic_ids), '?')) . ")", $topic_ids)->fetchAll() : [];
+        $rows = array_values(rows_by_ids('topics', $topic_ids, topic_list_select_columns('topics')));
         foreach ($rows as &$row) {
             $meta = $topic_meta[(int)$row['id']] ?? ['my_reply_at' => 0, 'my_reply_id' => 0];
             $row['my_reply_at'] = $meta['my_reply_at'];
@@ -3087,7 +3087,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $fav_map = [];
         foreach ($fav_rows as $fr) $fav_map[(int)$fr['topic_id']] = (int)$fr['favorite_at'];
         $topic_ids = array_keys($fav_map);
-        $rows = $topic_ids ? q("SELECT " . topic_list_select_columns('topics') . " FROM topics WHERE id IN (" . implode(',', array_fill(0, count($topic_ids), '?')) . ")", $topic_ids)->fetchAll() : [];
+        $rows = array_values(rows_by_ids('topics', $topic_ids, topic_list_select_columns('topics')));
         foreach ($rows as &$row) $row['favorite_at'] = $fav_map[(int)$row['id']] ?? 0;
         unset($row);
         usort($rows, fn($a, $b) => (int)$b['favorite_at'] <=> (int)$a['favorite_at']);
@@ -3116,8 +3116,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $rows = q("SELECT " . topic_list_select_columns('t') . " FROM topics t $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$size, $off]))->fetchAll();
         $rows = attach_users($rows);
         if ($pinned_ids && $p === 1) {
-            $marks = implode(',', array_fill(0, count($pinned_ids), '?'));
-            $pinned_rows = attach_users(q("SELECT " . topic_list_select_columns('topics') . " FROM topics WHERE id IN ($marks)", $pinned_ids)->fetchAll());
+            $pinned_rows = attach_users(array_values(rows_by_ids('topics', $pinned_ids, topic_list_select_columns('topics'))));
             $by_id = [];
             foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
             $ordered = [];
