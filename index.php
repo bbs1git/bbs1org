@@ -1355,7 +1355,7 @@ function need_manage(): void
 }
 function need_site_access(): void
 {
-    if (!db_schema_ready()) simple_error_page('请先安装');
+    if (!db_schema_ready()) simple_error_page('请先运行 install.php 进行安装');
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin() && !in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'two_factor', 'form_error', 'plugin_share_receive', 'plugin_market_feed', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) err('网站已关闭');
@@ -1398,7 +1398,7 @@ function ajax_error(string $m, bool $log = true): never
 function simple_error_page(string $m): never
 {
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}</style></head><body><div class="box"><h1>' . h($m) . '</h1></div></body></html>';
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}</style></head><body><div class="box">' . h($m) . '</div></body></html>';
     exit;
 }
 function go(string $u): never
