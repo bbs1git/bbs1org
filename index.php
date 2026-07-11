@@ -3370,10 +3370,6 @@ function admin_plugin_share_form(string $id): string
 {
     return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'share']) . '<button type="submit">分享</button></form>';
 }
-function admin_plugin_refresh_form(): string
-{
-    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '">' . form_token() . hidden_inputs(['plugin_action' => 'refresh']) . '<button type="submit">刷新缓存</button></form>';
-}
 function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
 {
     if (!plugin_uses_entry($plugin, $entry)) return '';
@@ -3387,7 +3383,7 @@ function admin_plugins_page_html(): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, admin_plugin_refresh_form()) . '<ul class="admin-manage-list plugin-list">';
+    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, '') . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
         $id = (string)$plugin['id'];
@@ -3449,6 +3445,11 @@ function admin_plugins_market_page_html(): string
     $market = plugin_market_fetch();
     $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
     $local = plugins();
+    $update_ids = [];
+    foreach ($items as $id => $item) {
+        if (isset($local[$id]) && is_array($item) && plugin_market_update_info($local[$id], $item) !== null) $update_ids[$id] = true;
+    }
+    uksort($items, fn(string $a, string $b): int => (int)isset($update_ids[$b]) <=> (int)isset($update_ids[$a]));
     $query = trim((string)($_GET['q'] ?? ''));
     $head_left = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。</span></div>';
     $head_right = '<div class="plugin-head-actions">' . plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">刷新</a></div>';
@@ -3466,7 +3467,7 @@ function admin_plugins_market_page_html(): string
         $shown++;
         $installed = isset($local[$id]);
         $remote_sha = (string)($item['sha256'] ?? '');
-        $needs_update = $installed && plugin_market_update_info($local[$id], $item) !== null;
+        $needs_update = isset($update_ids[$id]);
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
         $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
@@ -3479,8 +3480,8 @@ function admin_plugins_market_page_html(): string
         $title = h((string)($item['name'] ?? $id));
         if ($topic_url !== '') $title = '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>';
         else $title = '<strong class="admin-content-title">' . $title . '</strong>';
-        $flag = $installed ? '<span class="admin-flag on">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>';
-        $html .= '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr($remote_sha, 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
+        $flag = $installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item' . ($needs_update ? ' plugin-update-item' : '') . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr($remote_sha, 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
     if ($shown === 0) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : '暂无已审核通过的插件。') . '</li>';
     return $html . '</ul></div>';
@@ -3545,9 +3546,6 @@ function admin_page(): void
         } elseif ($plugin_action === 'market_install') {
             plugin_market_install($plugin_id);
             set_flash('插件已安装或更新，请确认后手动启用。');
-        } elseif ($plugin_action === 'refresh') {
-            plugins(true);
-            set_flash('插件缓存已刷新');
         } else err('参数错误');
         go(admin_url(['tab' => 'plugins', 'view' => (string)($_GET['view'] ?? '') === 'market' ? 'market' : null]));
     }
@@ -3727,6 +3725,7 @@ parse_path_route();
 if (!db_schema_ready()) simple_error_page('请先安装');
 check();
 need_site_access();
+if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins(true);
 fire('app.boot');
 try {
     if (($_GET['__route_not_found'] ?? '') === '1') {

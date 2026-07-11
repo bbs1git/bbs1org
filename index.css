@@ -463,6 +463,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-topic-user .admin-group-pill{margin-left:6px}
 .admin-flag{display:inline-flex;align-items:center;justify-content:center;min-width:34px;min-height:22px;padding:0 8px;border:1px solid #edf0f2;border-radius:999px;background:#fafafa;color:#aaa;font-size:12px}
 .admin-flag.on{border-color:#d9f4e4;background:var(--brand-soft);color:var(--brand)}
+.admin-flag.update{border-color:#f2c66d;background:#fff4d6;color:#9a5b00;font-weight:600}
 .admin-flag.danger{border-color:#fde2e2;background:var(--danger-soft);color:var(--danger)}
 .admin-topic-user{display:flex;align-items:center;margin-bottom:4px;color:#9ca3af;font-size:12px}
 .admin-topic-user .table-avatar{width:18px;height:18px;margin-right:6px;opacity:.72}
@@ -523,6 +524,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-plugin-summary span{color:#98a2b3;font-size:12px;line-height:1.35}
 .plugin-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .plugin-item.admin-object-row{grid-template-columns:minmax(0,1fr);align-items:start;gap:10px;min-height:86px}
+.plugin-item.plugin-update-item{border-color:#edc46c;background:#fffaf0;box-shadow:inset 3px 0 #d98b16}
 .plugin-title-line{display:flex;align-items:center;gap:8px;min-width:0}
 .plugin-title-line .admin-content-title{flex:0 1 auto;font-size:14px}
 .plugin-title-line .admin-flag{flex:0 0 auto}
