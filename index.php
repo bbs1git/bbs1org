@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.0');
+define('APP_VERSION', 'v5.1');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -2456,7 +2456,7 @@ function can_manage_reply(array $r): bool
 }
 function can_admin_delete(string $type, int $id): bool
 {
-    if ($type === 'users') return can_manage() && $id !== uid();
+    if ($type === 'users') return can_manage() && $id !== uid() && ($id !== 1 || is_super_user());
     if (in_array($type, ['groups', 'forums'], true)) return can_manage() && is_super_user();
     $row = deletable_post_row($type, $id);
     if ($type === 'topics') return $row && can_manage_topic($row);
@@ -2523,14 +2523,18 @@ function refresh_forum_last_topic(int $fid): void
     $t = one("SELECT id,title FROM topics WHERE forum_id=? ORDER BY updated_at DESC,id DESC LIMIT 1", [$fid]);
     q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [(int)($t['id'] ?? 0), (string)($t['title'] ?? ''), $fid]);
 }
-function save_user(bool $admin = false): void
+function save_user(bool $admin = false, ?int $target_user_id = null): void
 {
     $ip = ip_addr();
-    if (!$admin && !id() && !rate_allow_bucket($ip, 'register')) err('同一IP 1小时内注册次数已达上限');
+    $requested_user_id = id();
+    $user_id = $admin ? $requested_user_id : ($target_user_id ?? $requested_user_id);
+    if ($admin && $user_id === 1 && !is_super_user()) err('无权限');
+    if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限');
+    if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
+    if (!$admin && !$user_id && !rate_allow_bucket($ip, 'register')) err('同一IP 1小时内注册次数已达上限');
     $username = post('username', 40);
     $email = post('email', 120);
     $bio = post('bio', 1000);
-    $user_id = id();
     $avatar_style = avatar_style(post('avatar_style', 40));
     $avatar_seed = post('avatar_seed', 80);
     if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
@@ -3003,6 +3007,7 @@ function register_page(): void
     if (uid()) go(consume_auth_return_url());
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (array_key_exists('id', $_GET) || array_key_exists('id', $_POST)) err('参数错误');
         save_user(false);
         $_SESSION['uid'] = (int)($GLOBALS['__last_saved_user_id'] ?? db()->lastInsertId());
         go(consume_auth_return_url());
@@ -3019,8 +3024,7 @@ function profile_page(): void
     $u = me();
     $current_ip = '<label class="grid readonly-grid"><span>当前IP</span><input class="readonly-input" type="text" value="' . h(ip_addr()) . '" disabled readonly></label>';
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $_POST['id'] = uid();
-        save_user(false);
+        save_user(false, uid());
         go(route_url('profile'));
     }
     $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
@@ -3682,6 +3686,7 @@ function admin_edit_page(): void
     need_admin();
     $type = $_GET['type'] ?? $_POST['type'] ?? '';
     if ($type === 'user') need_manage();
+    if ($type === 'user' && id() === 1 && !is_super_user()) err('无权限');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($type === 'user') save_user(true);
         elseif ($type === 'group') save_group();
