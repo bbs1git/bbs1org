@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v3.8');
+define('APP_VERSION', 'v4.0');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -135,6 +135,18 @@ function attach_users(array $rows, string $key = 'user_id', string $fallback = '
 {
     $users = rows_by_ids('users', array_column($rows, $key), 'id,username,avatar_style,avatar_seed,group_id,points,is_banned,is_muted');
     foreach ($rows as &$row) $row += ($users[(int)($row[$key] ?? 0)] ?? ['username' => $fallback, 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => 0, 'points' => 0, 'is_banned' => 0, 'is_muted' => 0]);
+    unset($row);
+    return $rows;
+}
+function attach_topic_list_users(array $rows): array
+{
+    $user_ids = array_merge(array_column($rows, 'user_id'), array_column($rows, 'last_reply_user_id'));
+    $users = rows_by_ids('users', $user_ids, 'id,username,avatar_style,avatar_seed,group_id,points,is_banned,is_muted');
+    foreach ($rows as &$row) {
+        $row += ($users[(int)($row['user_id'] ?? 0)] ?? ['username' => '', 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => 0, 'points' => 0, 'is_banned' => 0, 'is_muted' => 0]);
+        $last_reply_uid = (int)($row['last_reply_user_id'] ?? 0);
+        $row['last_reply_username'] = $last_reply_uid > 0 ? (string)($users[$last_reply_uid]['username'] ?? '') : '';
+    }
     unset($row);
     return $rows;
 }
@@ -2230,7 +2242,7 @@ function quote_reply_action(array $row): string
 function topic_list_select_columns(string $table = 'topics'): string
 {
     $p = $table . '.';
-    return $p . 'id,' . $p . 'title,' . $p . 'highlight_style,' . $p . 'created_at,' . $p . 'updated_at,' . $p . 'reply_count,' . $p . 'last_reply_at,' . $p . 'forum_id,' . $p . 'user_id';
+    return $p . 'id,' . $p . 'title,' . $p . 'highlight_style,' . $p . 'created_at,' . $p . 'updated_at,' . $p . 'reply_count,' . $p . 'last_reply_at,' . $p . 'last_reply_user_id,' . $p . 'forum_id,' . $p . 'user_id';
 }
 function topic_fts_query(string $query, string $field = ''): string
 {
@@ -2306,7 +2318,10 @@ function topic_list_row(array $t, string $sort): string
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
     $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
     $forum_link = '<a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>';
-    $meta = '<span>' . $user_link . '</span><span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span><span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span><span>' . human_time($time) . '</span>';
+    $last_reply_username = (string)($t['last_reply_username'] ?? '');
+    $last_reply_user = $last_reply_username !== '' ? '<span>' . svg_icon('user') . h($last_reply_username) . '</span>' : '';
+    $time_meta = '<span>' . human_time($time) . '</span>';
+    $meta = '<span>' . $user_link . '</span>' . ($sort === 'post' ? $time_meta : '') . '<span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span><span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span>' . $last_reply_user . ($sort === 'post' ? '' : $time_meta);
     $pages = topic_page_links((int)$t['id'], (int)$t['reply_count']);
     $reply_id = (int)($t['my_reply_id'] ?? 0);
     $topic_url = route_url('topic', ['id' => (int)$t['id'], 'replyid' => $reply_id > 0 ? $reply_id : null]);
@@ -2469,6 +2484,7 @@ function trash_restore_row(int $id): string
     }
     q('INSERT OR REPLACE INTO ' . $table . ' (' . implode(',', $fields) . ') VALUES(' . implode(',', array_fill(0, count($fields), '?')) . ')', $values);
     if ($table === 'topics') topic_fts_sync((int)$row['id'], (string)($row['title'] ?? ''), (string)($row['body'] ?? ''));
+    if ($table === 'replies') refresh_topic_stats((int)($row['topic_id'] ?? 0));
     q('DELETE FROM trash WHERE id=?', [$id]);
     return $table;
 }
@@ -2500,7 +2516,7 @@ function admin_trash_row(array $row): string
 }
 function refresh_topic_stats(int $tid): void
 {
-    q("UPDATE topics SET reply_count=(SELECT COUNT(*) FROM replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT MAX(created_at) FROM replies WHERE topic_id=?),created_at) WHERE id=?", [$tid, $tid, $tid]);
+    q("UPDATE topics SET reply_count=(SELECT COUNT(*) FROM replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT created_at FROM replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),created_at),last_reply_user_id=COALESCE((SELECT user_id FROM replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),0) WHERE id=?", [$tid, $tid, $tid, $tid]);
 }
 function refresh_forum_last_topic(int $fid): void
 {
@@ -2899,7 +2915,7 @@ function save_reply(): array
         q("INSERT INTO replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
         $rid = (int)db()->lastInsertId();
         q("UPDATE users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-        q("UPDATE topics SET updated_at=?,reply_count=reply_count+1,last_reply_at=? WHERE id=?", [$ts, $ts, $tid]);
+        q("UPDATE topics SET updated_at=?,reply_count=reply_count+1,last_reply_at=?,last_reply_user_id=? WHERE id=?", [$ts, $ts, (int)$author['user_id'], $tid]);
         create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
         return $rid;
     });
@@ -3086,7 +3102,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
         unset($row);
         usort($rows, fn($a, $b) => ((int)$b['my_reply_at'] <=> (int)$a['my_reply_at']) ?: ((int)$b['my_reply_id'] <=> (int)$a['my_reply_id']));
-        $rows = attach_users($rows);
+        $rows = attach_topic_list_users($rows);
     } elseif ($profile_uid && $profile_tab === 'favorites') {
         $fav_rows = q("SELECT topic_id,created_at favorite_at FROM favorites WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
         $total = (int)val("SELECT COUNT(*) FROM favorites WHERE user_id=?", [$profile_uid]);
@@ -3097,7 +3113,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         foreach ($rows as &$row) $row['favorite_at'] = $fav_map[(int)$row['id']] ?? 0;
         unset($row);
         usort($rows, fn($a, $b) => (int)$b['favorite_at'] <=> (int)$a['favorite_at']);
-        $rows = attach_users($rows);
+        $rows = attach_topic_list_users($rows);
     } elseif ($profile_uid && $profile_tab === 'files') {
         $total = (int)val("SELECT COUNT(*) FROM attachments WHERE user_id=?", [$profile_uid]);
         $file_used_bytes = attachment_used_bytes($profile_uid);
@@ -3120,9 +3136,9 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
         $total = ($q === '' && !$fid && !$profile_uid) ? (int)$stats['topics'] : (int)q("SELECT COUNT(*) FROM topics t $where", $params)->fetchColumn();
         $rows = q("SELECT " . topic_list_select_columns('t') . " FROM topics t $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$size, $off]))->fetchAll();
-        $rows = attach_users($rows);
+        $rows = attach_topic_list_users($rows);
         if ($pinned_ids && $p === 1) {
-            $pinned_rows = attach_users(array_values(rows_by_ids('topics', $pinned_ids, topic_list_select_columns('topics'))));
+            $pinned_rows = attach_topic_list_users(array_values(rows_by_ids('topics', $pinned_ids, topic_list_select_columns('topics'))));
             $by_id = [];
             foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
             $ordered = [];
