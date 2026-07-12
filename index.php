@@ -1377,8 +1377,9 @@ function need_site_access(): void
 }
 function check(): void
 {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_GET['a'] ?? '') === 'plugin_share_receive') return;
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !hash_equals($_SESSION['csrf'] ?? '', $_POST['_csrf'] ?? '')) {
+    $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+    if ($is_post && (string)($_GET['a'] ?? '') === 'plugin_share_receive') return;
+    if ($is_post && !hash_equals($_SESSION['csrf'] ?? '', $_POST['_csrf'] ?? '')) {
         ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
     }
 }
