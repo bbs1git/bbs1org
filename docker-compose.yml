@@ -3,7 +3,11 @@ services:
     image: php:8-fpm-bookworm
     restart: unless-stopped
     working_dir: /var/www/html
-    command: sh -c "mkdir -p /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload /var/www/html/plugins && chown -R www-data:www-data /var/www/html/data /var/www/html/cache /var/www/html/avatars /var/www/html/upload /var/www/html/plugins && php-fpm"
+    command: >-
+      sh -c "mkdir -p data cache avatars upload plugins &&
+      chown www-data:www-data /var/www/html index.* install.php update.php &&
+      chown -R www-data:www-data data cache avatars upload plugins &&
+      exec php-fpm"
     volumes:
       - ./:/var/www/html
       - data:/var/www/html/data
