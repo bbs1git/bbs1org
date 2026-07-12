@@ -186,6 +186,7 @@ $db->exec("INSERT OR IGNORE INTO groups(id,name,allow_manage,allow_admin,upload_
 $db->exec("INSERT OR IGNORE INTO forums(id,name,description,sort,last_topic_id,last_topic_title) VALUES(1," . $db->quote($forum_name) . ",'欢迎发帖',0,0,'')");
 $settings = [
     'site_name' => $site_name,
+    'site_name_title' => '',
     'site_base_url' => '',
     'site_closed' => '0',
     'debug_mode' => '0',

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.1');
+define('APP_VERSION', 'v5.2');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -19,6 +19,7 @@ define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
+define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('SEARCH_MIN_CHARS', 3);
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
@@ -165,6 +166,7 @@ function default_settings(): array
 {
     return [
         'site_name' => 'FORUM',
+        'site_name_title' => '',
         'site_base_url' => '',
         'site_closed' => '0',
         'debug_mode' => '0',
@@ -667,6 +669,7 @@ function save_settings(): void
     if (!group_by_id($gid)) err('默认用户组不存在');
     save_settings_values([
         'site_name' => $site_name,
+        'site_name_title' => post('site_name_title', 80),
         'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')),
         'site_keywords' => post('site_keywords', 200),
         'site_description' => post('site_description', 500),
@@ -2366,10 +2369,11 @@ function page(string $title, string $body, array $seo = []): void
     $settings = settings_cache();
     $body = (string)hook('page.before_render', $body, ['title' => $title]);
     $site_name = trim((string)$settings['site_name']) ?: 'FORUM';
-    $page_title = $title === '' || $title === $site_name ? $site_name : $title . ' - ' . $site_name;
+    $site_name_title = trim((string)($settings['site_name_title'] ?? '')) ?: $site_name;
+    $is_home = ($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '';
+    $page_title = $is_home || $title === '' || $title === $site_name ? $site_name_title : $title . ' - ' . $site_name_title;
     $meta = '';
     $description = trim((string)($seo['description'] ?? ($settings['site_description'] ?? '')));
-    $is_home = ($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '';
     if ($is_home && ($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
     if ($description !== '') $meta .= '<meta name="description" content="' . h($description) . '">';
     if (!empty($seo['canonical'])) $meta .= '<link rel="canonical" href="' . h((string)$seo['canonical']) . '">';
@@ -3595,7 +3599,8 @@ function admin_page(): void
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
         $fields = [
             'site_name' => ['label' => '网站名', 'required' => true],
-            'site_base_url' => ['label' => '网站固定地址', 'type' => 'url'],
+            'site_name_title' => ['label' => '网站名title', 'help' => '为空时使用网站名。'],
+            'site_base_url' => ['label' => '网站固定地址', 'type' => 'url', 'help' => '填写以 https:// 开头的网站域名。'],
             'site_keywords' => ['label' => '关键字'],
             'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
             'mail_from' => ['label' => '系统发件邮箱', 'type' => 'email'],
@@ -3623,6 +3628,14 @@ function admin_page(): void
         if ((string)($s['debug_mode'] ?? '0') === '1') {
             $debug_cards .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
         }
+        $update_state = is_file(UPDATE_STATE_FILE) ? json_decode((string)file_get_contents(UPDATE_STATE_FILE), true) : [];
+        $update_sha = is_array($update_state) ? (string)($update_state['sha'] ?? '') : '';
+        $update_time = is_array($update_state) ? (string)($update_state['updated_at'] ?? '') : '';
+        $update_meta = $update_sha !== '' ? '当前版本 ' . substr($update_sha, 0, 12) . ($update_time !== '' ? ' / ' . $update_time : '') : '尚无在线升级记录';
+        $update_action = is_file(__DIR__ . '/update.php')
+            ? '<a class="settings-tool-action" href="update.php">升级</a>'
+            : '<button class="settings-tool-action" type="button" disabled>升级</button>';
+        $debug_cards .= '<div class="settings-tool-card"><div><strong>系统升级</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
         $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $debug_cards . '</div></div>';
     } elseif ($tab === 'users') {
         $html .= admin_object_list_html('users', $q, $manageable,

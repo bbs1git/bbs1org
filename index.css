@@ -368,6 +368,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .settings-tool-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .settings-tool-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;justify-self:start!important;min-height:28px!important;padding:0 10px!important;border:1px solid #e5eaf0!important;border-radius:6px!important;background:#fff!important;color:#667085!important;font-size:12px!important;font-weight:600!important;line-height:1.2!important;text-decoration:none!important;cursor:pointer!important}
 .settings-tool-action:hover,.settings-tool-action:focus-visible{border-color:var(--brand)!important;background:var(--brand-soft)!important;color:var(--brand)!important;outline:0!important}
+.settings-tool-action:disabled{border-color:#edf0f3!important;background:#f5f6f7!important;color:#b3bac5!important;cursor:not-allowed!important}
 .topic-avatar{width:36px;height:36px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:#e6f6ee;color:#17934d;font-size:15px;font-weight:700}
 .pagination{display:flex;justify-content:center;margin:10px 0;overflow-x:auto}
 .pagination ul{display:flex;gap:3px;min-width:max-content;list-style:none;margin:0;padding:0}
