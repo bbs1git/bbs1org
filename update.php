@@ -244,7 +244,7 @@ function us_install_files(string $sha, array $remote_files, array $selected): in
         $backups = [];
         foreach ($files as $path) {
             $target = __DIR__ . '/' . $path;
-            if ((file_exists($target) && !is_writable($target)) || (!file_exists($target) && !us_writable_parent($target))) throw new RuntimeException('文件不可写：' . $path);
+            if (!us_writable_parent($target)) throw new RuntimeException('文件所在目录不可写：' . $path);
             $backup = $temp . '/backup/' . $path;
             $existed = is_file($target);
             if ($existed) {
