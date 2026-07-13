@@ -2036,7 +2036,7 @@ function markdown_inline(string $text): string
     $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
         $key = "\x1A" . count($codes) . "\x1A";
         $url = html_entity_decode((string)$m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $codes[$key] = '<img src="' . h($url) . '" alt="' . $m[1] . '" loading="lazy">';
+        $codes[$key] = '<img src="' . h($url) . '" alt="' . $m[1] . '" loading="lazy" referrerpolicy="no-referrer">';
         return $key;
     }, $text) ?? $text;
     $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use ($clean_url) {
