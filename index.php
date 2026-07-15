@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.2');
+define('APP_VERSION', 'v5.3');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -23,6 +23,10 @@ define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('SEARCH_MIN_CHARS', 3);
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
+define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
+define('ATTACHMENT_DEFAULT_QUOTA_MB', 200);
+define('ATTACHMENT_MAX_IMAGE_DIMENSION', 8192);
+define('ATTACHMENT_MAX_IMAGE_PIXELS', 20000000);
 function db_file_path(): string
 {
     if (is_file(DB_CONFIG_FILE)) {
@@ -101,6 +105,20 @@ function tx(callable $fn)
     $db = db();
     if ($db->inTransaction()) return $fn();
     $db->beginTransaction();
+    try {
+        $result = $fn();
+        $db->commit();
+        return $result;
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
+    }
+}
+function tx_immediate(callable $fn)
+{
+    $db = db();
+    if ($db->inTransaction()) return $fn();
+    $db->exec('BEGIN IMMEDIATE');
     try {
         $result = $fn();
         $db->commit();
@@ -1302,9 +1320,14 @@ function is_super_user(): bool
 function me(): ?array
 {
     if (!uid()) return null;
-    if (isset($GLOBALS['__me_cache']) && is_array($GLOBALS['__me_cache'])) return $GLOBALS['__me_cache'];
+    if (array_key_exists('__me_cache', $GLOBALS)) return is_array($GLOBALS['__me_cache']) ? $GLOBALS['__me_cache'] : null;
     $u = one("SELECT * FROM users WHERE id=?", [uid()]);
-    if (!$u) return null;
+    if (!$u) {
+        unset($_SESSION['uid']);
+        $GLOBALS['__me_cache'] = null;
+        if (session_status() === PHP_SESSION_ACTIVE) @session_regenerate_id(true);
+        return null;
+    }
     $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
     return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'group_id' => (int)($u['group_id'] ?? 0), 'is_banned' => (int)($u['is_banned'] ?? 0), 'is_muted' => (int)($u['is_muted'] ?? 0), 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
 }
@@ -1349,7 +1372,7 @@ function complete_login(int $user_id): never
 }
 function need_login(): void
 {
-    if (!uid()) go(route_url('login'));
+    if (!me()) go(route_url('login'));
 }
 function need_speak(): void
 {
@@ -1838,12 +1861,11 @@ function upload_image_valid(string $path, string $ext, string $mime): bool
     if ($expected === '' || $mime !== $expected) return false;
     $info = @getimagesize($path);
     if (!is_array($info) || (string)($info['mime'] ?? '') !== $expected) return false;
-    if (!function_exists('imagecreatefromstring')) return true;
-    $bytes = @file_get_contents($path);
-    if (!is_string($bytes) || $bytes === '') return false;
-    $image = @imagecreatefromstring($bytes);
-    if (!$image) return false;
-    return true;
+    $width = (int)($info[0] ?? 0);
+    $height = (int)($info[1] ?? 0);
+    if ($width <= 0 || $height <= 0) return false;
+    if ($width > ATTACHMENT_MAX_IMAGE_DIMENSION || $height > ATTACHMENT_MAX_IMAGE_DIMENSION) return false;
+    return $width <= intdiv(ATTACHMENT_MAX_IMAGE_PIXELS, $height);
 }
 function upload_allowed_ext(string $ext): bool
 {
@@ -1870,21 +1892,48 @@ function attachment_quota_bytes(?array $user = null): int
     $user = $user ?: me();
     if (!$user) return 0;
     $group = group_by_id((int)($user['group_id'] ?? 0));
-    return max(0, (int)($group['upload_quota_mb'] ?? 0)) * 1024 * 1024;
+    $quota_mb = max(0, (int)($group['upload_quota_mb'] ?? 0));
+    return ($quota_mb > 0 ? $quota_mb : ATTACHMENT_DEFAULT_QUOTA_MB) * 1024 * 1024;
 }
 function attachment_used_bytes(int $user_id): int
 {
     return max(0, (int)(val("SELECT COALESCE(SUM(size),0) FROM attachments WHERE user_id=?", [$user_id]) ?: 0));
 }
-function attachment_require_quota(int $user_id, int $size): void
+function attachment_upload_count(): int
 {
-    $quota = attachment_quota_bytes(user_by_id($user_id));
-    if ($quota <= 0) return;
-    if (attachment_used_bytes($user_id) + $size > $quota) err('上传空间已达用户组上限');
+    $state = is_array($_SESSION['attachment_upload_window'] ?? null) ? $_SESSION['attachment_upload_window'] : [];
+    if ((int)($state['updated_at'] ?? 0) < now() - 7200) return 0;
+    return max(0, (int)($state['count'] ?? 0));
 }
-function attachment_record(int $user_id, string $hash, string $file_name, string $original, string $ext, string $mime, int $size, bool $is_image): void
+function attachment_upload_count_increment(): void
 {
-    q("INSERT INTO attachments(user_id,hash,file_name,original_name,ext,mime,size,is_image,created_at) VALUES(?,?,?,?,?,?,?,?,?)", [$user_id, $hash, $file_name, $original, $ext, $mime, $size, $is_image ? 1 : 0, now()]);
+    $_SESSION['attachment_upload_window'] = ['count' => attachment_upload_count() + 1, 'updated_at' => now()];
+}
+function attachment_upload_count_reset(): void
+{
+    unset($_SESSION['attachment_upload_window']);
+}
+class AttachmentUploadException extends RuntimeException {}
+function attachment_store(int $user_id, string $tmp, string $target, string $hash, string $file_name, string $original, string $ext, string $mime, int $size, bool $is_image): void
+{
+    $created_file = false;
+    try {
+        tx_immediate(function () use ($user_id, $tmp, $target, $hash, $file_name, $original, $ext, $mime, $size, $is_image, &$created_file): void {
+            $quota_mb = val("SELECT g.upload_quota_mb FROM users u JOIN groups g ON g.id=u.group_id WHERE u.id=?", [$user_id]);
+            if ($quota_mb === false) throw new AttachmentUploadException('登录状态已失效，请重新登录');
+            $quota_mb = max(0, (int)$quota_mb);
+            $quota = ($quota_mb > 0 ? $quota_mb : ATTACHMENT_DEFAULT_QUOTA_MB) * 1024 * 1024;
+            if (attachment_used_bytes($user_id) + $size > $quota) throw new AttachmentUploadException('上传空间已达用户组上限');
+            if (!is_file($target)) {
+                if (!move_uploaded_file($tmp, $target)) throw new AttachmentUploadException('附件保存失败');
+                $created_file = true;
+            }
+            q("INSERT INTO attachments(user_id,hash,file_name,original_name,ext,mime,size,is_image,created_at) VALUES(?,?,?,?,?,?,?,?,?)", [$user_id, $hash, $file_name, $original, $ext, $mime, $size, $is_image ? 1 : 0, now()]);
+        });
+    } catch (Throwable $e) {
+        if ($created_file && is_file($target)) @unlink($target);
+        throw $e;
+    }
 }
 function format_bytes(int $bytes): string
 {
@@ -1910,7 +1959,7 @@ function attachment_row_html(array $file): string
 function attachment_summary_html(int $total, int $used_bytes, int $quota_bytes): string
 {
     $percent = $quota_bytes > 0 ? min(100, max(0, (int)round($used_bytes * 100 / $quota_bytes))) : 0;
-    $quota_text = $quota_bytes > 0 ? format_bytes($quota_bytes) : '不限';
+    $quota_text = $quota_bytes > 0 ? format_bytes($quota_bytes) : '不可用';
     return '<div class="profile-file-summary"><span class="profile-file-usage"><span class="profile-file-usage-head"><span>空间已用 ' . h(format_bytes($used_bytes)) . ' 总空间 ' . h($quota_text) . '</span>' . ($quota_bytes > 0 ? '<span>' . $percent . '%</span>' : '') . '</span><span class="profile-file-progress"><span style="width:' . $percent . '%"></span></span></span></div>';
 }
 function upload_attachment_markdown(array $file): string
@@ -1926,7 +1975,6 @@ function upload_attachment_markdown(array $file): string
     $size = (int)($file['size'] ?? 0);
     if ($size <= 0) err('附件不能为空');
     if ($size > attachment_max_bytes()) err('单个附件不能超过' . attachment_max_mb() . 'MB');
-    attachment_require_quota($user_id, $size);
     $original = trim(preg_replace('/[\r\n]+/', ' ', basename((string)($file['name'] ?? ''))) ?? '');
     $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
     if ($ext === '' || !upload_allowed_ext($ext)) err('附件格式不允许');
@@ -1944,8 +1992,11 @@ function upload_attachment_markdown(array $file): string
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('附件目录不可写');
     $name = $hash . ($is_image ? '.' . $ext : '.attach');
     $target = $dir . '/' . $name;
-    if (!is_file($target) && !move_uploaded_file((string)$file['tmp_name'], $target)) err('附件保存失败');
-    attachment_record($user_id, $hash, $name, $original, $ext, $mime, $size, $is_image);
+    try {
+        attachment_store($user_id, $tmp, $target, $hash, $name, $original, $ext, $mime, $size, $is_image);
+    } catch (AttachmentUploadException $e) {
+        err($e->getMessage());
+    }
     $label = markdown_link_text($original !== '' ? $original : $name);
     if ($is_image) return '![' . $label . '](' . base_url() . asset_url('upload/' . $hash_dir . '/' . $name) . ')';
     return '[' . $label . '](' . base_url() . route_url('attachment', ['f' => $name, 'name' => $original !== '' ? $original : '附件.' . $ext]) . ')';
@@ -1954,9 +2005,12 @@ function attachment_upload_page(): void
 {
     require_post();
     need_speak();
+    $max_count = attachment_max_count();
+    if ($max_count <= 0 || attachment_upload_count() >= $max_count) err('附件最多上传' . $max_count . '个');
     ob_start();
     try {
         $markdown = upload_attachment_markdown(is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : []);
+        attachment_upload_count_increment();
         if (ob_get_level() > 0) ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
@@ -1972,14 +2026,14 @@ function topic_upload_attachments_markdown(): string
     $files = $_FILES['attachments'] ?? null;
     if (!is_array($files) || !is_array($files['name'] ?? null)) return '';
     $items = [];
-    $count = count((array)$files['name']);
+    $count = count(array_filter((array)($files['error'] ?? []), fn($error): bool => (int)$error !== UPLOAD_ERR_NO_FILE));
     $max_count = attachment_max_count();
     if ($max_count <= 0) {
         foreach ((array)$files['error'] as $error) if ((int)$error !== UPLOAD_ERR_NO_FILE) err('附件上传已关闭');
         return '';
     }
-    if ($count > $max_count) err('附件最多上传' . $max_count . '个');
-    for ($i = 0; $i < $count; $i++) {
+    if (attachment_upload_count() + $count > $max_count) err('附件最多上传' . $max_count . '个');
+    for ($i = 0, $file_count = count((array)$files['name']); $i < $file_count; $i++) {
         if ((int)($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
         $items[] = upload_attachment_markdown([
             'name' => $files['name'][$i] ?? '',
@@ -1988,6 +2042,7 @@ function topic_upload_attachments_markdown(): string
             'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
             'size' => $files['size'][$i] ?? 0,
         ]);
+        attachment_upload_count_increment();
     }
     return $items ? "\n\n附件：\n" . implode("\n", $items) : '';
 }
@@ -2099,7 +2154,7 @@ function markdown_table_html(array $lines): string
     }
     return $html . '</tbody></table></div>';
 }
-function markdown_html(string $text): string
+function markdown_html(string $text, int $quote_depth = 0): string
 {
     $text = (string)hook('markdown.before', $text);
     $text = str_replace(["\r\n", "\r"], "\n", trim($text));
@@ -2114,7 +2169,7 @@ function markdown_html(string $text): string
         $class = preg_match('/^[a-z0-9_-]{1,32}$/', $lang) ? ' class="language-' . h($lang) . '"' : '';
         return '<pre><code' . $class . '>' . h(rtrim(implode("\n", $lines), "\n")) . '</code></pre>';
     };
-    $flush = function () use (&$html, &$paragraph) {
+    $flush = function () use (&$html, &$paragraph, $quote_depth) {
         $block = trim(implode("\n", $paragraph));
         $paragraph = [];
         if ($block === '') return;
@@ -2148,11 +2203,12 @@ function markdown_html(string $text): string
         }
         $chunk = [];
         $quote = null;
-        $append_chunk = function () use (&$html, &$chunk, &$quote, $render_plain) {
+        $append_chunk = function () use (&$html, &$chunk, &$quote, $render_plain, $quote_depth) {
             if (!$chunk) return;
             if ($quote) {
                 $inner = trim(implode("\n", array_map(fn($line) => preg_replace('/^\s*>\s?/u', '', $line) ?? $line, $chunk)));
-                $html[] = '<blockquote>' . ($inner === '' ? '' : markdown_html($inner)) . '</blockquote>';
+                $inner_html = $inner === '' ? '' : ($quote_depth + 1 >= MARKDOWN_MAX_QUOTE_DEPTH ? $render_plain(explode("\n", $inner)) : markdown_html($inner, $quote_depth + 1));
+                $html[] = '<blockquote>' . $inner_html . '</blockquote>';
             } else {
                 $html[] = $render_plain($chunk);
             }
@@ -2437,7 +2493,7 @@ function attachment_uploader_html(): string
 {
     $count = attachment_max_count();
     $mb = attachment_max_mb();
-    if ($count <= 0 || $mb <= 0) return '';
+    if ($count <= 0 || $mb <= 0 || attachment_quota_bytes() <= 0) return '';
     return '<label class="grid attachment-field"><span>附件</span><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-count="' . $count . '" data-upload-max-mb="' . $mb . '"><input class="attachment-input" type="file" multiple data-attachment-input><div class="attachment-drop"><strong>选择附件</strong><span>最多' . $count . '个，单个不超过' . $mb . 'MB。</span></div><div class="attachment-list" data-attachment-list></div></div></label>';
 }
 function select_group(int $gid): string
@@ -2872,6 +2928,7 @@ function save_topic(): int
             q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$topic_id, $title, $fid]);
         });
         forums_cache(true);
+        attachment_upload_count_reset();
         fire('topic.after_save', ['id' => $topic_id, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'editing' => true]);
         return $topic_id;
     }
@@ -2891,6 +2948,7 @@ function save_topic(): int
     });
     forums_cache(true);
     stats_cache(true);
+    attachment_upload_count_reset();
     fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
     return $tid;
 }
@@ -2901,7 +2959,14 @@ function save_reply(): array
         check_post_interval();
     }
     $ajax = ajax_request();
-    $tid = max(1, (int)$_POST['topic_id']);
+    $r = null;
+    if (id()) {
+        $r = one("SELECT * FROM replies WHERE id=?", [id()]) ?: err('回复不存在');
+        if (!can_manage_reply($r)) $ajax ? ajax_error('无权限') : err('无权限');
+        $tid = (int)$r['topic_id'];
+    } else {
+        $tid = max(1, (int)$_POST['topic_id']);
+    }
     $topic = one("SELECT id,forum_id FROM topics WHERE id=?", [$tid]) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
     if (!forum_group_allowed($forum, 'allow_reply_groups')) $ajax ? ajax_error('无权限') : err('无权限');
@@ -2910,9 +2975,8 @@ function save_reply(): array
     if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), 10000);
     if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
     if (id()) {
-        $r = one("SELECT * FROM replies WHERE id=?", [id()]) ?: err('回复不存在');
-        if (!can_manage_reply($r)) $ajax ? ajax_error('无权限') : err('无权限');
-        q("UPDATE replies SET body=?,updated_at=? WHERE id=?", [$body, now(), id()]);
+        q("UPDATE replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
+        attachment_upload_count_reset();
         fire('reply.after_save', ['id' => (int)$r['id'], 'topic_id' => (int)$r['topic_id'], 'body' => $body, 'editing' => true]);
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
     }
@@ -2929,6 +2993,7 @@ function save_reply(): array
         return $rid;
     });
     stats_cache(true);
+    attachment_upload_count_reset();
     fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
     return ['topic_id' => $tid, 'reply_id' => $rid];
 }
@@ -3648,7 +3713,7 @@ function admin_page(): void
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>上传空间</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (groups_cache() as $g) {
             $quota = (int)($g['upload_quota_mb'] ?? 0);
-            $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . h($quota > 0 ? $quota . ' MB' : '不限') . '</td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
+            $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . h($quota > 0 ? $quota . ' MB' : '默认 ' . ATTACHMENT_DEFAULT_QUOTA_MB . ' MB') . '</td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
         }
         $html .= '</table>';
     } elseif ($tab === 'forums') {
@@ -3716,7 +3781,7 @@ function admin_edit_page(): void
     } elseif ($type === 'group') {
         $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0, 'upload_quota_mb' => 0];
         $tab = 'groups';
-        $body = input('名称', 'name', $g['name'], 'text', true) . number_input('上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), 0, null, true, '0 表示不限制。') . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
+        $body = input('名称', 'name', $g['name'], 'text', true) . number_input('上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), 0, null, true, '0 表示使用系统默认的 ' . ATTACHMENT_DEFAULT_QUOTA_MB . ' MB。') . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
     } elseif ($type === 'forum') {
         $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => ''];
         if (!$f) err('版块不存在');
