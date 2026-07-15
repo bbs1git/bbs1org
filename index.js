@@ -43,9 +43,6 @@ const openMobileMenu = () => {
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
 document.addEventListener("click", e => {
     const target = e.target instanceof Element ? e.target : null;
-    document.querySelectorAll(".forum-more[open]").forEach(menu => {
-        if (target && !menu.contains(target)) menu.removeAttribute("open");
-    });
     if (target && target.closest("[data-mobile-menu-close]")) {
         closeMobileMenu();
         return;
@@ -53,7 +50,6 @@ document.addEventListener("click", e => {
     if (mobileMenu && !mobileMenu.hidden && target === mobileMenu) closeMobileMenu();
 });
 document.addEventListener("keydown", e => {
-    if (e.key === "Escape") document.querySelectorAll(".forum-more[open]").forEach(menu => menu.removeAttribute("open"));
     if (e.key === "Escape") closeMobileMenu();
 });
 const finishConfirm = (ok) => {

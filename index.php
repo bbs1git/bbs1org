@@ -2487,12 +2487,13 @@ function page_nav_html(string $site_name): string
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
+    $more_html = '';
     if (count($forums) > $visible_limit) {
-        $html .= '<details class="forum-more"><summary>全部版块</summary><div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
-        foreach ($forums as $f) $html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
-        $html .= '</div></details>';
+        $more_html .= '<details class="forum-more"><summary>全部版块</summary><div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
+        foreach ($forums as $f) $more_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+        $more_html .= '</div></details>';
     }
-    return $html . '</nav><form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
+    return $html . '</nav><form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div>' . $more_html . '</div>' . mobile_menu_html($mine);
 }
 function page_footer_html(array $settings, string $title, string $flash): string
 {
