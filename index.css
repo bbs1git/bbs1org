@@ -24,7 +24,7 @@ h2{margin-bottom:10px;font-size:16px;line-height:1.35;color:#111}
 h3{margin-bottom:8px;font-size:14px;color:#222}
 .muted{color:var(--muted)}
 .top{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
-.bar{max-width:1100px;min-height:44px;margin:auto;padding:0 12px;display:flex;align-items:center;gap:16px}
+.bar{max-width:1100px;min-height:44px;margin:auto;padding:0 12px;display:flex;align-items:center;flex-wrap:wrap;gap:0 16px}
 .brand{color:#111!important;font-size:15px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 .brand:before{content:"";width:24px;height:24px;display:inline-block;flex:0 0 24px;border-radius:6px;background:url("logo.svg") center/contain no-repeat}
 .forum-nav{position:relative;display:flex;align-items:center;gap:14px;min-width:0}
@@ -37,7 +37,7 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .forum-more summary:after{content:"";width:5px;height:5px;margin-top:-2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.72}
 .forum-more[open] summary{border-color:#d9f4e4;background:var(--brand-soft);color:var(--brand)}
 .forum-more[open] summary:after{margin-top:2px;transform:rotate(225deg)}
-.forum-more-panel{order:10;flex:0 0 100%;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;padding:8px 0 8px;border-top:1px solid #f1f3f5}
+.forum-more-panel{order:10;flex:0 0 100%;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;width:100%;margin-top:-1px;padding:8px 0 8px;border-top:1px solid #f1f3f5}
 .forum-more-link{display:inline-flex;align-items:center;max-width:150px;min-height:26px;padding:0 9px;border:1px solid transparent;border-radius:999px;color:#344054;font-size:12px;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .forum-more-link:hover{border-color:#d9f4e4;background:var(--brand-soft);color:var(--brand)}
 .forum-more-link.active{border-color:#d9f4e4;background:var(--brand-soft);color:#17202a;font-weight:700}
