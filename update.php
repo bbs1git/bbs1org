@@ -185,6 +185,7 @@ function us_notice_check(): never
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) us_json(['ok' => 1, 'pending' => 1]);
     try {
         $state = us_state();
+        $available = is_array($state['update_notice'] ?? null) || preg_match('/^[a-f0-9]{40}$/', (string)($state['update_notice_sent_sha'] ?? '')) === 1;
         if (!is_array($state['update_notice'] ?? null)) {
             $release = us_remote_release();
             $changes = us_local_changes((array)$release['files']);
@@ -196,9 +197,10 @@ function us_notice_check(): never
                     'checked_at' => date(DATE_ATOM),
                 ];
                 us_state_write($state);
+                $available = true;
             }
         }
-        us_json(['ok' => 1]);
+        us_json(['ok' => 1, 'update_available' => $available ? 1 : 0]);
     } catch (Throwable $e) {
         us_json(['ok' => 0, 'message' => $e->getMessage() ?: '检查升级失败']);
     } finally {

@@ -207,6 +207,14 @@ const runSettingsUpdateCheck = () => {
     fetch(marker.dataset.settingsUpdateCheckUrl || "update.php?notice_check=1", {
         credentials: "same-origin",
         headers: {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+    }).then(response => response.json()).then(data => {
+        const title = document.querySelector("[data-update-tool-title]");
+        if (!data?.update_available || !title || title.querySelector(".settings-update-dot")) return;
+        const dot = document.createElement("i");
+        dot.className = "settings-update-dot";
+        dot.title = "发现新版本";
+        dot.setAttribute("aria-label", "发现新版本");
+        title.appendChild(dot);
     }).catch(() => {});
 };
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runSettingsUpdateCheck);

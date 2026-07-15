@@ -3693,6 +3693,10 @@ function admin_page(): void
     }
     $html = '';
     if ($tab === 'settings') {
+        $notice_state = update_state_data();
+        $pending_notice = is_array($notice_state['update_notice'] ?? null) ? $notice_state['update_notice'] : [];
+        $notice_sha = (string)($pending_notice['sha'] ?? ($notice_state['update_notice_sent_sha'] ?? ''));
+        $has_update_notice = preg_match('/^[a-f0-9]{40}$/', $notice_sha) === 1;
         deliver_update_notice();
         $html .= '<span hidden data-settings-update-check-url="' . h(asset_url('update.php') . '?notice_check=1') . '"></span>';
         $s = settings_cache();
@@ -3735,7 +3739,8 @@ function admin_page(): void
         $update_action = is_file(__DIR__ . '/update.php')
             ? '<a class="settings-tool-action" href="update.php">升级</a>'
             : '<button class="settings-tool-action" type="button" disabled>升级</button>';
-        $debug_cards .= '<div class="settings-tool-card"><div><strong>系统升级</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
+        $update_dot = $has_update_notice ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
+        $debug_cards .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
         $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $debug_cards . '</div></div>';
     } elseif ($tab === 'users') {
         $html .= admin_object_list_html('users', $q, $manageable,

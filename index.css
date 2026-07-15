@@ -364,6 +364,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .settings-tool-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid #f1f1f1}
 .settings-tool-card{display:grid;gap:10px;align-content:space-between;min-height:104px;padding:12px;border:1px solid #edf1f4;border-radius:7px;background:#fbfcfd}
 .settings-tool-card strong{display:block;color:#17202a;font-size:13px;line-height:1.35}
+.settings-tool-title{display:inline-flex!important;align-items:center;gap:6px}
+.settings-update-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px rgba(217,75,75,.12)}
 .settings-tool-card span{display:block;margin-top:3px;color:#98a2b3;font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 .settings-tool-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .settings-tool-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;justify-self:start!important;min-height:28px!important;padding:0 10px!important;border:1px solid #e5eaf0!important;border-radius:6px!important;background:#fff!important;color:#667085!important;font-size:12px!important;font-weight:600!important;line-height:1.2!important;text-decoration:none!important;cursor:pointer!important}
