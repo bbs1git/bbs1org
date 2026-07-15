@@ -250,7 +250,7 @@ function deliver_update_notice(): void
     unset($state['update_notice']);
     $state['update_notice_sent_sha'] = $sha;
     update_state_write($state);
-    $GLOBALS['__me_cache'] = null;
+    unset($GLOBALS['__me_cache']);
 }
 function exception_detail(Throwable $e): string
 {
@@ -837,7 +837,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
         return $actual;
     });
     if ($actual === 0) return 0;
-    if ($user_id === uid()) $GLOBALS['__me_cache'] = null;
+    if ($user_id === uid()) unset($GLOBALS['__me_cache']);
     $now_points = (int)(val("SELECT points FROM users WHERE id=?", [$user_id]) ?: 0);
     $verb = $actual > 0 ? '增加' : '减少';
     create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
@@ -891,7 +891,7 @@ function mark_notifications_read(int $uid): void
 {
     q("UPDATE notifications SET read_at=? WHERE recipient_id=? AND read_at=0", [now(), $uid]);
     q("UPDATE users SET unread_notifications=0 WHERE id=?", [$uid]);
-    $GLOBALS['__me_cache'] = null;
+    unset($GLOBALS['__me_cache']);
 }
 function notification_link(array $n): string
 {
