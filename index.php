@@ -209,6 +209,7 @@ function default_settings(): array
         'allow_register' => '1',
         'reserved_usernames' => 'admin,administrator,root,system',
         'default_group_id' => '2',
+        'pc_nav_forum_count' => '6',
         'topics_per_page' => '30',
         'replies_per_page' => '50',
         'mail_from' => '',
@@ -745,6 +746,7 @@ function save_settings(): void
         'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
         'debug_mode' => isset($_POST['debug_mode']) ? '1' : '0',
         'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
+        'pc_nav_forum_count' => (string)min(20, max(0, (int)($_POST['pc_nav_forum_count'] ?? 6))),
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
         'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
         'mail_from' => post('mail_from', 120),
@@ -2470,13 +2472,13 @@ function page_nav_html(string $site_name): string
     $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => $mine_unread > 0 ? 'notifications' : null]) : route_url('login');
     $mine_label = $mine ? '我的' . notification_badge_html($mine_unread) : '登录';
     $forums = array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups')));
-    $visible_limit = 6;
+    $visible_limit = min(20, max(0, (int)setting('pc_nav_forum_count', '6')));
     $visible = array_slice($forums, 0, $visible_limit);
     $visible_ids = array_map(fn($f): int => (int)$f['id'], $visible);
     if ($active_forum && !in_array($active_forum, $visible_ids, true)) {
         foreach ($forums as $f) {
             if ((int)$f['id'] === $active_forum) {
-                $visible[$visible_limit - 1] = $f;
+                if ($visible_limit > 0) $visible[$visible_limit - 1] = $f;
                 break;
             }
         }
@@ -3755,6 +3757,7 @@ function admin_page(): void
             'pinned_topic_ids' => ['label' => '置顶主题ID'],
             'header_html' => ['label' => '页头HTML代码', 'type' => 'textarea'],
             'footer_html' => ['label' => '页脚HTML代码', 'type' => 'textarea'],
+            'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
             'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
             'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
             'mail_virtual' => ['label' => '是否虚拟发送邮件', 'type' => 'checkbox'],
