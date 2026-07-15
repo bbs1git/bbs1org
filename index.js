@@ -41,6 +41,15 @@ const openMobileMenu = () => {
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
+const forumMoreToggle = document.querySelector("[data-forum-more-toggle]");
+const forumMoreRegion = document.getElementById("forum-more-region");
+if (forumMoreToggle && forumMoreRegion) {
+    forumMoreToggle.addEventListener("click", () => {
+        const open = forumMoreRegion.hidden;
+        forumMoreRegion.hidden = !open;
+        forumMoreToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+}
 document.addEventListener("click", e => {
     const target = e.target instanceof Element ? e.target : null;
     if (target && target.closest("[data-mobile-menu-close]")) {

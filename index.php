@@ -2483,18 +2483,19 @@ function page_nav_html(string $site_name): string
             }
         }
     }
-    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" aria-label="顶部版块"><span class="forum-nav-label">版块</span>';
+    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" aria-label="顶部版块">';
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
-    $more_html = '';
+    $more_button_html = '';
+    $more_panel_html = '';
     if (count($forums) > $visible_limit) {
-        $more_html .= '<details class="forum-more"><summary>全部版块</summary>';
-        $more_html .= '<div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
-        foreach ($forums as $f) $more_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
-        $more_html .= '</div></details>';
+        $more_button_html = '<button class="forum-more-toggle" type="button" data-forum-more-toggle aria-expanded="false" aria-controls="forum-more-region">全部版块</button>';
+        $more_panel_html .= '<div class="forum-more-region" id="forum-more-region" hidden><div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
+        foreach ($forums as $f) $more_panel_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+        $more_panel_html .= '</div></div>';
     }
-    return $html . '</nav>' . $more_html . '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
+    return $html . '</nav>' . $more_button_html . '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . $more_panel_html . mobile_menu_html($mine);
 }
 function page_footer_html(array $settings, string $title, string $flash): string
 {
