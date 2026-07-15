@@ -14,6 +14,7 @@ const UPDATE_REPOSITORY = 'bbs1org/bbs1org';
 const UPDATE_BRANCH = 'main';
 const UPDATE_STATE_FILE = UPDATE_DATA_DIR . '/update-state.json';
 const UPDATE_MAX_ARCHIVE_BYTES = 52428800;
+const UPDATE_NOTICE_CHECK_INTERVAL = 21600;
 const UPDATE_PROTECTED_DIRS = ['data', 'cache', 'avatars', 'upload', 'plugins', '.git'];
 const UPDATE_CODE_FILES = ['index.php', 'index.js', 'index.css', 'install.php', 'update.php'];
 
@@ -186,7 +187,13 @@ function us_notice_check(): never
     try {
         $state = us_state();
         $available = is_array($state['update_notice'] ?? null) || preg_match('/^[a-f0-9]{40}$/', (string)($state['update_notice_sent_sha'] ?? '')) === 1;
+        $last_checked = strtotime((string)($state['last_notice_checked_at'] ?? '')) ?: 0;
+        if (!$available && $last_checked > time() - UPDATE_NOTICE_CHECK_INTERVAL) {
+            us_json(['ok' => 1, 'update_available' => 0, 'cached' => 1]);
+        }
         if (!is_array($state['update_notice'] ?? null)) {
+            $state['last_notice_checked_at'] = date(DATE_ATOM);
+            us_state_write($state);
             $release = us_remote_release();
             $changes = us_local_changes((array)$release['files']);
             $sha = (string)$release['sha'];
