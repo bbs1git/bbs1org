@@ -1161,7 +1161,7 @@ function remember_forum(int $fid): void
     if (!$fid || !forum_by_id($fid)) return;
     $ids = array_values(array_diff(array_map('intval', $_SESSION['recent_forums'] ?? []), [$fid]));
     array_unshift($ids, $fid);
-    $_SESSION['recent_forums'] = array_slice($ids, 0, 8);
+    $_SESSION['recent_forums'] = array_slice($ids, 0, 10);
 }
 function recent_forums(): array
 {
@@ -1185,7 +1185,7 @@ function mark_viewed(int $tid): bool
 function quick_forums_html(): string
 {
     $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">最近浏览版块</div><ul class="quick-links quick-forum-links">';
-    foreach (recent_forums() as $f) $html .= '<li><a href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '"><span class="quick-link-text">' . h($f['name']) . '</span></a></li>';
+    foreach (array_slice(recent_forums(), 0, 10) as $f) $html .= '<li><a href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '"><span class="quick-link-text">' . h($f['name']) . '</span></a></li>';
     return $html . '</ul></div></div>';
 }
 function sidebar_notice_card_html(string $title, array $items): string
