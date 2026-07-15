@@ -130,6 +130,7 @@ function tx_immediate(callable $fn)
 }
 function secure_session_start(): void
 {
+    if (session_status() === PHP_SESSION_ACTIVE) return;
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     session_set_cookie_params([
         'lifetime' => 0,
@@ -139,6 +140,22 @@ function secure_session_start(): void
         'samesite' => 'Lax',
     ]);
     session_start();
+}
+function session_cookie_present(): bool
+{
+    $name = session_name();
+    return isset($_COOKIE[$name]) && (string)$_COOKIE[$name] !== '';
+}
+function request_needs_session(): bool
+{
+    if (session_cookie_present()) return true;
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') return (string)($_GET['a'] ?? '') !== 'plugin_share_receive';
+    $a = (string)($_GET['a'] ?? 'home');
+    return in_array($a, ['login', 'register', 'forgot_password', 'reset_password', 'profile', 'notify', 'topic_edit', 'reply_edit', 'admin', 'form_error', 'logout', 'delete', 'favorite', 'attachment_upload', 'avatar_mirror'], true);
+}
+function maybe_session_start(): void
+{
+    if (request_needs_session()) secure_session_start();
 }
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
@@ -1140,6 +1157,7 @@ function deletable_post_row(string $type, int $id): ?array
 }
 function remember_forum(int $fid): void
 {
+    if (session_status() !== PHP_SESSION_ACTIVE) return;
     if (!$fid || !forum_by_id($fid)) return;
     $ids = array_values(array_diff(array_map('intval', $_SESSION['recent_forums'] ?? []), [$fid]));
     array_unshift($ids, $fid);
@@ -1147,6 +1165,7 @@ function remember_forum(int $fid): void
 }
 function recent_forums(): array
 {
+    if (session_status() !== PHP_SESSION_ACTIVE) return forums_cache();
     $list = [];
     foreach (array_map('intval', $_SESSION['recent_forums'] ?? []) as $fid) {
         $f = forum_by_id($fid);
@@ -1156,6 +1175,7 @@ function recent_forums(): array
 }
 function mark_viewed(int $tid): bool
 {
+    if (session_status() !== PHP_SESSION_ACTIVE) return true;
     $seen = $_SESSION['viewed_topics'] ?? [];
     if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
     $seen[$tid] = time();
@@ -1343,6 +1363,7 @@ function now(): int
 }
 function uid(): int
 {
+    if (session_status() !== PHP_SESSION_ACTIVE) return 0;
     return (int)($_SESSION['uid'] ?? 0);
 }
 function is_super_user(): bool
@@ -1388,16 +1409,19 @@ function can_speak(): bool
 }
 function set_auth_return_url(string $url): void
 {
+    secure_session_start();
     if ($url !== '' && !preg_match('/^https?:\/\//i', $url)) $_SESSION['auth_return_url'] = $url;
 }
 function consume_auth_return_url(): string
 {
+    secure_session_start();
     $url = (string)($_SESSION['auth_return_url'] ?? '');
     unset($_SESSION['auth_return_url']);
     return $url !== '' && !preg_match('/^https?:\/\//i', $url) ? $url : route_url('home');
 }
 function complete_login(int $user_id): never
 {
+    secure_session_start();
     session_regenerate_id(true);
     $_SESSION['uid'] = $user_id;
     go(consume_auth_return_url());
@@ -1434,6 +1458,7 @@ function check(): void
 {
     $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
     if ($is_post && (string)($_GET['a'] ?? '') === 'plugin_share_receive') return;
+    if ($is_post) secure_session_start();
     if ($is_post && !hash_equals($_SESSION['csrf'] ?? '', $_POST['_csrf'] ?? '')) {
         ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
     }
@@ -1453,6 +1478,7 @@ function set_flash(string $message): void
 }
 function form_error_redirect(string $message): never
 {
+    secure_session_start();
     $_SESSION['form_error'] = [
         'message' => $message,
         'created_at' => time(),
@@ -1611,6 +1637,7 @@ function id(string $k = 'id'): int
 }
 function form_token(): string
 {
+    secure_session_start();
     return '<input type="hidden" name="_csrf" value="' . h($_SESSION['csrf'] ??= bin2hex(random_bytes(16))) . '">';
 }
 function hidden_inputs(array $fields): string
@@ -2446,7 +2473,7 @@ function page_nav_html(string $site_name): string
     foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
-    return $html . '</nav><form class="search-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
+    return $html . '</nav><form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
 }
 function page_footer_html(array $settings, string $title, string $flash): string
 {
@@ -3864,8 +3891,8 @@ function favicon_page(): void
     exit;
 }
 
-secure_session_start();
 parse_path_route();
+maybe_session_start();
 if (!db_schema_ready()) simple_error_page('请先安装');
 check();
 need_site_access();
