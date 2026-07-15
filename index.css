@@ -24,24 +24,25 @@ h2{margin-bottom:10px;font-size:16px;line-height:1.35;color:#111}
 h3{margin-bottom:8px;font-size:14px;color:#222}
 .muted{color:var(--muted)}
 .top{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
-.bar{max-width:1100px;min-height:44px;margin:auto;padding:0 12px;display:flex;align-items:center;flex-wrap:wrap;gap:0 16px}
+.bar{max-width:1100px;min-height:48px;margin:auto;padding:0 12px;display:flex;align-items:center;flex-wrap:wrap;gap:0 12px}
 .brand{color:#111!important;font-size:15px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 .brand:before{content:"";width:24px;height:24px;display:inline-block;flex:0 0 24px;border-radius:6px;background:url("logo.svg") center/contain no-repeat}
-.forum-nav{position:relative;display:flex;align-items:center;gap:14px;min-width:0}
-.forum-link{display:inline-block;max-width:96px;overflow:hidden;text-overflow:ellipsis;color:#555;font-size:13px;white-space:nowrap}
+.forum-nav{position:relative;display:flex;align-items:center;flex:1 1 auto;gap:4px;min-width:0;overflow:hidden}
+.forum-nav-label{display:inline-flex;align-items:center;flex:0 0 auto;height:28px;margin-right:4px;color:#222;font-size:14px;font-weight:700;line-height:1}
+.forum-link{display:inline-flex;align-items:center;flex:0 1 auto;max-width:96px;height:28px;padding:0 8px;border-radius:var(--radius-sm);overflow:hidden;text-overflow:ellipsis;color:#555;font-size:13px;line-height:1;white-space:nowrap}
 .forum-link.active{color:#111;font-weight:700}
-.forum-link:hover{color:#111}
+.forum-link:hover{background:#f7f8f9;color:#111}
 .forum-more{display:contents}
-.forum-more summary{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 9px;border:1px solid #e7eaee;border-radius:999px;background:#fbfcfd;color:#667085;font-size:12px;font-weight:600;line-height:1;list-style:none;cursor:pointer;user-select:none}
+.forum-more summary{display:inline-flex;align-items:center;flex:0 0 auto;gap:5px;height:28px;padding:0 10px;border:1px solid #dfe5eb;border-radius:var(--radius-sm);background:#fbfcfd;color:#475467;font-size:12px;font-weight:700;line-height:1;list-style:none;cursor:pointer;user-select:none}
 .forum-more summary::-webkit-details-marker{display:none}
 .forum-more summary:after{content:"";width:5px;height:5px;margin-top:-2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.72}
 .forum-more[open] summary{border-color:#d9f4e4;background:var(--brand-soft);color:var(--brand)}
 .forum-more[open] summary:after{margin-top:2px;transform:rotate(225deg)}
-.forum-more-panel{order:10;flex:0 0 100%;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;width:100%;margin-top:-1px;padding:8px 0 8px;border-top:1px solid #f1f3f5}
-.forum-more-link{display:inline-flex;align-items:center;max-width:150px;min-height:26px;padding:0 9px;border:1px solid transparent;border-radius:999px;color:#344054;font-size:12px;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.forum-more-panel{order:10;flex:0 0 100%;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;width:100%;margin-top:-1px;padding:9px 0 10px;border-top:1px solid #f1f3f5}
+.forum-more-link{display:inline-flex;align-items:center;max-width:150px;min-height:28px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-sm);color:#344054;font-size:12px;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .forum-more-link:hover{border-color:#d9f4e4;background:var(--brand-soft);color:var(--brand)}
 .forum-more-link.active{border-color:#d9f4e4;background:var(--brand-soft);color:#17202a;font-weight:700}
-.search-form{margin-left:auto;display:flex;align-items:center;width:170px;height:28px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#aaa}
+.search-form{margin-left:auto;display:flex;align-items:center;flex:0 0 210px;width:210px;height:30px;border:1px solid #dfe5eb;border-radius:var(--radius-sm);background:#fff;color:#aaa}
 .search-input{height:100%;border:0!important;box-shadow:none!important;padding:0 8px;background:transparent;font-size:12px}
 .search-btn{width:30px;min-height:0;height:100%;padding:0;border-radius:0;background:transparent;color:#aaa}
 .search-btn:hover{background:#f7f7f7;color:#555}

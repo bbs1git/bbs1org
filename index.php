@@ -2483,7 +2483,7 @@ function page_nav_html(string $site_name): string
             }
         }
     }
-    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
+    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" aria-label="顶部版块"><span class="forum-nav-label">版块</span>';
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
