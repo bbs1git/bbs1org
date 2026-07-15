@@ -509,8 +509,9 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-list-item{padding:12px;border-bottom:1px solid #edf1f4}
 .admin-list-item:last-child{border-bottom:none}
 .admin-list-item:hover{background:#fbfdfc}
-.admin-object-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:64px}
+.admin-object-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:center;min-height:64px}
 .admin-user-row,.admin-topic-row,.admin-reply-row,.plugin-item.admin-object-row{grid-template-columns:minmax(0,1fr) auto}
+.admin-trash-row{grid-template-columns:18px minmax(0,1fr) auto}
 .admin-row-check{flex:0 0 auto;width:15px;height:15px;margin:0}
 .admin-inline-ops .admin-row-check{margin-left:4px}
 .admin-row-main{display:grid;gap:6px;min-width:0}
@@ -629,9 +630,11 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .admin-head-add{padding:0}
     .plugin-list-panel .admin-head-add{padding:0 12px}
     .admin-bulk-list .admin-content-cell,.admin-bulk-list .admin-content-text,.admin-bulk-list .admin-content-title{white-space:normal}
-    .admin-object-row{grid-template-columns:18px minmax(0,1fr);gap:10px}
+    .admin-object-row{grid-template-columns:minmax(0,1fr);gap:10px}
+    .admin-trash-row{grid-template-columns:18px minmax(0,1fr)}
     .admin-user-row,.admin-topic-row,.admin-reply-row,.plugin-item.admin-object-row{grid-template-columns:minmax(0,1fr)}
-    .admin-object-row .admin-inline-ops{grid-column:2;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
+    .admin-object-row .admin-inline-ops{grid-column:1;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
+    .admin-trash-row .admin-inline-ops{grid-column:2}
     .admin-user-row .admin-inline-ops,.admin-topic-row .admin-inline-ops,.admin-reply-row .admin-inline-ops,.plugin-item.admin-object-row .admin-inline-ops{grid-column:1;justify-content:flex-start;margin-left:0}
     .plugin-item.admin-object-row{gap:8px}
     .plugin-title-line{align-items:flex-start;flex-direction:column;gap:5px}
