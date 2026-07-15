@@ -2469,9 +2469,26 @@ function page_nav_html(string $site_name): string
     $mine_unread = $mine ? (int)($mine['unread_notifications'] ?? 0) : 0;
     $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => $mine_unread > 0 ? 'notifications' : null]) : route_url('login');
     $mine_label = $mine ? '我的' . notification_badge_html($mine_unread) : '登录';
-    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
-    foreach (array_slice(array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups'))), 0, 7) as $f) {
+    $forums = array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups')));
+    $visible_limit = 6;
+    $visible = array_slice($forums, 0, $visible_limit);
+    $visible_ids = array_map(fn($f): int => (int)$f['id'], $visible);
+    if ($active_forum && !in_array($active_forum, $visible_ids, true)) {
+        foreach ($forums as $f) {
+            if ((int)$f['id'] === $active_forum) {
+                $visible[$visible_limit - 1] = $f;
+                break;
+            }
+        }
+    }
+    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav">';
+    foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+    }
+    if (count($forums) > $visible_limit) {
+        $html .= '<details class="forum-more"><summary>全部版块</summary><div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
+        foreach ($forums as $f) $html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+        $html .= '</div></details>';
     }
     return $html . '</nav><form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><input class="search-input" type="search" name="q" placeholder="搜索主题" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . mobile_menu_html($mine);
 }
