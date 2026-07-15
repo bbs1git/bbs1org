@@ -201,6 +201,16 @@ const runPageFlash = () => {
 };
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runPageFlash);
 else runPageFlash();
+const runSettingsUpdateCheck = () => {
+    const marker = document.querySelector("[data-settings-update-check-url]");
+    if (!marker) return;
+    fetch(marker.dataset.settingsUpdateCheckUrl || "update.php?notice_check=1", {
+        credentials: "same-origin",
+        headers: {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+    }).catch(() => {});
+};
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runSettingsUpdateCheck);
+else runSettingsUpdateCheck();
 function avatarSeed(seed) {
     const n = String(seed || "0").replace(/\D/g, "") || "0";
     const mod = [...n].reduce((r, d) => (r * 10 + Number(d)) % 48, 0);

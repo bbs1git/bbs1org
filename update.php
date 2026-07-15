@@ -162,6 +162,51 @@ function us_state(): array
     return is_array($state) ? $state : [];
 }
 
+function us_state_write(array $state): void
+{
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $swap = UPDATE_STATE_FILE . '.tmp-' . bin2hex(random_bytes(4));
+    if ($json === false || file_put_contents($swap, $json, LOCK_EX) === false || !rename($swap, UPDATE_STATE_FILE)) {
+        @unlink($swap);
+        throw new RuntimeException('无法更新升级状态。');
+    }
+}
+
+function us_json(array $data): never
+{
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function us_notice_check(): never
+{
+    $lock = @fopen(UPDATE_RUN_LOCK_FILE, 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) us_json(['ok' => 1, 'pending' => 1]);
+    try {
+        $state = us_state();
+        if (!is_array($state['update_notice'] ?? null)) {
+            $release = us_remote_release();
+            $changes = us_local_changes((array)$release['files']);
+            $sha = (string)$release['sha'];
+            if ($changes && !hash_equals((string)($state['update_notice_sent_sha'] ?? ''), $sha)) {
+                $state['update_notice'] = [
+                    'sha' => $sha,
+                    'message' => (string)($release['message'] ?? ''),
+                    'checked_at' => date(DATE_ATOM),
+                ];
+                us_state_write($state);
+            }
+        }
+        us_json(['ok' => 1]);
+    } catch (Throwable $e) {
+        us_json(['ok' => 0, 'message' => $e->getMessage() ?: '检查升级失败']);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
 function us_update_page(?array $release = null, string $error = ''): void
 {
     $token = $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
@@ -423,6 +468,8 @@ us_secure_session_start();
 if (!is_file(UPDATE_INSTALL_LOCK_FILE) || !is_file(us_db_file_path())) us_result_page('请先安装', [], '请先执行安装操作。');
 if (!is_file(UPDATE_INSTALL_FILE)) us_result_page('升级失败', [], 'install.php 不存在。');
 us_need_admin();
+
+if ((string)($_GET['notice_check'] ?? '') === '1') us_notice_check();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     if (!isset($_GET['check'])) us_update_page();

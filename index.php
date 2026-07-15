@@ -220,6 +220,38 @@ function save_settings_values(array $values): void
     foreach ($values as $name => $value) $stmt->execute([$name, $value]);
     settings_cache(true);
 }
+function update_state_data(): array
+{
+    if (!is_file(UPDATE_STATE_FILE)) return [];
+    $state = json_decode((string)file_get_contents(UPDATE_STATE_FILE), true);
+    return is_array($state) ? $state : [];
+}
+function update_state_write(array $state): void
+{
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $swap = UPDATE_STATE_FILE . '.tmp-' . bin2hex(random_bytes(4));
+    if ($json === false || file_put_contents($swap, $json, LOCK_EX) === false || !rename($swap, UPDATE_STATE_FILE)) {
+        @unlink($swap);
+        throw new RuntimeException('无法更新升级状态');
+    }
+}
+function deliver_update_notice(): void
+{
+    $state = update_state_data();
+    $notice = is_array($state['update_notice'] ?? null) ? $state['update_notice'] : [];
+    $sha = (string)($notice['sha'] ?? '');
+    if (!preg_match('/^[a-f0-9]{40}$/', $sha)) return;
+    $short_sha = substr($sha, 0, 12);
+    $message = trim((string)($notice['message'] ?? ''));
+    $content = '检测到系统新版本 ' . $short_sha . '。' . ($message !== '' ? "\n\n" . cut($message, 120) : '') . "\n\n请前往后台设置中的“系统升级”完成升级。";
+    if (!one("SELECT 1 FROM notifications WHERE recipient_id=? AND kind='system_update' AND content=? LIMIT 1", [uid(), $content])) {
+        create_notification(uid(), 0, 'system_update', $content);
+    }
+    unset($state['update_notice']);
+    $state['update_notice_sent_sha'] = $sha;
+    update_state_write($state);
+    $GLOBALS['__me_cache'] = null;
+}
 function exception_detail(Throwable $e): string
 {
     $parts = [];
@@ -3661,6 +3693,8 @@ function admin_page(): void
     }
     $html = '';
     if ($tab === 'settings') {
+        deliver_update_notice();
+        $html .= '<span hidden data-settings-update-check-url="' . h(asset_url('update.php') . '?notice_check=1') . '"></span>';
         $s = settings_cache();
         $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
         $fields = [
