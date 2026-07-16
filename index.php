@@ -798,7 +798,8 @@ function forum_group_allowed(?array $forum, string $field): bool
     if (!$ids) return true;
     $me = me();
     $gid = (int)($me['group_id'] ?? 0);
-    return in_array($gid, $ids, true);
+    if (in_array($gid, $ids, true)) return true;
+    return (bool)hook('forum_group_allowed', false, ['forum_id' => (int)$forum['id'], 'field' => $field, 'gid' => $gid]);
 }
 function groups_cache(bool $refresh = false): array
 {
