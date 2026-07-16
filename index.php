@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.5.1');
+define('APP_VERSION', 'v5.6');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -3002,8 +3002,9 @@ function save_topic(): int
             $body = (string)($t['body'] ?? '');
         }
         $topic_id = id();
-        tx(function () use ($topic_id, $fid, $title, $body, $t) {
-            q("UPDATE topics SET forum_id=?,title=?,body=?,updated_at=? WHERE id=?", [$fid, $title, $body, now(), $topic_id]);
+        $reply_order = (string)($_POST['reply_order'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+        tx(function () use ($topic_id, $fid, $title, $body, $reply_order, $t) {
+            q("UPDATE topics SET forum_id=?,title=?,body=?,reply_order=?,updated_at=? WHERE id=?", [$fid, $title, $body, $reply_order, now(), $topic_id]);
             topic_fts_sync($topic_id, $title, $body);
             if ((int)$t['forum_id'] !== $fid) q("UPDATE forums SET last_topic_id=0,last_topic_title='' WHERE id=?", [(int)$t['forum_id']]);
             q("UPDATE forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$topic_id, $title, $fid]);
@@ -3405,10 +3406,12 @@ function topic_page(): void
     }
     $size = max(1, (int)setting('replies_per_page', '50'));
     $replyid = id('replyid');
+    $reply_desc = (string)($t['reply_order'] ?? 'asc') === 'desc';
     if ($replyid > 0) {
         $reply = one("SELECT id,created_at FROM replies WHERE id=? AND topic_id=?", [$replyid, (int)$t['id']]);
         if ($reply) {
-            $before = (int)q("SELECT COUNT(*) FROM replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<=?))", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
+            $position_sql = $reply_desc ? '(created_at>? OR (created_at=? AND id>=?))' : '(created_at<? OR (created_at=? AND id<=?))';
+            $before = (int)q("SELECT COUNT(*) FROM replies WHERE topic_id=? AND $position_sql", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
             $_GET['p'] = (string)max(1, (int)ceil($before / $size));
         } else {
             not_found('你访问的帖子可能已经删除');
@@ -3416,7 +3419,8 @@ function topic_page(): void
     }
     $p = max(1, (int)($_GET['p'] ?? 1));
     $off = ($p - 1) * $size;
-    $replies = attach_users(q("SELECT * FROM replies WHERE topic_id=? ORDER BY created_at,id LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll());
+    $reply_order_sql = $reply_desc ? 'created_at DESC,id DESC' : 'created_at,id';
+    $replies = attach_users(q("SELECT * FROM replies WHERE topic_id=? ORDER BY $reply_order_sql LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll());
     fire('topic.after_view', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
     $fav = uid() ? one("SELECT 1 FROM favorites WHERE user_id=? AND topic_id=?", [uid(), (int)$t['id']]) : null;
     $topic_ops = '';
@@ -3473,9 +3477,10 @@ function topic_edit_page(): void
         $swatches .= '</div>';
         $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="unpin">取消置顶</option><option value="highlight">高亮</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-highlight-field is-hidden" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label>';
     }
+    $reply_order = id() ? select_input('回帖排序', 'reply_order', (string)($t['reply_order'] ?? 'asc'), ['asc' => '发帖时间顺序', 'desc' => '发帖时间倒序']) : '';
     $attachments = attachment_uploader_html();
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => id() > 0]);
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $reply_order . $attachments . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
 }
 function reply_edit_page(): void
 {
@@ -3502,7 +3507,8 @@ function reply_edit_page(): void
             $ops = quote_reply_action($row);
             if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             $ops = '<div class="post-ops">' . $ops . '</div>';
-            $topic = one("SELECT view_count,reply_count FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0];
+            $topic = one("SELECT view_count,reply_count,reply_order FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 'asc'];
+            if ((string)($topic['reply_order'] ?? 'asc') === 'desc') go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
             exit;
