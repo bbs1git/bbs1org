@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.6');
+define('APP_VERSION', 'v5.7');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -140,22 +140,6 @@ function secure_session_start(): void
         'samesite' => 'Lax',
     ]);
     session_start();
-}
-function session_cookie_present(): bool
-{
-    $name = session_name();
-    return isset($_COOKIE[$name]) && (string)$_COOKIE[$name] !== '';
-}
-function request_needs_session(): bool
-{
-    if (session_cookie_present()) return true;
-    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') return (string)($_GET['a'] ?? '') !== 'plugin_share_receive';
-    $a = (string)($_GET['a'] ?? 'home');
-    return in_array($a, ['login', 'register', 'forgot_password', 'reset_password', 'profile', 'notify', 'topic_edit', 'reply_edit', 'admin', 'form_error', 'logout', 'delete', 'favorite', 'attachment_upload', 'avatar_mirror'], true);
-}
-function maybe_session_start(): void
-{
-    if (request_needs_session()) secure_session_start();
 }
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
@@ -3922,7 +3906,7 @@ function favicon_page(): void
 }
 
 parse_path_route();
-maybe_session_start();
+secure_session_start();
 if (!db_schema_ready()) simple_error_page('请先安装');
 check();
 need_site_access();
