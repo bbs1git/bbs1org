@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.8');
+define('APP_VERSION', 'v5.9');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -2232,7 +2232,7 @@ function parse_path_route(): void
     if (isset($segments[0]) && $segments[0] !== 'a' && !array_key_exists('a', $_GET)) $_GET['a'] = rawurldecode($segments[0]);
     if (isset($segments[1]) && ctype_digit($segments[1]) && !array_key_exists('id', $_GET)) $_GET['id'] = rawurldecode($segments[1]);
 }
-function markdown_inline(string $text): string
+function markdown_inline(string $text, int $topic_id = 0): string
 {
     $text = h($text);
     $codes = [];
@@ -2255,11 +2255,11 @@ function markdown_inline(string $text): string
         $codes[$key] = '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
         return $key;
     }, $text) ?? $text;
-    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(t?)(\d+)/u', function ($m) use (&$codes) {
-        $is_topic = $m[2] === 't';
-        $url = $is_topic ? route_url('topic', ['id' => (int)$m[3]]) : route_url('topic', ['replyid' => (int)$m[3]]);
+    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$codes, $topic_id) {
+        if ($topic_id <= 0) return $m[0];
+        $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
         $key = "\x1A" . count($codes) . "\x1A";
-        $codes[$key] = '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . ($is_topic ? 't' : '') . (int)$m[3] . '</a>';
+        $codes[$key] = '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>';
         return $key;
     }, $text) ?? $text;
     $text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
@@ -2295,7 +2295,7 @@ function markdown_table_aligns(string $line): ?array
     }
     return $aligns;
 }
-function markdown_table_html(array $lines): string
+function markdown_table_html(array $lines, int $topic_id = 0): string
 {
     if (count($lines) < 2) return '';
     $aligns = markdown_table_aligns($lines[1]);
@@ -2304,7 +2304,7 @@ function markdown_table_html(array $lines): string
     if (!$headers || count($headers) !== count($aligns)) return '';
     $cell_attr = fn(string $align) => $align !== '' ? ' style="text-align:' . $align . '"' : '';
     $html = '<div class="markdown-table-wrap"><table><thead><tr>';
-    foreach ($headers as $i => $cell) $html .= '<th' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline($cell) . '</th>';
+    foreach ($headers as $i => $cell) $html .= '<th' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline($cell, $topic_id) . '</th>';
     $html .= '</tr></thead><tbody>';
     foreach (array_slice($lines, 2) as $line) {
         if (trim($line) === '') continue;
@@ -2312,13 +2312,13 @@ function markdown_table_html(array $lines): string
         if (!$cells) continue;
         $html .= '<tr>';
         for ($i = 0, $count = count($headers); $i < $count; $i++) {
-            $html .= '<td' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline((string)($cells[$i] ?? '')) . '</td>';
+            $html .= '<td' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline((string)($cells[$i] ?? ''), $topic_id) . '</td>';
         }
         $html .= '</tr>';
     }
     return $html . '</tbody></table></div>';
 }
-function markdown_html(string $text, int $quote_depth = 0): string
+function markdown_html(string $text, int $quote_depth = 0, int $topic_id = 0): string
 {
     $text = (string)hook('markdown.before', $text);
     $text = str_replace(["\r\n", "\r"], "\n", trim($text));
@@ -2333,26 +2333,26 @@ function markdown_html(string $text, int $quote_depth = 0): string
         $class = preg_match('/^[a-z0-9_-]{1,32}$/', $lang) ? ' class="language-' . h($lang) . '"' : '';
         return '<pre><code' . $class . '>' . h(rtrim(implode("\n", $lines), "\n")) . '</code></pre>';
     };
-    $flush = function () use (&$html, &$paragraph, $quote_depth) {
+    $flush = function () use (&$html, &$paragraph, $quote_depth, $topic_id) {
         $block = trim(implode("\n", $paragraph));
         $paragraph = [];
         if ($block === '') return;
         $lines = explode("\n", $block);
-        $render_plain = function (array $lines): string {
+        $render_plain = function (array $lines) use ($topic_id): string {
             $block = trim(implode("\n", $lines));
             if ($block === '') return '';
             if (count($lines) === 1 && preg_match('/^(#{1,6})\s+(.+)$/u', $lines[0], $m)) {
                 $level = strlen($m[1]);
-                return '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
+                return '<h' . $level . '>' . markdown_inline($m[2], $topic_id) . '</h' . $level . '>';
             }
-            $table = markdown_table_html($lines);
+            $table = markdown_table_html($lines, $topic_id);
             if ($table !== '') return $table;
             if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
                 $items = '';
-                foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1]) . '</li>';
+                foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1], $topic_id) . '</li>';
                 if ($items !== '') return '<ul>' . $items . '</ul>';
             }
-            return '<p>' . str_replace("\n", '<br>', markdown_inline($block)) . '</p>';
+            return '<p>' . str_replace("\n", '<br>', markdown_inline($block, $topic_id)) . '</p>';
         };
         $has_quote = false;
         foreach ($lines as $line) {
@@ -2367,11 +2367,11 @@ function markdown_html(string $text, int $quote_depth = 0): string
         }
         $chunk = [];
         $quote = null;
-        $append_chunk = function () use (&$html, &$chunk, &$quote, $render_plain, $quote_depth) {
+        $append_chunk = function () use (&$html, &$chunk, &$quote, $render_plain, $quote_depth, $topic_id) {
             if (!$chunk) return;
             if ($quote) {
                 $inner = trim(implode("\n", array_map(fn($line) => preg_replace('/^\s*>\s?/u', '', $line) ?? $line, $chunk)));
-                $inner_html = $inner === '' ? '' : ($quote_depth + 1 >= MARKDOWN_MAX_QUOTE_DEPTH ? $render_plain(explode("\n", $inner)) : markdown_html($inner, $quote_depth + 1));
+                $inner_html = $inner === '' ? '' : ($quote_depth + 1 >= MARKDOWN_MAX_QUOTE_DEPTH ? $render_plain(explode("\n", $inner)) : markdown_html($inner, $quote_depth + 1, $topic_id));
                 $html[] = '<blockquote>' . $inner_html . '</blockquote>';
             } else {
                 $html[] = $render_plain($chunk);
@@ -2411,7 +2411,7 @@ function markdown_html(string $text, int $quote_depth = 0): string
         if (preg_match('/^(#{1,6})\s+(.+)$/u', $line, $m)) {
             $flush();
             $level = strlen($m[1]);
-            $html[] = '<h' . $level . '>' . markdown_inline($m[2]) . '</h' . $level . '>';
+            $html[] = '<h' . $level . '>' . markdown_inline($m[2], $topic_id) . '</h' . $level . '>';
             continue;
         }
         $paragraph[] = $line;
@@ -2447,6 +2447,8 @@ function avatar_picker_html(array $u): string
 function topic_post_row(array $row, string $body, int $time, string $ops = '', string $title = '', string $stats = '', bool $highlight = false, array $ctx = []): string
 {
     $is_reply = isset($row['topic_id']);
+    $topic_id = $is_reply ? (int)$row['topic_id'] : (int)($row['id'] ?? 0);
+    $floor = $is_reply ? (int)($ctx['reply_position'] ?? 0) : 0;
     $filtered = hook($is_reply ? 'reply.before_render' : 'topic.before_render', ['row' => $row, 'body' => $body], ['time' => $time]);
     if (is_array($filtered)) {
         if (isset($filtered['row']) && is_array($filtered['row'])) $row = $filtered['row'];
@@ -2455,13 +2457,15 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $has_title = $title !== '';
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
     $avatar = avatar_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
-    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '">' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . $ops . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . markdown_html($body) . '</div></li>';
+    $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
+    $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '';
+    $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops">' . $ops . $floor_html . '</div>' : '';
+    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . $ops_html . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
     return (string)hook($is_reply ? 'reply.after_render' : 'topic.after_render', $html, ['row' => $row, 'body' => $body] + $ctx);
 }
-function quote_reply_action(array $row): string
+function quote_reply_action(array $row, int $floor = 0): string
 {
-    $type = isset($row['topic_id']) ? 'reply' : 'topic';
-    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-type="' . $type . '" data-id="' . (int)($row['id'] ?? 0) . '" title="引用回复"><span>引用回复</span></a>';
+    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-floor="' . $floor . '" title="引用回复"><span>引用回复</span></a>';
 }
 function topic_list_select_columns(string $table = 'topics'): string
 {
@@ -3525,8 +3529,13 @@ function topic_page(): void
     }
     $size = max(1, (int)setting('replies_per_page', '50'));
     $replyid = id('replyid');
+    $floor = id('floor');
     $reply_desc = (string)($t['reply_order'] ?? 'asc') === 'desc';
-    if ($replyid > 0) {
+    if ($floor > 0) {
+        if ($floor > (int)$t['reply_count']) not_found('你访问的楼层可能已经删除');
+        $display_position = $reply_desc ? (int)$t['reply_count'] - $floor + 1 : $floor;
+        $_GET['p'] = (string)max(1, (int)ceil($display_position / $size));
+    } elseif ($replyid > 0) {
         $reply = one("SELECT id,created_at FROM replies WHERE id=? AND topic_id=?", [$replyid, (int)$t['id']]);
         if ($reply) {
             $position_sql = $reply_desc ? '(created_at>? OR (created_at=? AND id>=?))' : '(created_at<? OR (created_at=? AND id<=?))';
@@ -3548,12 +3557,12 @@ function topic_page(): void
     if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
     $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
     $main = $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
-    if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops ? '<div class="post-ops">' . $topic_ops . '</div>' : '');
+    if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops);
     foreach ($replies as $i => $r) {
-        $reply_ops = uid() ? quote_reply_action($r) : '';
+        $reply_floor = $reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1;
+        $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
         if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
-        $reply_ops = $reply_ops !== '' ? '<div class="post-ops">' . $reply_ops . '</div>' : '';
-        $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', (int)$r['id'] === $replyid, ['reply_position' => $off + $i + 1]);
+        $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor]);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
     $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]));
@@ -3623,13 +3632,13 @@ function reply_edit_page(): void
         if (ajax_request()) {
             $row = one("SELECT * FROM replies WHERE id=?", [$saved['reply_id']]) ?: err('回复不存在');
             $row = attach_users([$row])[0];
-            $ops = quote_reply_action($row);
-            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
-            $ops = '<div class="post-ops">' . $ops . '</div>';
             $topic = one("SELECT view_count,reply_count,reply_order FROM topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 'asc'];
+            $floor = (int)$topic['reply_count'];
+            $ops = quote_reply_action($row, $floor);
+            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             if ((string)($topic['reply_order'] ?? 'asc') === 'desc') go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
             exit;
         }
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));

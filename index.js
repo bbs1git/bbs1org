@@ -455,9 +455,8 @@ document.addEventListener("click", e => {
         window.location.href = quote.href;
         return;
     }
-    const quoteId = (quote.dataset.id || quote.dataset.replyid || "").trim();
-    const type = (quote.dataset.type || "reply").trim();
-    const marker = quoteId ? (type === "topic" ? " #t" + quoteId : " #" + quoteId) : "";
+    const floor = (quote.dataset.floor || "").trim();
+    const marker = floor ? " #" + floor : "";
     const mention = "@" + (quote.dataset.username || "").trim() + marker + " ";
     if (!textarea.value.includes(mention)) {
         const prefix = textarea.value && !textarea.value.endsWith("\n") ? "\n" : "";
@@ -704,7 +703,7 @@ window.addEventListener("load", () => {
         return;
     }
     const replyId = new URLSearchParams(window.location.search).get("replyid") || "";
-    if (!/^\d+$/.test(replyId)) return;
-    const target = document.getElementById("post-" + replyId);
+    const floor = new URLSearchParams(window.location.search).get("floor") || "";
+    const target = /^\d+$/.test(replyId) ? document.getElementById("post-" + replyId) : (/^\d+$/.test(floor) ? document.querySelector('[data-floor="' + floor + '"]') : null);
     if (target) target.scrollIntoView({block:"center"});
 });

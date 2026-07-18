@@ -136,8 +136,9 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .post-entry .post-body{grid-area:body}
 .post-entry .post-content{grid-area:content}
 .post-entry:hover{background:#fff}
-.post-highlight{border-top: 2px solid var(--brand);}
+.post-highlight{padding: 10px;margin: 10px 0;border-radius: 5px;border: 1px solid var(--brand)!important;}
 .post-head{position:relative;display:flex;align-items:center;min-height:18px;padding-right:56px}
+.topic-post-list .post-head.has-floor{padding-right:92px}
 .post-head .post-title{flex:1;min-width:0}
 .post-head .post-author{flex:0 0 auto}
 .post-user-group{display:inline-flex;align-items:center;flex-shrink:0;margin-left:6px;padding:0 6px;border:1px solid #ececec;border-radius:999px;background:#fafafa;color:#9f9f9f;font-size:10px;line-height:1.4;white-space:nowrap;vertical-align:middle}
@@ -182,6 +183,7 @@ h3{margin-bottom:8px;font-size:14px;color:#222}
 .toast{position:fixed;left:50%;top:40%;z-index:50;transform:translate(-50%,-50%);max-width:calc(100vw - 32px);padding:10px 14px;border-radius:999px;background:rgba(17,24,39,.92);color:#fff;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .toast[hidden]{display:none!important}
 .post-ops{position:absolute;right:0;top:0;display:flex;align-items:center;gap:4px}
+.post-floor{display:inline-flex;height:24px;align-items:center;color:#aaa;font-size:11px}
 .post-content{width:100%;margin-top:2px;word-break:break-word;overflow-wrap:anywhere;color:#333;font-size:13.5px;line-height:1.75}
 .post-content p{margin:0 0 8px}
 .post-content p:last-child{margin-bottom:0}
