@@ -39,11 +39,13 @@ docker compose up -d
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
 cd /var/www/bbs1org
 mkdir -p data cache avatars upload plugins
+touch plugins.css plugins.js plugins-admin.css plugins-admin.js
 chown -R www-data:www-data data cache avatars upload plugins
+chown www-data:www-data plugins.css plugins.js plugins-admin.css plugins-admin.js
 ```
 
 1. 将站点根目录指向项目目录
-2. 确保 `data/`、`cache/`、`avatars/`、`upload/` 和 `plugins/` 可写
+2. 确保 `data/`、`cache/`、`avatars/`、`upload/`、`plugins/` 和四个 `plugins*.css/js` 生成文件可写
 3. 访问 `install.php` 完成安装
 
 ## 升级
@@ -82,6 +84,10 @@ cache/              运行缓存
 avatars/            本地头像镜像
 upload/             附件上传目录
 plugins/            插件目录
+plugins.css         自动生成的前台插件样式
+plugins.js          自动生成的前台插件脚本
+plugins-admin.css   自动生成的后台插件样式
+plugins-admin.js    自动生成的后台插件脚本
 ```
 
 ## 说明
@@ -97,9 +103,19 @@ plugins/            插件目录
 ```php
 <?php
 
+function hello_css(): string
+{
+    return '.hello-message{color:var(--brand);font-weight:600}';
+}
+
+function hello_js(): string
+{
+    return 'document.querySelectorAll(".hello-message").forEach(el=>el.dataset.ready="1");';
+}
+
 function hello_footer($html, array $ctx): string
 {
-    return (string)$html . '<span> Hello</span>';
+    return (string)$html . '<span class="hello-message">Hello</span>';
 }
 
 return [
@@ -108,11 +124,41 @@ return [
     'version' => '1.0.0',
     'description' => '给页脚追加内容',
     'author' => 'your-name',
+    'assets' => [
+        'css' => 'hello_css',
+        'js' => 'hello_js',
+    ],
     'hooks' => [
         'page.footer' => 'hello_footer',
     ],
 ];
 ```
+
+### 插件 CSS 和 JavaScript
+
+插件的固定 CSS、JavaScript 必须通过 `assets` 声明，不要通过 `page.head`、`page.footer` 输出 `<style>` 或内联 `<script>`：
+
+```php
+'assets' => [
+    'css' => 'hello_css',
+    'js' => 'hello_js',
+    'scope' => 'all',
+],
+```
+
+- `css`、`js` 都是可选项，值是插件内资源函数名；资源函数不接收参数并返回字符串。
+- CSS 函数只返回 CSS 源码，不包含 `<style>` 标签。
+- JavaScript 函数只返回 JavaScript 源码，不包含 `<script>` 标签。
+- `scope` 可选：`all`（默认）、`frontend`（仅前台）、`admin`（仅后台）。皮肤类插件应使用 `frontend`，只服务后台管理页的插件资源可使用 `admin`。
+- 资源不得依赖当前用户、当前页面、CSRF 或每次请求才确定的数据。动态值应输出到插件 HTML 的 `data-*` 属性，再由合并后的 JavaScript 读取。
+- 按配置条件加载的第三方外部资源，例如 Turnstile 的 `<script src="...">`，可以继续通过 `page.head` 输出；插件自己的固定代码仍应放入 `assets`。
+- 只有已启用插件的资源会进入合并文件。不要直接编辑根目录的四个 `plugins*.css/js` 文件，资源重建时会覆盖它们。
+
+启用、停用、卸载、市场安装或更新插件后，系统会自动重新生成资源。直接上传或修改本地插件后，进入后台“插件”页面会检测文件路径和修改时间，仅在发生变化时重新生成。后台“插件”页面也提供“重建资源”按钮用于手动强制生成。
+
+旧插件仍可继续使用原有 Hook，但新写或修改插件必须采用上述资源机制。
+
+### Hook 和页面
 
 `hooks` 用来挂载核心位置，函数签名通常是 `function xxx($value, array $ctx)`，返回新值；返回 `null` 表示不修改。常用 Hook 有 `page.footer`、`page.head`、`sidebar.stack`、`topic.before_save`、`topic.title_suffix`、`topic.toolbar_actions`、`topic.after_render`。
 
