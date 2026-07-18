@@ -196,6 +196,7 @@ function default_settings(): array
         'site_base_url' => '',
         'site_closed' => '0',
         'debug_mode' => '0',
+        'ignore_ssl_errors' => '0',
         'pretty_url' => '0',
         'allow_register' => '1',
         'reserved_usernames' => 'admin,administrator,root,system',
@@ -558,6 +559,10 @@ function remote_http_request(string $url, int $timeout = 8, array $headers = [],
         CURLOPT_TIMEOUT => max(1, $timeout),
         CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
     ];
+    if (setting('ignore_ssl_errors') === '1') {
+        $options[CURLOPT_SSL_VERIFYPEER] = false;
+        $options[CURLOPT_SSL_VERIFYHOST] = 0;
+    }
     if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
     if ($post_fields !== null) {
         $options[CURLOPT_POST] = true;
@@ -839,6 +844,7 @@ function save_settings(): void
         'footer_html' => post('footer_html', 20000),
         'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
         'debug_mode' => isset($_POST['debug_mode']) ? '1' : '0',
+        'ignore_ssl_errors' => isset($_POST['ignore_ssl_errors']) ? '1' : '0',
         'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
         'pc_nav_forum_count' => (string)min(20, max(0, (int)($_POST['pc_nav_forum_count'] ?? 6))),
         'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
@@ -3907,6 +3913,7 @@ function admin_page(): void
             'avatar_mirror' => ['html' => $avatar_mirror_field],
             'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
             'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
+            'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
             'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
             'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
             'reserved_usernames' => ['label' => '保留用户名', 'type' => 'textarea'],
