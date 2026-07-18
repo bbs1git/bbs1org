@@ -456,7 +456,7 @@ document.addEventListener("click", e => {
         return;
     }
     const floor = (quote.dataset.floor || "").trim();
-    const marker = floor ? " #" + floor : "";
+    const marker = /^\d+$/.test(floor) && Number(floor) > 0 ? " #" + floor : "";
     const mention = "@" + (quote.dataset.username || "").trim() + marker + " ";
     if (!textarea.value.includes(mention)) {
         const prefix = textarea.value && !textarea.value.endsWith("\n") ? "\n" : "";

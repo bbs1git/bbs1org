@@ -2465,7 +2465,8 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
 }
 function quote_reply_action(array $row, int $floor = 0): string
 {
-    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '" data-floor="' . $floor . '" title="引用回复"><span>引用回复</span></a>';
+    $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
+    return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '"' . $floor_attr . ' title="引用回复"><span>引用回复</span></a>';
 }
 function topic_list_select_columns(string $table = 'topics'): string
 {
