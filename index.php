@@ -2250,13 +2250,21 @@ function markdown_inline(string $text): string
         $codes[$key] = '<img src="' . h($url) . '" alt="' . $m[1] . '" loading="lazy" referrerpolicy="no-referrer">';
         return $key;
     }, $text) ?? $text;
-    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use ($clean_url) {
-        return '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
+    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes, $clean_url) {
+        $key = "\x1A" . count($codes) . "\x1A";
+        $codes[$key] = '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>';
+        return $key;
     }, $text) ?? $text;
-    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(t?)(\d+)/u', function ($m) {
+    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(t?)(\d+)/u', function ($m) use (&$codes) {
         $is_topic = $m[2] === 't';
         $url = $is_topic ? route_url('topic', ['id' => (int)$m[3]]) : route_url('topic', ['replyid' => (int)$m[3]]);
-        return '<a href="' . $url . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . ($is_topic ? 't' : '') . (int)$m[3] . '</a>';
+        $key = "\x1A" . count($codes) . "\x1A";
+        $codes[$key] = '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . ($is_topic ? 't' : '') . (int)$m[3] . '</a>';
+        return $key;
+    }, $text) ?? $text;
+    $text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
+        $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
     }, $text) ?? $text;
     $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
         $raw_url = rtrim($m[1], '.,;:!?');
@@ -3291,7 +3299,11 @@ function profile_page(): void
 }
 function user_page(): void
 {
-    $user = one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM users WHERE id=?", [id()]) ?: not_found('你访问的页面不存在');
+    $username = is_string($_GET['username'] ?? null) ? cut(trim((string)$_GET['username']), 40) : '';
+    $user = $username !== ''
+        ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM users WHERE username=?", [$username])
+        : one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM users WHERE id=?", [id()]);
+    $user = $user ?: not_found('你访问的页面不存在');
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
     $user['group_name'] = $g['name'];
     $tab = $_GET['tab'] ?? 'topics';
