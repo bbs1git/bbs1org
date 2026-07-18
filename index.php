@@ -3,7 +3,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v5.7');
+define('APP_VERSION', 'v5.8');
 define('DATA_DIR', __DIR__ . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
@@ -18,6 +18,13 @@ define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', __DIR__ . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
+define('PLUGIN_ASSET_CACHE_FILE', CACHE_DIR . '/plugin-assets.php');
+define('PLUGIN_ASSET_DIRTY_FILE', CACHE_DIR . '/plugin-assets.dirty');
+define('PLUGIN_ASSET_LOCK_FILE', CACHE_DIR . '/plugin-assets.lock');
+define('PLUGIN_CSS_FILE', __DIR__ . '/plugins.css');
+define('PLUGIN_JS_FILE', __DIR__ . '/plugins.js');
+define('PLUGIN_ADMIN_CSS_FILE', __DIR__ . '/plugins-admin.css');
+define('PLUGIN_ADMIN_JS_FILE', __DIR__ . '/plugins-admin.js');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('SEARCH_MIN_CHARS', 3);
@@ -309,6 +316,7 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
         'hooks' => is_array($plugin['hooks'] ?? null) ? $plugin['hooks'] : [],
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
+        'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
         'install' => (string)($plugin['install'] ?? ''),
         'uninstall' => (string)($plugin['uninstall'] ?? ''),
         'file' => $file,
@@ -318,6 +326,14 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
         foreach ($base[$map] as $name => $fn) if (is_string($name) && is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $items[$name] = $fn;
         $base[$map] = $items;
     }
+    $assets = [];
+    foreach (['css', 'js'] as $type) {
+        $fn = $base['assets'][$type] ?? null;
+        if (is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $assets[$type] = $fn;
+    }
+    $scope = (string)($base['assets']['scope'] ?? 'all');
+    $assets['scope'] = in_array($scope, ['all', 'frontend', 'admin'], true) ? $scope : 'all';
+    $base['assets'] = $assets;
     foreach (['install', 'uninstall'] as $key) if ($base[$key] !== '' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $base[$key]) !== 1) $base[$key] = '';
     return $base;
 }
@@ -332,19 +348,23 @@ function plugin_files_state(): array
 function plugin_load(array $plugin): void
 {
     $file = (string)($plugin['file'] ?? '');
-    if ($file !== '' && is_file($file)) include_once $file;
+    if ($file === '' || !is_file($file)) return;
+    $raw = include_once $file;
+    if (is_array($raw)) $GLOBALS['__plugin_raw'][$file] = $raw;
 }
 function plugins_rebuild_cache(): array
 {
     $files_state = plugin_files_state();
     $plugins = [];
     foreach (array_keys($files_state) as $file) {
-        $raw = include_once $file;
+        $raw = $GLOBALS['__plugin_raw'][$file] ?? include_once $file;
         if (!is_array($raw)) continue;
+        $GLOBALS['__plugin_raw'][$file] = $raw;
         $plugin = plugin_normalize($raw, $file);
         if ($plugin) $plugins[$plugin['id']] = $plugin;
     }
     cache_write_php(PLUGIN_CACHE_FILE, ['files' => $files_state, 'plugins' => $plugins]);
+    plugin_assets_mark_dirty();
     return $plugins;
 }
 function plugins(bool $refresh = false): array
@@ -359,9 +379,96 @@ function plugins(bool $refresh = false): array
     }
     return $plugins = plugins_rebuild_cache();
 }
+function plugins_refresh_if_changed(): array
+{
+    if (is_file(PLUGIN_CACHE_FILE)) {
+        $cached = include PLUGIN_CACHE_FILE;
+        if (is_array($cached) && is_array($cached['plugins'] ?? null) && ($cached['files'] ?? null) === plugin_files_state()) return plugins();
+    }
+    return plugins(true);
+}
 function plugin_enabled(array $plugin): bool
 {
     return setting('plugin_' . (string)$plugin['id'] . '_enabled', '0') === '1';
+}
+function plugin_assets_mark_dirty(): void
+{
+    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
+    @file_put_contents(PLUGIN_ASSET_DIRTY_FILE, (string)time(), LOCK_EX);
+}
+function plugin_asset_write(string $file, string $content): void
+{
+    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
+    if (is_writable(dirname($file)) && file_put_contents($tmp, $content, LOCK_EX) !== false) {
+        if (@rename($tmp, $file)) return;
+        @unlink($tmp);
+    }
+    if (file_put_contents($file, $content, LOCK_EX) === false) throw new RuntimeException('插件资源文件不可写：' . basename($file));
+}
+function plugin_assets_rebuild(): array
+{
+    $chunks = ['css' => [], 'js' => [], 'admin_css' => [], 'admin_js' => []];
+    foreach (plugins() as $plugin) {
+        if (!is_array($plugin) || !plugin_enabled($plugin) || empty($plugin['assets'])) continue;
+        plugin_load($plugin);
+        foreach (['css', 'js'] as $type) {
+            $fn = $plugin['assets'][$type] ?? null;
+            if (!is_string($fn) || !function_exists($fn)) continue;
+            $content = trim((string)call_user_func($fn));
+            if ($content === '') continue;
+            $chunk = '/* ' . (string)$plugin['id'] . " */\n" . $content;
+            $scope = (string)($plugin['assets']['scope'] ?? 'all');
+            if ($scope !== 'admin') $chunks[$type][] = $chunk;
+            if ($scope !== 'frontend') $chunks['admin_' . $type][] = $chunk;
+        }
+    }
+    $files = ['css' => PLUGIN_CSS_FILE, 'js' => PLUGIN_JS_FILE, 'admin_css' => PLUGIN_ADMIN_CSS_FILE, 'admin_js' => PLUGIN_ADMIN_JS_FILE];
+    $manifest = [];
+    foreach ($files as $key => $file) {
+        $content = implode("\n", $chunks[$key]) . ($chunks[$key] ? "\n" : '');
+        plugin_asset_write($file, $content);
+        $manifest[$key] = hash('sha256', $content);
+        $manifest[$key . '_size'] = strlen($content);
+    }
+    cache_write_php(PLUGIN_ASSET_CACHE_FILE, $manifest);
+    @unlink(PLUGIN_ASSET_DIRTY_FILE);
+    return $manifest;
+}
+function plugin_assets_manifest(): array
+{
+    if (!is_file(PLUGIN_ASSET_DIRTY_FILE) && is_file(PLUGIN_ASSET_CACHE_FILE) && is_file(PLUGIN_CSS_FILE) && is_file(PLUGIN_JS_FILE) && is_file(PLUGIN_ADMIN_CSS_FILE) && is_file(PLUGIN_ADMIN_JS_FILE)) {
+        $cached = include PLUGIN_ASSET_CACHE_FILE;
+        if (is_array($cached)) return $cached;
+    }
+    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
+    $lock = fopen(PLUGIN_ASSET_LOCK_FILE, 'c');
+    if (!$lock) return [];
+    flock($lock, LOCK_EX);
+    try {
+        if (!is_file(PLUGIN_ASSET_DIRTY_FILE) && is_file(PLUGIN_ASSET_CACHE_FILE) && is_file(PLUGIN_CSS_FILE) && is_file(PLUGIN_JS_FILE) && is_file(PLUGIN_ADMIN_CSS_FILE) && is_file(PLUGIN_ADMIN_JS_FILE)) {
+            $cached = include PLUGIN_ASSET_CACHE_FILE;
+            if (is_array($cached)) return $cached;
+        }
+        if (!is_file(PLUGIN_ASSET_CACHE_FILE)) plugins(true);
+        return plugin_assets_rebuild();
+    } catch (Throwable $e) {
+        debug_log_write('插件资源生成失败', $e);
+        return [];
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+function plugin_asset_tag(string $type): string
+{
+    $manifest = plugin_assets_manifest();
+    $admin = (string)($_GET['a'] ?? '') === 'admin';
+    $key = ($admin ? 'admin_' : '') . $type;
+    if ((int)($manifest[$key . '_size'] ?? 0) < 1) return '';
+    $version = substr((string)($manifest[$key] ?? ''), 0, 12);
+    $file = 'plugins' . ($admin ? '-admin' : '') . '.' . $type;
+    if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
+    return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
 }
 function plugin_entry_hook_name(string $entry): string
 {
@@ -406,6 +513,7 @@ function plugin_set_enabled(string $id, bool $enabled): void
         call_user_func((string)$plugin['install'], $plugin);
     }
     save_settings_values(['plugin_' . $id . '_enabled' => $enabled ? '1' : '0', 'plugin_' . $id . '_version' => (string)($plugin['version'] ?? '')]);
+    plugin_assets_mark_dirty();
 }
 function plugin_uninstall(string $id, bool $keep_data = true): void
 {
@@ -420,6 +528,7 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
     }
     q("DELETE FROM settings WHERE name IN (?,?,?)", ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config']);
     settings_cache(true);
+    plugin_assets_mark_dirty();
 }
 function plugin_share_topic_title(array $plugin): string
 {
@@ -552,6 +661,7 @@ function plugin_market_install(string $id): void
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
     plugins(true);
     save_settings_values(['plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)), 'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0)]);
+    plugin_assets_mark_dirty();
 }
 function plugin_market_update_info(array $plugin, ?array $item): ?array
 {
@@ -2446,7 +2556,7 @@ function topic_stats_html(int $view_count, int $reply_count): string
 }
 function page_head_html(string $page_title, string $meta, string $head_extra = ''): string
 {
-    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="/index.css?v=' . h(APP_VERSION) . '">' . $head_extra . '</head><body>';
+    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('logo.svg')) . '"><link rel="stylesheet" href="/index.css?v=' . h(APP_VERSION) . '">' . plugin_asset_tag('css') . $head_extra . '</head><body>';
 }
 function page_nav_html(string $site_name): string
 {
@@ -2485,7 +2595,7 @@ function page_nav_html(string $site_name): string
 function page_footer_html(array $settings, string $title, string $flash): string
 {
     $footer_html = (string)($settings['footer_html'] ?? '') . (string)hook('page.footer', '', ['title' => $title]);
-    return '<footer class="footer">' . $footer_html . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="/index.js?v=' . h(APP_VERSION) . '" defer></script></body></html>';
+    return '<footer class="footer">' . $footer_html . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE) . ';</script><script src="/index.js?v=' . h(APP_VERSION) . '" defer></script>' . plugin_asset_tag('js') . '</body></html>';
 }
 function page(string $title, string $body, array $seo = []): void
 {
@@ -2753,6 +2863,17 @@ function apply_puppet_author(string $body): array
     if ($username === '') return ['user_id' => uid(), 'body' => $body];
     return ['user_id' => puppet_user_id($username), 'body' => strip_puppet_commands($body)];
 }
+function apply_puppet_topic_author(string $title, string $body): array
+{
+    $username = puppet_username_from_body($body);
+    if ($username === '') $username = puppet_username_from_body($title);
+    if ($username === '') return ['user_id' => uid(), 'title' => $title, 'body' => $body];
+    return [
+        'user_id' => puppet_user_id($username),
+        'title' => strip_puppet_commands($title),
+        'body' => strip_puppet_commands($body),
+    ];
+}
 function user_notify_page(): void
 {
     need_login();
@@ -3001,9 +3122,10 @@ function save_topic(): int
     }
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
     if ($title === '' || $body === '') err('标题和内容不能为空');
-    $author = apply_puppet_author($body);
+    $author = apply_puppet_topic_author($title, $body);
+    $title = (string)$author['title'];
     $body = (string)$author['body'];
-    if ($body === '') err('内容不能为空');
+    if ($title === '' || $body === '') err('标题和内容不能为空');
     $ts = now();
     $tid = tx(function () use ($fid, $author, $title, $body, $ts) {
         q("INSERT INTO topics(forum_id,user_id,title,body,created_at,updated_at,last_reply_at) VALUES(?,?,?,?,?,?,?)", [$fid, (int)$author['user_id'], $title, $body, $ts, $ts, $ts]);
@@ -3550,7 +3672,8 @@ function admin_plugins_page_html(): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, '') . '<ul class="admin-manage-list plugin-list">';
+    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '重建资源', ['plugin_action' => 'assets_rebuild']);
+    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
         $id = (string)$plugin['id'];
@@ -3689,7 +3812,10 @@ function admin_page(): void
     if ($tab === 'plugins' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $plugin_action = (string)($_POST['plugin_action'] ?? '');
         $plugin_id = (string)($_POST['plugin_id'] ?? '');
-        if ($plugin_action === 'enable') {
+        if ($plugin_action === 'assets_rebuild') {
+            plugin_assets_rebuild();
+            set_flash('插件资源已重建');
+        } elseif ($plugin_action === 'enable') {
             plugin_set_enabled($plugin_id, true);
             set_flash('插件已启用');
         } elseif ($plugin_action === 'disable') {
@@ -3910,7 +4036,7 @@ secure_session_start();
 if (!db_schema_ready()) simple_error_page('请先安装');
 check();
 need_site_access();
-if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins(true);
+if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins_refresh_if_changed();
 fire('app.boot');
 try {
     if (($_GET['__route_not_found'] ?? '') === '1') {

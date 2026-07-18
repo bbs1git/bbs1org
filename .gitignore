@@ -8,5 +8,9 @@ upload/*
 !upload/.gitkeep
 plugins/*
 !plugins/.gitkeep
+plugins.css
+plugins.js
+plugins-admin.css
+plugins-admin.js
 scripts/*
 .DS_Store

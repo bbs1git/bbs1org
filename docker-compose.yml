@@ -5,7 +5,8 @@ services:
     working_dir: /var/www/html
     command: >-
       sh -c "mkdir -p data cache avatars upload plugins &&
-      chown www-data:www-data /var/www/html index.* install.php update.php &&
+      touch plugins.css plugins.js plugins-admin.css plugins-admin.js &&
+      chown www-data:www-data /var/www/html index.* install.php update.php plugins.css plugins.js plugins-admin.css plugins-admin.js &&
       chown -R www-data:www-data data cache avatars upload plugins &&
       exec php-fpm"
     volumes:
