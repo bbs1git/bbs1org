@@ -30,13 +30,12 @@ https://bbs1.org
 ```bash
 cd /opt
 git clone https://github.com/bbs1org/bbs1org.git
-cd bbs1org
 mkdir -p docker
 ```
 
 ### 2. 创建公共配置
 
-创建 `docker/nginx.conf`：
+创建 `/opt/docker/nginx.conf`：
 
 ```nginx
 server {
@@ -100,7 +99,7 @@ server {
 }
 ```
 
-创建 `docker/opcache.ini`：
+创建 `/opt/docker/opcache.ini`：
 
 ```ini
 ; Production OPcache settings for bbs1org.
@@ -122,11 +121,11 @@ max_file_uploads=10
 
 ### 3. 选择数据库配置
 
-三种配置只需选择其中一份，并统一保存为 `docker/docker-compose.yml`。
+三种配置只需选择其中一份，并统一保存为 `/opt/docker/docker-compose.yml`。
 
 #### SQLite
 
-将以下内容保存为 `docker/docker-compose.yml`：
+将以下内容保存为 `/opt/docker/docker-compose.yml`：
 
 ```yaml
 name: bbs1org
@@ -137,7 +136,7 @@ x-php: &php
   environment:
     PHP_OPCACHE_ENABLE: "1"
   volumes:
-    - ../:/var/www/html:rw
+    - ../bbs1org:/var/www/html:rw
     - data:/var/www/html/app/data
     - avatars:/var/www/html/app/avatars
     - upload:/var/www/html/app/upload
@@ -148,7 +147,7 @@ services:
   php-init:
     <<: *php
     user: "0:0"
-    command: chown -R www-data:www-data .
+    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
   php:
     <<: *php
     restart: unless-stopped
@@ -163,7 +162,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ../:/var/www/html:ro
+      - ../bbs1org:/var/www/html:ro
       - avatars:/var/www/html/app/avatars:ro
       - upload:/var/www/html/app/upload:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -177,7 +176,7 @@ volumes:
 
 #### MySQL
 
-将以下内容保存为 `docker/docker-compose.yml`，启动前必须修改 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`：
+将以下内容保存为 `/opt/docker/docker-compose.yml`，启动前必须修改 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`：
 
 ```yaml
 name: bbs1org
@@ -188,7 +187,7 @@ x-php: &php
   environment:
     PHP_OPCACHE_ENABLE: "1"
   volumes:
-    - ../:/var/www/html:rw
+    - ../bbs1org:/var/www/html:rw
     - data:/var/www/html/app/data
     - avatars:/var/www/html/app/avatars
     - upload:/var/www/html/app/upload
@@ -199,7 +198,7 @@ services:
   php-init:
     <<: *php
     user: "0:0"
-    command: chown -R www-data:www-data .
+    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
   php:
     <<: *php
     restart: unless-stopped
@@ -234,7 +233,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ../:/var/www/html:ro
+      - ../bbs1org:/var/www/html:ro
       - avatars:/var/www/html/app/avatars:ro
       - upload:/var/www/html/app/upload:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -251,7 +250,7 @@ MySQL 配置通过 `--ngram-token-size=2` 启用中文全文检索所需的 ngra
 
 #### PostgreSQL
 
-将以下内容保存为 `docker/docker-compose.yml`，启动前必须修改 `POSTGRES_PASSWORD`：
+将以下内容保存为 `/opt/docker/docker-compose.yml`，启动前必须修改 `POSTGRES_PASSWORD`：
 
 ```yaml
 name: bbs1org
@@ -262,7 +261,7 @@ x-php: &php
   environment:
     PHP_OPCACHE_ENABLE: "1"
   volumes:
-    - ../:/var/www/html:rw
+    - ../bbs1org:/var/www/html:rw
     - data:/var/www/html/app/data
     - avatars:/var/www/html/app/avatars
     - upload:/var/www/html/app/upload
@@ -273,7 +272,7 @@ services:
   php-init:
     <<: *php
     user: "0:0"
-    command: chown -R www-data:www-data .
+    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
   php:
     <<: *php
     restart: unless-stopped
@@ -306,7 +305,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ../:/var/www/html:ro
+      - ../bbs1org:/var/www/html:ro
       - avatars:/var/www/html/app/avatars:ro
       - upload:/var/www/html/app/upload:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -326,13 +325,13 @@ volumes:
 进入 Docker 配置目录并启动：
 
 ```bash
-cd docker
+cd /opt/docker
 docker compose up -d
 ```
 
-`php-init` 会自动设置项目目录和持久卷权限，使 PHP 可以在线升级、安装插件、上传附件和写入数据。
+`php-init` 会自动设置 `app/`、项目根目录和持久卷权限，但不会修改 `.git/`，使 PHP 可以在线升级、安装插件、上传附件和写入数据，同时不影响 root 执行 `git pull`。
 
-如需使用其他 HTTP 端口，将 `docker/docker-compose.yml` 中的 `"80:80"` 改为例如 `"8080:80"`。
+如需使用其他 HTTP 端口，将 `/opt/docker/docker-compose.yml` 中的 `"80:80"` 改为例如 `"8080:80"`。
 
 启动后访问 `http://服务器地址/index.php?a=install`：
 
@@ -342,10 +341,10 @@ docker compose up -d
 
 ### 5. 常用维护命令
 
-以下命令均在项目的 `docker/` 目录中执行：
+以下命令均在 `/opt/docker/` 目录中执行：
 
 ```bash
-cd /opt/bbs1org/docker
+cd /opt/docker
 
 # 查看容器状态
 docker compose ps
@@ -369,7 +368,7 @@ docker compose up -d
 ```bash
 cd /opt/bbs1org
 git pull
-cd docker
+cd /opt/docker
 docker compose restart php
 ```
 
