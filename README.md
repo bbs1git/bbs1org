@@ -135,11 +135,12 @@ name: bbs1org
 
 services:
   php:
-    image: webdevops/php-fpm:8.4-alpine
+    image: serversideup/php:8.4-alpine
     restart: unless-stopped
+    user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c "if [ ! -f app/data/.chowned ]; then chown -R application:application . && touch app/data/.chowned; fi; exec php-fpm"
+      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
     volumes:
       - ../:/var/www/html
       - data:/var/www/html/app/data
@@ -176,11 +177,12 @@ name: bbs1org
 
 services:
   php:
-    image: webdevops/php-fpm:8.4-alpine
+    image: serversideup/php:8.4-alpine
     restart: unless-stopped
+    user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c "if [ ! -f app/data/.chowned ]; then chown -R application:application . && touch app/data/.chowned; fi; exec php-fpm"
+      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
     depends_on:
       mysql:
         condition: service_healthy
@@ -193,7 +195,7 @@ services:
       - ./opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
 
   mysql:
-    image: mysql:8.4-slim
+    image: mysql:8.4
     restart: unless-stopped
     command: --ngram-token-size=2
     environment:
@@ -241,11 +243,12 @@ name: bbs1org
 
 services:
   php:
-    image: webdevops/php-fpm:8.4-alpine
+    image: serversideup/php:8.4-alpine
     restart: unless-stopped
+    user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c "if [ ! -f app/data/.chowned ]; then chown -R application:application . && touch app/data/.chowned; fi; exec php-fpm"
+      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
     depends_on:
       postgres:
         condition: service_healthy
@@ -258,7 +261,7 @@ services:
       - ./opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_DB: forum
