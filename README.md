@@ -135,7 +135,7 @@ name: bbs1org
 
 services:
   php:
-    image: serversideup/php:8.4-alpine
+    image: serversideup/php:8.4-fpm-alpine
     restart: unless-stopped
     user: "0:0"
     working_dir: /var/www/html
@@ -177,7 +177,7 @@ name: bbs1org
 
 services:
   php:
-    image: serversideup/php:8.4-alpine
+    image: serversideup/php:8.4-fpm-alpine
     restart: unless-stopped
     user: "0:0"
     working_dir: /var/www/html
@@ -243,7 +243,7 @@ name: bbs1org
 
 services:
   php:
-    image: serversideup/php:8.4-alpine
+    image: serversideup/php:8.4-fpm-alpine
     restart: unless-stopped
     user: "0:0"
     working_dir: /var/www/html
