@@ -133,18 +133,28 @@ max_file_uploads=10
 ```yaml
 name: bbs1org
 
+x-php: &php
+  image: serversideup/php:8.5-fpm
+  working_dir: /var/www/html
+  volumes:
+    - ../:/var/www/html:rw
+    - data:/var/www/html/app/data
+    - avatars:/var/www/html/app/avatars
+    - upload:/var/www/html/app/upload
+    - plugins:/var/www/html/app/plugins
+    - ./opcache.ini:/usr/local/etc/php/conf.d/zzz-opcache.ini:ro
+
 services:
+  php-init:
+    <<: *php
+    user: "0:0"
+    command: chown -R www-data:www-data .
   php:
-    image: serversideup/php:8.5-fpm
+    <<: *php
     restart: unless-stopped
-    working_dir: /var/www/html
-    volumes:
-      - ../:/var/www/html:rw
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-      - ./opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
+    depends_on:
+      php-init:
+        condition: service_completed_successfully
   nginx:
     image: nginx:alpine
     restart: unless-stopped
@@ -172,21 +182,30 @@ volumes:
 ```yaml
 name: bbs1org
 
+x-php: &php
+  image: serversideup/php:8.5-fpm
+  working_dir: /var/www/html
+  volumes:
+    - ../:/var/www/html:rw
+    - data:/var/www/html/app/data
+    - avatars:/var/www/html/app/avatars
+    - upload:/var/www/html/app/upload
+    - plugins:/var/www/html/app/plugins
+    - ./opcache.ini:/usr/local/etc/php/conf.d/zzz-opcache.ini:ro
+
 services:
+  php-init:
+    <<: *php
+    user: "0:0"
+    command: chown -R www-data:www-data .
   php:
-    image: serversideup/php:8.5-fpm
+    <<: *php
     restart: unless-stopped
-    working_dir: /var/www/html
     depends_on:
+      php-init:
+        condition: service_completed_successfully
       mysql:
         condition: service_healthy
-    volumes:
-      - ../:/var/www/html:rw
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-      - ./opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
 
   mysql:
     image: mysql:8.4
@@ -235,21 +254,30 @@ MySQL 配置通过 `--ngram-token-size=2` 启用中文全文检索所需的 ngra
 ```yaml
 name: bbs1org
 
+x-php: &php
+  image: serversideup/php:8.5-fpm
+  working_dir: /var/www/html
+  volumes:
+    - ../:/var/www/html:rw
+    - data:/var/www/html/app/data
+    - avatars:/var/www/html/app/avatars
+    - upload:/var/www/html/app/upload
+    - plugins:/var/www/html/app/plugins
+    - ./opcache.ini:/usr/local/etc/php/conf.d/zzz-opcache.ini:ro
+
 services:
+  php-init:
+    <<: *php
+    user: "0:0"
+    command: chown -R www-data:www-data .
   php:
-    image: serversideup/php:8.5-fpm
+    <<: *php
     restart: unless-stopped
-    working_dir: /var/www/html
     depends_on:
+      php-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
-    volumes:
-      - ../:/var/www/html:rw
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-      - ./opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
 
   postgres:
     image: postgres:17
@@ -294,12 +322,11 @@ volumes:
 进入 Docker 配置目录并启动：
 
 ```bash
-chown -R 33:33 /opt/bbs1org
 cd docker
 docker compose up -d
 ```
 
-`33:33` 是 `serversideup/php` 中 `www-data` 的 UID/GID。PHP 可写整个项目目录，支持在线升级、插件安装、附件上传和数据写入。
+`php-init` 会自动设置项目目录和持久卷权限，使 PHP 可以在线升级、安装插件、上传附件和写入数据。
 
 如需使用其他 HTTP 端口，将 `docker/docker-compose.yml` 中的 `"80:80"` 改为例如 `"8080:80"`。
 
