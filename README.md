@@ -134,13 +134,25 @@ max_file_uploads=10
 name: bbs1org
 
 services:
-  php:
-    image: serversideup/php:8.4-fpm-alpine
-    restart: unless-stopped
+  php-init:
+    image: serversideup/php:8.5-fpm
     user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
+      sh -c 'chown -R www-data:www-data app/data app/avatars app/upload app/plugins'
+    volumes:
+      - ../:/var/www/html
+      - data:/var/www/html/app/data
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+      - plugins:/var/www/html/app/plugins
+  php:
+    image: serversideup/php:8.5-fpm
+    restart: unless-stopped
+    working_dir: /var/www/html
+    depends_on:
+      php-init:
+        condition: service_completed_successfully
     volumes:
       - ../:/var/www/html
       - data:/var/www/html/app/data
@@ -176,14 +188,25 @@ volumes:
 name: bbs1org
 
 services:
-  php:
-    image: serversideup/php:8.4-fpm-alpine
-    restart: unless-stopped
+  php-init:
+    image: serversideup/php:8.5-fpm
     user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
+      sh -c 'chown -R www-data:www-data app/data app/avatars app/upload app/plugins'
+    volumes:
+      - ../:/var/www/html
+      - data:/var/www/html/app/data
+      - plugins:/var/www/html/app/plugins
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+  php:
+    image: serversideup/php:8.5-fpm
+    restart: unless-stopped
+    working_dir: /var/www/html
     depends_on:
+      php-init:
+        condition: service_completed_successfully
       mysql:
         condition: service_healthy
     volumes:
@@ -242,14 +265,25 @@ MySQL 配置通过 `--ngram-token-size=2` 启用中文全文检索所需的 ngra
 name: bbs1org
 
 services:
-  php:
-    image: serversideup/php:8.4-fpm-alpine
-    restart: unless-stopped
+  php-init:
+    image: serversideup/php:8.5-fpm
     user: "0:0"
     working_dir: /var/www/html
     command: >-
-      sh -c 'for dir in app/data app/avatars app/upload app/plugins; do if [ ! -f "$${dir}/.chowned" ]; then chown -R www-data:www-data "$${dir}" && touch "$${dir}/.chowned"; fi; done; exec php-fpm'
+      sh -c 'chown -R www-data:www-data app/data app/avatars app/upload app/plugins'
+    volumes:
+      - ../:/var/www/html
+      - data:/var/www/html/app/data
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+      - plugins:/var/www/html/app/plugins
+  php:
+    image: serversideup/php:8.5-fpm
+    restart: unless-stopped
+    working_dir: /var/www/html
     depends_on:
+      php-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     volumes:
