@@ -28,9 +28,8 @@ https://bbs1.org
 ### 1. 下载程序并创建配置目录
 
 ```bash
-cd /opt
-git clone https://github.com/bbs1org/bbs1org.git
-mkdir -p docker
+cd /opt && git clone https://github.com/bbs1org/bbs1org.git
+mkdir -p docker && cd docker
 ```
 
 ### 2. 创建公共配置
@@ -325,7 +324,6 @@ volumes:
 进入 Docker 配置目录并启动：
 
 ```bash
-cd /opt/docker
 docker compose up -d
 ```
 
