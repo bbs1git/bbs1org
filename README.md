@@ -104,8 +104,6 @@ server {
 
 ```ini
 ; Production OPcache settings for bbs1org.
-opcache.enable=1
-opcache.enable_cli=0
 opcache.memory_consumption=128
 opcache.interned_strings_buffer=16
 opcache.max_accelerated_files=10000
@@ -136,6 +134,8 @@ name: bbs1org
 x-php: &php
   image: serversideup/php:8.5-fpm
   working_dir: /var/www/html
+  environment:
+    PHP_OPCACHE_ENABLE: "1"
   volumes:
     - ../:/var/www/html:rw
     - data:/var/www/html/app/data
@@ -185,6 +185,8 @@ name: bbs1org
 x-php: &php
   image: serversideup/php:8.5-fpm
   working_dir: /var/www/html
+  environment:
+    PHP_OPCACHE_ENABLE: "1"
   volumes:
     - ../:/var/www/html:rw
     - data:/var/www/html/app/data
@@ -257,6 +259,8 @@ name: bbs1org
 x-php: &php
   image: serversideup/php:8.5-fpm
   working_dir: /var/www/html
+  environment:
+    PHP_OPCACHE_ENABLE: "1"
   volumes:
     - ../:/var/www/html:rw
     - data:/var/www/html/app/data

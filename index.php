@@ -5,7 +5,7 @@ define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 define('APP_VERSION', 'v6.0');
-define('APP_SQL_DEBUG', true);
+define('APP_SQL_DEBUG', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
