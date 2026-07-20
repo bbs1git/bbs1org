@@ -213,7 +213,7 @@ else runPageFlash();
 const runSettingsUpdateCheck = () => {
     const marker = document.querySelector("[data-settings-update-check-url]");
     if (!marker) return;
-    fetch(marker.dataset.settingsUpdateCheckUrl || "update.php?notice_check=1", {
+    fetch(marker.dataset.settingsUpdateCheckUrl || "index.php?a=update&notice_check=1", {
         credentials: "same-origin",
         headers: {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
     }).then(response => response.json()).then(data => {
@@ -486,11 +486,10 @@ document.addEventListener("change", async e => {
     const uploader = input.closest(".attachment-uploader");
     const form = input.closest("form");
     const textarea = form?.querySelector("textarea[name=body]");
-    const list = uploader?.querySelector("[data-attachment-list]");
     const url = uploader?.dataset?.uploadUrl || "";
     const token = form?.querySelector("input[name=_csrf]")?.value || "";
     const files = Array.from(input.files || []);
-    if (!uploader || !textarea || !list || !url || files.length === 0) return;
+    if (!uploader || !textarea || !url || files.length === 0) return;
     const maxCount = parseInt(uploader.dataset.uploadMaxCount || "10", 10) || 10;
     const maxMb = parseInt(uploader.dataset.uploadMaxMb || "20", 10) || 20;
     const uploaded = parseInt(uploader.dataset.uploadedCount || "0", 10) || 0;
@@ -501,24 +500,9 @@ document.addEventListener("change", async e => {
     }
     input.disabled = true;
     for (const file of files) {
-        const row = document.createElement("div");
-        row.className = "attachment-row";
-        const name = document.createElement("span");
-        name.className = "attachment-name";
-        name.textContent = file.name || "附件";
-        const status = document.createElement("span");
-        status.className = "attachment-status";
-        status.textContent = "上传中";
-        row.append(name, status);
-        list.appendChild(row);
         uploader.dataset.uploadingCount = String((parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) + 1);
-        if (file.size > maxMb * 1024 * 1024) {
-            row.classList.add("error");
-            status.textContent = "超过" + maxMb + "MB";
-            uploader.dataset.uploadingCount = String(Math.max(0, (parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) - 1));
-            continue;
-        }
         try {
+            if (file.size > maxMb * 1024 * 1024) throw new Error("超过" + maxMb + "MB");
             const body = new FormData();
             body.append("_csrf", token);
             body.append("attachment", file);
@@ -532,13 +516,9 @@ document.addEventListener("change", async e => {
             }
             if (!data.ok) throw new Error(data.message || "上传失败");
             insertTextareaText(textarea, data.markdown || "");
-            row.classList.add("done");
-            status.textContent = "已插入";
             uploader.dataset.uploadedCount = String((parseInt(uploader.dataset.uploadedCount || "0", 10) || 0) + 1);
         } catch (err) {
-            row.classList.add("error");
-            status.textContent = err?.message || "上传失败";
-            showToast(status.textContent);
+            showToast((file.name ? file.name + "：" : "") + (err?.message || "上传失败"));
         } finally {
             uploader.dataset.uploadingCount = String(Math.max(0, (parseInt(uploader.dataset.uploadingCount || "0", 10) || 0) - 1));
         }
