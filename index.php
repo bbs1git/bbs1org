@@ -4444,7 +4444,7 @@ if ($setup_action === 'update') {
     require_once UPDATE_SETUP_FILE;
     setup_update_run();
 }
-if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装', index_url(['a' => 'install']));
+if (!db_schema_ready()) simple_error_page('欢迎使用，请先进行数据初始化安装', index_url(['a' => 'install']));
 check();
 need_site_access();
 if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins_refresh_if_changed();
