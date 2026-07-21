@@ -2942,28 +2942,22 @@ function form_field_caption(string $label, string $help = ''): string
 {
     return '<span>' . h($label) . ($help !== '' ? '<small>' . h($help) . '</small>' : '') . '</span>';
 }
-function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false, string $help = '', string $class = ''): string
+function form_field(string $type, string $label, string $name, $value = '', array $config = []): string
 {
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
-}
-function textarea(string $label, string $name, $value = '', bool $required = false, string $help = '', string $class = ''): string
-{
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
-}
-function checkbox(string $label, string $name, bool $checked = false, string $help = '', string $class = ''): string
-{
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input type="checkbox" name="' . h($name) . '" value="1"' . ($checked ? ' checked' : '') . '></label>';
-}
-function number_input(string $label, string $name, $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = ''): string
-{
-    $limits = ($min !== null ? ' min="' . h($min) . '"' : '') . ($max !== null ? ' max="' . h($max) . '"' : '');
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="number" value="' . h($value) . '"' . $limits . ($required ? ' required' : '') . '></label>';
-}
-function select_input(string $label, string $name, $value, array $options, string $help = '', string $class = ''): string
-{
-    $html = '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<select name="' . h($name) . '">';
-    foreach ($options as $option_value => $option_label) $html .= '<option value="' . h($option_value) . '"' . ((string)$option_value === (string)$value ? ' selected' : '') . '>' . h($option_label) . '</option>';
-    return $html . '</select></label>';
+    $required = (bool)($config['required'] ?? ($type === 'number'));
+    if ($type === 'textarea') $control = '<textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea>';
+    elseif ($type === 'checkbox') $control = '<input type="checkbox" name="' . h($name) . '" value="1"' . ($value ? ' checked' : '') . '>';
+    elseif ($type === 'select') {
+        $control = '<select name="' . h($name) . '">';
+        foreach ((array)($config['options'] ?? []) as $option_value => $option_label) $control .= '<option value="' . h($option_value) . '"' . ((string)$option_value === (string)$value ? ' selected' : '') . '>' . h($option_label) . '</option>';
+        $control .= '</select>';
+    } else {
+        $limits = $type === 'number' ? (($config['min'] ?? null) !== null ? ' min="' . h($config['min']) . '"' : '') . (($config['max'] ?? null) !== null ? ' max="' . h($config['max']) . '"' : '') : '';
+        $control = '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . $limits . ($required ? ' required' : '') . '>';
+    }
+    $help = (string)($config['help'] ?? '');
+    $class = (string)($config['class'] ?? '');
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . $control . '</label>';
 }
 function render_form_fields(array $fields, array $values = []): string
 {
@@ -2979,11 +2973,9 @@ function render_form_fields(array $fields, array $values = []): string
         $help = (string)($field['help'] ?? '');
         $class = (string)($field['class'] ?? '');
         if ($help !== '' && !str_contains(' ' . $class . ' ', ' settings-help-field ')) $class = trim($class . ' settings-help-field');
-        if ($type === 'checkbox') $html .= checkbox($label, (string)$name, (bool)(int)$value, $help, $class);
-        elseif ($type === 'number') $html .= number_input($label, (string)$name, $value, $field['min'] ?? null, $field['max'] ?? null, (bool)($field['required'] ?? true), $help, $class);
-        elseif ($type === 'select') $html .= select_input($label, (string)$name, $value, (array)($field['options'] ?? []), $help, $class);
-        elseif ($type === 'textarea') $html .= textarea($label, (string)$name, $value, !empty($field['required']), $help, $class);
-        else $html .= input($label, (string)$name, $value, $type, !empty($field['required']), $help, $class);
+        $field['help'] = $help;
+        $field['class'] = $class;
+        $html .= form_field($type, $label, (string)$name, $type === 'checkbox' ? (bool)(int)$value : $value, $field);
     }
     return $html;
 }
@@ -2996,13 +2988,13 @@ function attachment_uploader_html(bool $muted = false): string
 }
 function select_group(int $gid): string
 {
-    return select_input('用户组', 'group_id', $gid, array_column(groups_cache(), 'name', 'id'));
+    return form_field('select', '用户组', 'group_id', $gid, ['options' => array_column(groups_cache(), 'name', 'id')]);
 }
 function select_forum(int $fid): string
 {
     $options = [];
     foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_post_groups')) $options[(int)$f['id']] = (string)$f['name'];
-    return select_input('版块', 'forum_id', $fid, $options);
+    return form_field('select', '版块', 'forum_id', $fid, ['options' => $options]);
 }
 function can_manage_topic(array $t): bool
 {
@@ -3329,7 +3321,7 @@ function forgot_password_page(): void
         $body .= '<p class="muted">重置密码邮件已经发送，请查收邮箱。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     } else {
         $form_extra = (string)hook('forgot_password.form_extra', '', []);
-        $body .= '<form method="post" data-no-ajax="1">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email', true) . $form_extra . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
+        $body .= '<form method="post" data-no-ajax="1">' . form_token() . form_field('text', '用户名', 'username', '', ['required' => true]) . form_field('email', '邮箱', 'email', '', ['required' => true]) . $form_extra . '<button>发送重置邮件</button></form><p class="auth-extra"><a href="' . h(route_url('login')) . '">返回登录</a></p>';
     }
     page('忘记密码', shell_html(auth_tabs_html('login') . $body . '</div>', password_reset_notice_sidebar('forgot')));
 }
@@ -3353,7 +3345,7 @@ function reset_password_page(): void
         page('密码已重置', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>密码已重置</h2><p class="muted">请使用新密码登录。</p><p class="auth-extra"><a href="' . h(route_url('login')) . '">去登录</a></p></div>', password_reset_notice_sidebar('reset')));
         return;
     }
-    $form = '<div class="form-panel auth-panel"><h2>重置密码</h2><form method="post">' . form_token() . '<input type="hidden" name="token" value="' . h($token) . '">' . input('新密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . '<button>保存新密码</button></form></div>';
+    $form = '<div class="form-panel auth-panel"><h2>重置密码</h2><form method="post">' . form_token() . '<input type="hidden" name="token" value="' . h($token) . '">' . form_field('password', '新密码', 'password', '', ['required' => true]) . form_field('password', '确认密码', 'password2', '', ['required' => true]) . '<button>保存新密码</button></form></div>';
     page('重置密码', shell_html(auth_tabs_html('login') . $form, password_reset_notice_sidebar('reset')));
 }
 function save_forum(): void
@@ -3589,7 +3581,7 @@ function login_page(): void
         sidebar_notice_card_html('登录注意事项', ['请使用用户名登录。', '密码区分大小写。', '公共设备登录后请及时退出。']),
     ]);
     $form_extra = (string)hook('login.form_extra', '', []);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . form_field('text', '用户名', 'username', '', ['required' => true]) . form_field('password', '密码', 'password', '', ['required' => true]) . $form_extra . '<button>登录</button></form><p class="auth-extra"><a href="' . h(route_url('forgot_password')) . '">忘记密码？</a></p></div>', $sidebar));
 }
 function register_page(): void
 {
@@ -3607,7 +3599,7 @@ function register_page(): void
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱保密，仅忘记密码时可用。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
-    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('邮箱', 'email', '', 'email') . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . $form_extra . '<button>注册</button></form></div>', $sidebar));
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . form_field('text', '用户名', 'username', '', ['required' => true]) . form_field('email', '邮箱', 'email') . form_field('password', '密码', 'password', '', ['required' => true]) . form_field('password', '确认密码', 'password2', '', ['required' => true]) . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
@@ -3619,7 +3611,7 @@ function profile_page(): void
         go(route_url('profile'));
     }
     $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . form_field('text', '用户名', 'username', $u['username'], ['required' => true]) . form_field('email', '邮箱', 'email', $u['email']) . $current_ip . form_field('password', '新密码', 'password') . form_field('password', '确认密码', 'password2') . avatar_picker_html($u) . form_field('textarea', '简介', 'bio', $u['bio']) . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
 }
 function user_page(): void
 {
@@ -3905,7 +3897,7 @@ function topic_page(): void
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3>' . $help . '</div>';
     if (can_speak() && $can_reply_forum) {
         $reply_form_extra = (string)hook('reply.form_extra', '', ['topic' => $t, 'editing' => false]);
-        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . $reply_form_extra . '<button>回复</button></form>';
+        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . form_field('textarea', '内容', 'body', '', ['required' => true]) . $reply_form_extra . '<button>回复</button></form>';
     } elseif (!uid()) {
         $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">登录后回复</a></div>';
     } elseif (!$can_reply_forum) {
@@ -3936,10 +3928,10 @@ function topic_edit_page(): void
         $swatches .= '</div>';
         $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="unpin">取消置顶</option><option value="highlight">高亮</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-highlight-field is-hidden" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label>';
     }
-    $reply_order = id() ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
+    $reply_order = id() ? form_field('select', '回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['options' => ['0' => '发帖时间顺序', '1' => '发帖时间倒序']]) : '';
     $attachments = attachment_uploader_html(true);
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => id() > 0]);
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . form_field('text', '标题', 'title', $t['title'], ['required' => true]) . form_field('textarea', '内容', 'body', $t['body'], ['required' => true]) . $attachments . $reply_order . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
 }
 function reply_edit_page(): void
 {
@@ -3976,7 +3968,7 @@ function reply_edit_page(): void
     }
     $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
     $reply_form_extra = (string)hook('reply.form_extra', '', ['reply' => $r, 'editing' => (int)$r['id'] > 0]);
-    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . attachment_uploader_html(true) . $reply_form_extra . '<button>保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . form_field('textarea', '内容', 'body', $r['body'], ['required' => true]) . attachment_uploader_html(true) . $reply_form_extra . '<button>保存</button></form></div>'));
 }
 
 function admin_nav(string $tab): string
@@ -4339,16 +4331,16 @@ function admin_edit_page(): void
         $u = admin_user_form_data(id());
         $tab = 'users';
         $is_new = id() === 0;
-        $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . number_input('积分', 'points', (int)($u['points'] ?? 0)) . checkbox('禁止访问', 'is_banned', (bool)(int)($u['is_banned'] ?? 0)) . checkbox('禁止发言', 'is_muted', (bool)(int)($u['is_muted'] ?? 0)) . textarea('简介', 'bio', $u['bio']);
+        $body = form_field('text', '用户名', 'username', $u['username'], ['required' => true]) . form_field('email', '邮箱', 'email', $u['email']) . form_field('password', $is_new ? '密码' : '新密码', 'password', '', ['required' => $is_new]) . form_field('password', '确认密码', 'password2', '', ['required' => $is_new]) . avatar_picker_html($u) . select_group((int)$u['group_id']) . form_field('number', '积分', 'points', (int)($u['points'] ?? 0)) . form_field('checkbox', '禁止访问', 'is_banned', (bool)(int)($u['is_banned'] ?? 0)) . form_field('checkbox', '禁止发言', 'is_muted', (bool)(int)($u['is_muted'] ?? 0)) . form_field('textarea', '简介', 'bio', $u['bio']);
     } elseif ($type === 'group') {
         $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0, 'upload_quota_mb' => 0];
         $tab = 'groups';
-        $body = input('名称', 'name', $g['name'], 'text', true) . number_input('上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), 0, null, true, '0 表示使用系统默认的 ' . ATTACHMENT_DEFAULT_QUOTA_MB . ' MB。') . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
+        $body = form_field('text', '名称', 'name', $g['name'], ['required' => true]) . form_field('number', '上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), ['min' => 0, 'required' => true, 'help' => '0 表示使用系统默认的 ' . ATTACHMENT_DEFAULT_QUOTA_MB . ' MB。']) . form_field('checkbox', '允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . form_field('checkbox', '允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
     } elseif ($type === 'forum') {
         $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => ''];
         if (!$f) err('版块不存在');
         $tab = 'forums';
-        $body = input('名称', 'name', $f['name'], 'text', true) . number_input('排序', 'sort', $f['sort']) . textarea('描述', 'description', $f['description']) . forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
+        $body = form_field('text', '名称', 'name', $f['name'], ['required' => true]) . form_field('number', '排序', 'sort', $f['sort']) . form_field('textarea', '描述', 'description', $f['description']) . forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
     } else err('参数错误');
     page('编辑', admin_layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
 }
