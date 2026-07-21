@@ -315,20 +315,6 @@ function tx(callable $fn)
 {
     $db = db();
     if ($db->inTransaction()) return $fn();
-    $db->beginTransaction();
-    try {
-        $result = $fn();
-        $db->commit();
-        return $result;
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
-        throw $e;
-    }
-}
-function tx_immediate(callable $fn)
-{
-    $db = db();
-    if ($db->inTransaction()) return $fn();
     if (db_driver() === 'sqlite') $db->exec('BEGIN IMMEDIATE');
     else $db->beginTransaction();
     try {
@@ -2317,7 +2303,7 @@ function attachment_store(int $user_id, string $tmp, string $target, string $has
 {
     $created_file = false;
     try {
-        tx_immediate(function () use ($user_id, $tmp, $target, $hash, $file_name, $original, $ext, $mime, $size, $is_image, &$created_file): void {
+        tx(function () use ($user_id, $tmp, $target, $hash, $file_name, $original, $ext, $mime, $size, $is_image, &$created_file): void {
             $user = one('SELECT group_id FROM app_users WHERE id=?' . (db_driver() !== 'sqlite' ? ' FOR UPDATE' : ''), [$user_id]);
             if (!$user) throw new AttachmentUploadException('登录状态已失效，请重新登录');
             $groups = rows_by_ids('app_groups', [(int)$user['group_id']], 'id,upload_quota_mb');
