@@ -1362,23 +1362,20 @@ function admin_count(string $type, int $group_id = 0, int $banned_filter = -1, i
     };
     return (int)val($sql . $filter['where'], $filter['params']);
 }
-function admin_users_list(string $query = '', int $size = 50, int $offset = 0, int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1): array
+function admin_list(string $type, string $query = '', int $size = 50, int $offset = 0, array $filters = []): array
 {
-    $filter = admin_filter_sql('users', $query, 'title', $group_id, $banned_filter, $muted_filter);
+    [$table, $columns] = match ($type) {
+        'users' => ['app_users', '*'],
+        'topics' => ['app_topics', 'id,forum_id,title,highlight_style,user_id,created_at'],
+        'replies' => ['app_replies', 'id,body,topic_id,user_id,created_at'],
+        default => throw new InvalidArgumentException('无效的后台数据类型。'),
+    };
+    $field = (string)($filters['field'] ?? ($type === 'replies' ? 'body' : 'title'));
+    $filter = admin_filter_sql($type, $query, $field, (int)($filters['group_id'] ?? 0), (int)($filters['banned_filter'] ?? -1), (int)($filters['muted_filter'] ?? -1), (int)($filters['forum_id'] ?? 0));
     if (!$filter) return [];
-    return q('SELECT * FROM app_users' . $filter['where'] . ' ORDER BY id DESC LIMIT ? OFFSET ?', array_merge($filter['params'], [$size, $offset]))->fetchAll();
-}
-function admin_topics_list(string $query = '', int $size = 50, int $offset = 0, string $field = 'title', int $forum_id = 0): array
-{
-    $filter = admin_filter_sql('topics', $query, $field, 0, -1, -1, $forum_id);
-    if (!$filter) return [];
-    return attach_users(q("SELECT id,forum_id,title,highlight_style,user_id,created_at FROM app_topics" . $filter['where'] . " ORDER BY id DESC LIMIT ? OFFSET ?", array_merge($filter['params'], [$size, $offset]))->fetchAll());
-}
-function admin_replies_list(string $query = '', int $size = 50, int $offset = 0, string $field = 'body'): array
-{
-    $filter = admin_filter_sql('replies', $query, $field);
-    if (!$filter) return [];
-    return attach_topics(attach_users(q("SELECT id,body,topic_id,user_id,created_at FROM app_replies" . $filter['where'] . " ORDER BY id DESC LIMIT ? OFFSET ?", array_merge($filter['params'], [$size, $offset]))->fetchAll()));
+    $rows = q("SELECT $columns FROM $table" . $filter['where'] . ' ORDER BY id DESC LIMIT ? OFFSET ?', array_merge($filter['params'], [$size, $offset]))->fetchAll();
+    if ($type !== 'users') $rows = attach_users($rows);
+    return $type === 'replies' ? attach_topics($rows) : $rows;
 }
 function admin_search_form(string $tab, string $query): string
 {
@@ -4260,7 +4257,7 @@ function admin_page(): void
     } elseif ($tab === 'users') {
         $html .= admin_object_list_html('users', $q, $manageable, $admin_size,
             fn(): int => admin_count('users', $user_group_id, $user_banned_filter, $user_muted_filter),
-            fn(): array => admin_users_list($q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, $user_group_id, $user_banned_filter, $user_muted_filter),
+            fn(): array => admin_list('users', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['group_id' => $user_group_id, 'banned_filter' => $user_banned_filter, 'muted_filter' => $user_muted_filter]),
             fn(int $total, bool $simple, bool $has_next): string => admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter, $simple, $has_next)
         );
     } elseif ($tab === 'groups') {
@@ -4283,14 +4280,14 @@ function admin_page(): void
     } elseif ($tab === 'topics') {
         $html .= admin_object_list_html('topics', $q, $manageable, $admin_size,
             fn(): int => admin_count('topics', 0, -1, -1, $topic_forum_id),
-            fn(): array => admin_topics_list($q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, $topic_field, $topic_forum_id),
+            fn(): array => admin_list('topics', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['field' => $topic_field, 'forum_id' => $topic_forum_id]),
             fn(int $total, bool $simple, bool $has_next): string => admin_pagination('topics', $q, $total, $admin_page, $admin_size, $topic_field, 0, -1, -1, $simple, $has_next),
             $manageable ? admin_topics_tools_html() : '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a>'
         );
     } elseif ($tab === 'replies') {
         $html .= admin_object_list_html('replies', $q, $manageable, $admin_size,
             fn(): int => admin_count('replies'),
-            fn(): array => admin_replies_list($q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, $reply_field),
+            fn(): array => admin_list('replies', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['field' => $reply_field]),
             fn(int $total, bool $simple, bool $has_next): string => admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field, 0, -1, -1, $simple, $has_next)
         );
     } elseif ($tab === 'trash') {
