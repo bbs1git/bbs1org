@@ -11,3 +11,4 @@ app/upload/*
 app/assets/plugins.css
 app/assets/plugins.js
 .DS_Store
+docker/.env
