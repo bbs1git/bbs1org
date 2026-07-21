@@ -1,6 +1,6 @@
 # bbs1org
 
-一个极简 PHP 论坛，支持 SQLite、MySQL 和 PostgreSQL，单页面仅3～4个查询数，单文件入口，依赖少，适合个人站点、小中型社区和AI二次开发。
+一个极简 PHP 论坛，支持 SQLite、MySQL 和 PostgreSQL，单页面3～4个查询数；单文件200KB入口，依赖少，适合个人站点、小中型社区和AI二次开发。
 
 ## 特点
 
