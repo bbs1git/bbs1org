@@ -1915,19 +1915,16 @@ function database_error(Throwable $e): bool
     } while ($e);
     return false;
 }
-function err(string $m): never
+function err(string $m, int $status = 200): never
 {
-    debug_log_write($m);
+    $status = $status > 0 ? $status : 200;
+    $is_not_found = $status === 404;
+    if (!$is_not_found) debug_log_write($m);
+    if ($status !== 200) http_response_code($status);
     if (ajax_request()) ajax_error($m, false);
     if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
-    error_page('错误', $m);
-}
-function not_found(string $m): never
-{
-    if (ajax_request()) ajax_error($m, false);
-    if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
-    error_page('404', $m, 404);
+    if (!$is_not_found && $_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
+    error_page($is_not_found ? '404' : '错误', $m, $status);
 }
 function cut(string $v, int $max): string
 {
@@ -2454,10 +2451,10 @@ function topic_upload_attachments_markdown(): string
 function attachment_page(): void
 {
     $file = (string)($_GET['f'] ?? '');
-    if (preg_match('/^[a-f0-9]{64}\.(?:attach|jpe?g|png|gif|webp)$/', $file) !== 1) not_found('附件不存在');
+    if (preg_match('/^[a-f0-9]{64}\.(?:attach|jpe?g|png|gif|webp)$/', $file) !== 1) err('附件不存在', 404);
     $hash = substr($file, 0, 64);
     $path = UPLOAD_DIR . '/' . upload_hash_dir($hash) . '/' . $file;
-    if (!is_file($path)) not_found('附件不存在');
+    if (!is_file($path)) err('附件不存在', 404);
     $name = trim(preg_replace('/[\r\n"\\\\\/]+/', ' ', basename((string)($_GET['name'] ?? '附件'))) ?? '');
     if ($name === '') $name = '附件';
     $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
@@ -3647,7 +3644,7 @@ function user_page(): void
             ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM app_users WHERE username=?", [$username])
             : one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM app_users WHERE id=?", [id()]);
     }
-    $user = $user ?: not_found('你访问的页面不存在');
+    $user = $user ?: err('你访问的页面不存在', 404);
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
     $user['group_name'] = $g['name'];
     $tab = $_GET['tab'] ?? 'topics';
@@ -3852,7 +3849,7 @@ function search_page(): void
 function forum_page(): void
 {
     $fid = id();
-    $f = forum_by_id($fid) ?: not_found('你访问的页面不存在');
+    $f = forum_by_id($fid) ?: err('你访问的页面不存在', 404);
     if (!forum_group_allowed($f, 'allow_view_groups')) err('无权限');
     remember_forum($fid);
     topic_index_page($f);
@@ -3860,11 +3857,11 @@ function forum_page(): void
 function topic_page(): void
 {
     if (!id() && id('replyid')) {
-        $reply = one("SELECT topic_id FROM app_replies WHERE id=?", [id('replyid')]) ?: not_found('你访问的帖子可能已经删除');
+        $reply = one("SELECT topic_id FROM app_replies WHERE id=?", [id('replyid')]) ?: err('你访问的帖子可能已经删除', 404);
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
-    $t = one("SELECT * FROM app_topics WHERE id=?", [id()]) ?: not_found('你访问的帖子可能已经删除');
-    $forum = forum_by_id((int)$t['forum_id']) ?: not_found('你访问的页面不存在');
+    $t = one("SELECT * FROM app_topics WHERE id=?", [id()]) ?: err('你访问的帖子可能已经删除', 404);
+    $forum = forum_by_id((int)$t['forum_id']) ?: err('你访问的页面不存在', 404);
     if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
     remember_forum((int)$t['forum_id']);
     if (mark_viewed((int)$t['id'])) {
@@ -3876,7 +3873,7 @@ function topic_page(): void
     $floor = id('floor');
     $reply_desc = (int)($t['reply_order'] ?? 0) === 1;
     if ($floor > 0) {
-        if ($floor > (int)$t['reply_count']) not_found('你访问的楼层可能已经删除');
+        if ($floor > (int)$t['reply_count']) err('你访问的楼层可能已经删除', 404);
         $display_position = $reply_desc ? (int)$t['reply_count'] - $floor + 1 : $floor;
         $_GET['p'] = (string)max(1, (int)ceil($display_position / $size));
     } elseif ($replyid > 0) {
@@ -3886,7 +3883,7 @@ function topic_page(): void
             $before = (int)q("SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND $position_sql", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
             $_GET['p'] = (string)max(1, (int)ceil($before / $size));
         } else {
-            not_found('你访问的帖子可能已经删除');
+            err('你访问的帖子可能已经删除', 404);
         }
     }
     $p = max(1, (int)($_GET['p'] ?? 1));
@@ -4334,7 +4331,7 @@ function admin_page(): void
         $html .= (string)($_GET['view'] ?? '') === 'market' ? admin_plugins_market_page_html() : admin_plugins_page_html();
     } else {
         $plugin_html = admin_plugin_tab_html((string)$tab);
-        if ($plugin_html === null) not_found('你访问的页面不存在');
+        if ($plugin_html === null) err('你访问的页面不存在', 404);
         $html .= $plugin_html;
     }
     page('后台', admin_layout($tab, $html));
@@ -4422,7 +4419,7 @@ if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings
 fire('app.boot');
 try {
     if (($_GET['__route_not_found'] ?? '') === '1') {
-        not_found(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '你访问的帖子可能已经删除' : '你访问的页面不存在');
+        err(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '你访问的帖子可能已经删除' : '你访问的页面不存在', 404);
     }
     $a = $_GET['a'] ?? 'home';
     $do = $_GET['do'] ?? '';
@@ -4538,7 +4535,7 @@ try {
             go(admin_url(['tab' => $tab]));
         } else admin_page();
     } elseif (plugin_route((string)$a)) {
-    } else not_found('你访问的页面不存在');
+    } else err('你访问的页面不存在', 404);
 } catch (Throwable $e) {
     debug_log_write('未捕获异常', $e);
     if (uid() === 1) {
