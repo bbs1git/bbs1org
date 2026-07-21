@@ -282,7 +282,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:17
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_DB: forum
@@ -294,7 +294,7 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - postgres:/var/lib/postgresql/data
+      - postgres:/var/lib/postgresql
 
   nginx:
     image: nginx:alpine
@@ -318,6 +318,8 @@ volumes:
 ```
 
 安装程序会为 PostgreSQL 启用 `pg_trgm` 扩展和 GIN trigram 索引。
+
+PostgreSQL 18 使用 `/var/lib/postgresql/18/docker` 作为数据目录，因此卷挂载到 `/var/lib/postgresql`。
 
 ### 4. 启动并安装
 
