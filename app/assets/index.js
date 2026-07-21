@@ -324,7 +324,7 @@ async function runAvatarMirror(btn) {
                 body.append("seed", String(i));
                 const response = await fetch(btn.dataset.url, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
                 const data = await response.json();
-                if (!data?.ok) throw new Error(style + " 镜像失败");
+                if (!data?.ok) throw new Error(data?.message || style + " 镜像失败");
                 if (status) status.textContent = style + " 已完成 " + i + " / " + seedCount;
             }
             const body = new FormData();

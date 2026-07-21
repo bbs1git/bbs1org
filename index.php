@@ -885,15 +885,26 @@ function plugin_market_fetch(): array
     }
     return ['ok' => (int)($data['ok'] ?? 1), 'message' => (string)($data['message'] ?? ''), 'plugins' => $plugins];
 }
+function require_writable_dir(string $dir, string $message): void
+{
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) err($message);
+    if (!is_writable($dir)) err($message);
+    $probe = @tempnam($dir, '.write-test-');
+    if ($probe === false || @file_put_contents($probe, '1', LOCK_EX) === false) {
+        if ($probe !== false) @unlink($probe);
+        err($message);
+    }
+    @unlink($probe);
+}
 function plugin_dir_require_writable(): void
 {
-    if (!is_dir(PLUGIN_DIR) && !mkdir(PLUGIN_DIR, 0755, true)) err('插件目录不可写，请检查 app/plugins 目录权限');
-    if (!is_writable(PLUGIN_DIR)) err('插件目录不可写，请检查 app/plugins 目录权限');
+    require_writable_dir(PLUGIN_DIR, '插件目录不可写，请检查 app/plugins/ 目录权限');
 }
 function plugin_market_install(string $id): void
 {
     need_admin();
     if (!plugin_id_valid($id)) err('插件不存在');
+    plugin_dir_require_writable();
     $market = plugin_market_fetch();
     $item = $market['plugins'][$id] ?? null;
     if (!is_array($item)) err((string)($market['message'] ?? '') ?: '插件市场没有返回该插件');
@@ -901,10 +912,10 @@ function plugin_market_install(string $id): void
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)($item['sha256'] ?? '') !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
     if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $code, $m) !== 1 || (string)$m[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
-    plugin_dir_require_writable();
     $dir = PLUGIN_DIR . '/' . $id;
     $file = $dir . '/plugin.php';
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('插件目录创建失败');
+    require_writable_dir($dir, '插件目录不可写，请检查 app/plugins/ 目录权限');
     if (is_file($file)) {
         $backup_dir = CACHE_DIR . '/plugin-backups';
         if (!is_dir($backup_dir) && !mkdir($backup_dir, 0755, true)) err('插件备份目录创建失败');
@@ -2170,7 +2181,7 @@ function cache_avatar_url(string $style, string $seed): string
     $style = avatar_style($style) ?: 'dylan';
     $seed = avatar_seed($style, $seed);
     $remote = avatar_remote_url($style, $seed);
-    if (!is_dir(AVATAR_DIR) && !mkdir(AVATAR_DIR, 0755, true)) return $remote;
+    require_writable_dir(AVATAR_DIR, '头像目录不可写，请检查 app/avatars/ 目录权限');
     $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
     if (is_file($file)) return asset_url('app/avatars/' . basename($file));
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
@@ -2419,6 +2430,7 @@ function upload_attachment_markdown(array $file): string
     $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
     if ($error === UPLOAD_ERR_NO_FILE) err('请选择附件');
     if ($error !== UPLOAD_ERR_OK) err('附件上传失败');
+    require_writable_dir(UPLOAD_DIR, '附件目录不可写，请检查 app/upload/ 目录权限');
     $size = (int)($file['size'] ?? 0);
     if ($size <= 0) err('附件不能为空');
     if ($size > attachment_max_bytes()) err('单个附件不能超过' . attachment_max_mb() . 'MB');
@@ -2437,6 +2449,7 @@ function upload_attachment_markdown(array $file): string
     $hash_dir = upload_hash_dir($hash);
     $dir = UPLOAD_DIR . '/' . $hash_dir;
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('附件目录不可写');
+    require_writable_dir($dir, '附件目录不可写，请检查 app/upload/ 目录权限');
     $name = $hash . ($is_image ? '.' . $ext : '.attach');
     $target = $dir . '/' . $name;
     try {

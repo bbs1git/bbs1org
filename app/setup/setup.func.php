@@ -109,6 +109,29 @@ function i_save_db_config(array $config): void
     if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
     file_put_contents(INSTALL_DB_CONFIG_FILE, app_db_config_source($config), LOCK_EX);
 }
+
+function i_require_writable_dirs(): void
+{
+    $dirs = [
+        INSTALL_DATA_DIR => 'app/data/',
+        CACHE_DIR => 'app/cache/',
+    ];
+    foreach ($dirs as $dir => $label) {
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            i_install_error('安装环境检查未通过', $label . '目录无法创建，请检查目录权限。');
+        }
+        if (!is_writable($dir)) {
+            i_install_error('安装环境检查未通过', $label . '目录不可写，请赋予 PHP 写入权限。');
+        }
+        $probe = tempnam($dir, '.install-');
+        if ($probe === false || file_put_contents($probe, '1', LOCK_EX) === false) {
+            if ($probe !== false) @unlink($probe);
+            i_install_error('安装环境检查未通过', $label . '目录无法写入文件，请检查目录权限。');
+        }
+        @unlink($probe);
+    }
+}
+
 function i_install_error(string $title, string $message): void
 {
     if (PHP_SAPI === 'cli') {
@@ -148,6 +171,7 @@ function setup_install_run(): never
     if (is_file(INSTALL_LOCK_FILE)) {
         i_locked();
     }
+    i_require_writable_dirs();
     $step = (string)($_POST['step'] ?? '');
     if ($step !== 'install') {
         i_form('我的论坛', 'admin', '', '', '默认版块');
