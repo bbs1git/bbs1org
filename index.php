@@ -4352,6 +4352,86 @@ function favicon_page(): void
     header('Location: ' . asset_url('app/assets/index.svg'), true, 302);
     exit;
 }
+function form_error_route(): void
+{
+    $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
+    unset($_SESSION['form_error']); error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
+}
+function logout_route(): void { require_post(); session_destroy(); go(route_url('home')); }
+function delete_route(): void
+{
+    require_post(); need_login();
+    $type = (string)($_POST['type'] ?? '');
+    $row = deletable_post_row($type, id());
+    if (!$row || !in_array($type, ['topics', 'replies'], true)) err('参数错误');
+    if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限');
+    del($type, id());
+    if ((string)($_POST['back'] ?? '') === 'topic') go(route_url('topic', ['id' => (int)($_POST['tid'] ?? 0)]));
+    go(route_url('home'));
+}
+function migration_route(): void { require_once UPDATE_SETUP_FILE; migrate_page(); }
+function admin_route(): void
+{
+    $do = (string)($_GET['do'] ?? '');
+    if ($do === 'edit') { admin_edit_page(); return; }
+    if (!in_array($do, ['delete', 'restore', 'rebuild_fts', 'batch_action'], true)) { admin_page(); return; }
+    require_post(); need_admin();
+    if ($do === 'delete') {
+        $type = ['user' => 'users', 'group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? ($_POST['type'] ?? '');
+        if (!in_array($type, ['users', 'groups', 'forums', 'topics', 'replies'], true)) err('参数错误');
+        if (!can_admin_delete($type, id())) err('无权限');
+        del($type, id());
+        go(admin_url(['tab' => $_POST['tab'] ?? 'settings']));
+    }
+    need_manage();
+    if ($do === 'restore') {
+        $type = trash_restore_row(id());
+        if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true); go(admin_url(['tab' => 'trash']));
+    }
+    if ($do === 'rebuild_fts') {
+        if (db_driver() !== 'sqlite') {
+            set_flash('当前数据库的搜索索引由数据库自动维护，无需重建');
+            go(admin_url(['tab' => 'topics']));
+        }
+        $start_id = max(1, (int)($_POST['start_id'] ?? 1)); set_flash('已重建主题索引：' . topic_fts_rebuild_from($start_id) . ' 条');
+        go(admin_url(['tab' => 'topics']));
+    }
+    $tab = $_POST['tab'] ?? ''; $action = (string)($_POST['batch_action'] ?? 'delete');
+    if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
+    $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
+    if ($tab === 'trash' && $action === 'restore') {
+        foreach ($ids as $trash_id) {
+            $type = trash_restore_row($trash_id);
+            if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
+        }
+    } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
+        $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted'; $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
+        foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE app_users SET $field=? WHERE id=?", [$value, $uid]);
+    } elseif ($tab === 'topics' && $action === 'move') {
+        $forum_id = max(1, (int)($_POST['forum_id'] ?? 0)); if (!forum_by_id($forum_id)) err('版块不存在');
+        foreach ($ids as $tid) {
+            $row = one("SELECT forum_id FROM app_topics WHERE id=?", [$tid]);
+            if (!$row) continue;
+            q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id=?", [$forum_id, now(), $tid]);
+            refresh_forum_last_topic((int)$row['forum_id']);
+            refresh_forum_last_topic($forum_id);
+        }
+        forums_cache(true);
+    } elseif ($action === 'delete') foreach ($ids as $rid) if (can_admin_delete($tab, $rid)) del($tab, $rid);
+    go(admin_url(['tab' => $tab]));
+}
+function core_routes(): array
+{
+    return [
+        'home'=>'home_page', 'robots.txt'=>'robots_page', 'sitemap.xml'=>'sitemap_page',
+        'favicon.ico'=>'favicon_page', 'apple-touch-icon.png'=>'favicon_page', 'apple-touch-icon-precomposed.png'=>'favicon_page',
+        'search'=>'search_page', 'forum'=>'forum_page', 'topic'=>'topic_page', 'user'=>'user_page', 'favorite'=>'favorite_page',
+        'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'forgot_password'=>'forgot_password_page', 'reset_password'=>'reset_password_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
+        'topic_edit'=>'topic_edit_page', 'reply_edit'=>'reply_edit_page', 'delete'=>'delete_route',
+        'attachment'=>'attachment_page', 'attachment_upload'=>'attachment_upload_page', 'avatar_mirror'=>'avatar_mirror_page',
+        'migrate'=>'migration_route', 'admin'=>'admin_route',
+    ];
+}
 
 parse_path_route();
 $setup_action = (string)($_GET['a'] ?? '');
@@ -4373,121 +4453,10 @@ try {
     if (($_GET['__route_not_found'] ?? '') === '1') {
         err(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '你访问的帖子可能已经删除' : '你访问的页面不存在', 404);
     }
-    $a = $_GET['a'] ?? 'home';
-    $do = $_GET['do'] ?? '';
-    $static_routes = [
-        'home' => 'home_page',
-        'robots.txt' => 'robots_page',
-        'sitemap.xml' => 'sitemap_page',
-        'search' => 'search_page',
-        'attachment' => 'attachment_page',
-        'attachment_upload' => 'attachment_upload_page',
-        'avatar_mirror' => 'avatar_mirror_page',
-        'login' => 'login_page',
-        'register' => 'register_page',
-        'forgot_password' => 'forgot_password_page',
-        'reset_password' => 'reset_password_page',
-        'profile' => 'profile_page',
-        'user' => 'user_page',
-        'notify' => 'user_notify_page',
-        'favorite' => 'favorite_page',
-        'forum' => 'forum_page',
-        'topic' => 'topic_page',
-        'topic_edit' => 'topic_edit_page',
-        'reply_edit' => 'reply_edit_page',
-    ];
-    if (isset($static_routes[$a])) {
-        $static_routes[$a]();
-    }
-    elseif (in_array($a, ['favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true)) favicon_page();
-    elseif ($a === 'form_error') {
-        $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
-        unset($_SESSION['form_error']);
-        error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
-    }
-    elseif ($a === 'logout') {
-        require_post();
-        session_destroy();
-        go(route_url('home'));
-    }
-    elseif ($a === 'delete') {
-        require_post();
-        need_login();
-        $type = (string)($_POST['type'] ?? '');
-        $row = deletable_post_row($type, id());
-        if (!$row || !in_array($type, ['topics', 'replies'], true)) err('参数错误');
-        if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限');
-        del($type, id());
-        $back = (string)($_POST['back'] ?? '');
-        if ($back === 'topic') go(route_url('topic', ['id' => (int)($_POST['tid'] ?? 0)]));
-        go(route_url('home'));
-    } elseif ($a === 'migrate') {
-        require_once UPDATE_SETUP_FILE;
-        migrate_page();
-    } elseif ($a === 'admin') {
-        if ($do === 'edit') admin_edit_page();
-        elseif ($do === 'delete') {
-            require_post();
-            need_admin();
-            $type = ['user' => 'users', 'group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? ($_POST['type'] ?? '');
-            if (!in_array($type, ['users', 'groups', 'forums', 'topics', 'replies'], true)) err('参数错误');
-            if (!can_admin_delete($type, id())) err('无权限');
-            del($type, id());
-            go(admin_url(['tab' => $_POST['tab'] ?? 'settings']));
-        } elseif ($do === 'restore') {
-            require_post();
-            need_admin();
-            need_manage();
-            $type = trash_restore_row(id());
-            if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
-            go(admin_url(['tab' => 'trash']));
-        } elseif ($do === 'rebuild_fts') {
-            require_post();
-            need_admin();
-            need_manage();
-            if (db_driver() !== 'sqlite') {
-                set_flash('当前数据库的搜索索引由数据库自动维护，无需重建');
-                go(admin_url(['tab' => 'topics']));
-            }
-            $start_id = max(1, (int)($_POST['start_id'] ?? 1));
-            $count = topic_fts_rebuild_from($start_id);
-            set_flash('已重建主题索引：' . $count . ' 条');
-            go(admin_url(['tab' => 'topics']));
-        } elseif ($do === 'batch_action') {
-            require_post();
-            need_admin();
-            need_manage();
-            $tab = $_POST['tab'] ?? '';
-            $action = (string)($_POST['batch_action'] ?? 'delete');
-            if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
-            $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
-            if ($tab === 'trash' && $action === 'restore') {
-                foreach ($ids as $trash_id) {
-                    $type = trash_restore_row($trash_id);
-                    if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
-                }
-            } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
-                $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted';
-                $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
-                foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE app_users SET $field=? WHERE id=?", [$value, $uid]);
-            } elseif ($tab === 'topics' && $action === 'move') {
-                $forum_id = max(1, (int)($_POST['forum_id'] ?? 0));
-                if (!forum_by_id($forum_id)) err('版块不存在');
-                foreach ($ids as $tid) {
-                    $row = one("SELECT forum_id FROM app_topics WHERE id=?", [$tid]);
-                    if (!$row) continue;
-                    q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id=?", [$forum_id, now(), $tid]);
-                    refresh_forum_last_topic((int)$row['forum_id']);
-                    refresh_forum_last_topic($forum_id);
-                }
-                forums_cache(true);
-            } elseif ($action === 'delete') {
-                foreach ($ids as $rid) if (can_admin_delete($tab, $rid)) del($tab, $rid);
-            }
-            go(admin_url(['tab' => $tab]));
-        } else admin_page();
-    } elseif (plugin_route((string)$a)) {
-    } else err('你访问的页面不存在', 404);
+    $route = (string)($_GET['a'] ?? 'home');
+    $handler = core_routes()[$route] ?? null;
+    if ($handler !== null) call_user_func($handler);
+    elseif (!plugin_route($route)) err('你访问的页面不存在', 404);
 } catch (Throwable $e) {
     debug_log_write('未捕获异常', $e);
     if (uid() === 1) {
