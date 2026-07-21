@@ -1097,36 +1097,19 @@ function save_settings(): void
     if ($site_name === '') err('网站名不能为空');
     $gid = max(1, (int)($_POST['default_group_id'] ?? 2));
     if (!group_by_id($gid)) err('默认用户组不存在');
-    save_settings_values([
+    $values = [
         'site_name' => $site_name,
-        'site_name_title' => post('site_name_title', 80),
         'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')),
-        'site_keywords' => post('site_keywords', 200),
-        'site_description' => post('site_description', 500),
-        'header_html' => post('header_html', 20000),
-        'footer_html' => post('footer_html', 20000),
-        'show_runtime_info' => isset($_POST['show_runtime_info']) ? '1' : '0',
-        'site_closed' => isset($_POST['site_closed']) ? '1' : '0',
-        'debug_mode' => isset($_POST['debug_mode']) ? '1' : '0',
-        'ignore_ssl_errors' => isset($_POST['ignore_ssl_errors']) ? '1' : '0',
-        'pretty_url' => isset($_POST['pretty_url']) ? '1' : '0',
-        'pc_nav_forum_count' => (string)min(20, max(0, (int)($_POST['pc_nav_forum_count'] ?? 6))),
-        'topics_per_page' => (string)min(200, max(1, (int)($_POST['topics_per_page'] ?? 30))),
-        'replies_per_page' => (string)min(200, max(1, (int)($_POST['replies_per_page'] ?? 50))),
-        'mail_from' => post('mail_from', 120),
-        'mail_virtual' => isset($_POST['mail_virtual']) ? '1' : '0',
         'avatar_mirror_styles' => avatar_mirror_styles_text((string)($_POST['avatar_mirror_styles'] ?? '')),
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
-        'allow_register' => isset($_POST['allow_register']) ? '1' : '0',
-        'reserved_usernames' => post('reserved_usernames', 2000),
         'default_group_id' => (string)$gid,
-        'register_per_hour' => (string)min(100, max(1, (int)($_POST['register_per_hour'] ?? 1))),
-        'login_fail_per_hour' => (string)min(100, max(1, (int)($_POST['login_fail_per_hour'] ?? 5))),
-        'reset_fail_per_hour' => (string)min(100, max(1, (int)($_POST['reset_fail_per_hour'] ?? 5))),
-        'post_interval_seconds' => (string)min(3600, max(0, (int)($_POST['post_interval_seconds'] ?? 5))),
-        'attachment_max_count' => (string)max(0, (int)($_POST['attachment_max_count'] ?? 10)),
-        'attachment_max_mb' => (string)max(0, (int)($_POST['attachment_max_mb'] ?? 20)),
-    ]);
+    ];
+    foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
+    foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
+    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_count' => [0, PHP_INT_MAX, 10], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
+        $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
+    }
+    save_settings_values($values);
 }
 function forums_cache(bool $refresh = false): array
 {
