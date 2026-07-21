@@ -1844,7 +1844,7 @@ function need_manage(): void
 }
 function need_site_access(): void
 {
-    if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装');
+    if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装', index_url(['a' => 'install']));
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin()) {
@@ -1891,10 +1891,11 @@ function ajax_error(string $m, bool $log = true): never
     echo json_encode(['ok' => 0, 'message' => $m], JSON_UNESCAPED_UNICODE);
     exit;
 }
-function simple_error_page(string $m): never
+function simple_error_page(string $m, string $url = ''): never
 {
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}</style></head><body><div class="box">' . h($m) . '</div></body></html>';
+    $content = $url !== '' ? '<a href="' . h($url) . '">' . h($m) . '</a>' : h($m);
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
     exit;
 }
 function go(string $u): never
@@ -4456,7 +4457,7 @@ if ($setup_action === 'update') {
     require_once UPDATE_SETUP_FILE;
     setup_update_run();
 }
-if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装');
+if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装', index_url(['a' => 'install']));
 check();
 need_site_access();
 if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins_refresh_if_changed();
