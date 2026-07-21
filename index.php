@@ -43,6 +43,7 @@ define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
 define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/setup/setup.func.php']);
 define('SEARCH_MIN_CHARS', 3);
+define('PASSWORD_MIN_LENGTH', 4);
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
 define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
@@ -3054,6 +3055,10 @@ function refresh_forum_last_topic(int $fid): void
     $t = one("SELECT id,title FROM app_topics WHERE forum_id=? ORDER BY last_reply_at DESC,id DESC LIMIT 1", [$fid]);
     q("UPDATE app_forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [(int)($t['id'] ?? 0), (string)($t['title'] ?? ''), $fid]);
 }
+function require_password_length(string $password): void
+{
+    if ((int)preg_match_all('/./us', $password) < PASSWORD_MIN_LENGTH) err('密码至少' . PASSWORD_MIN_LENGTH . '位');
+}
 function save_user(bool $admin = false, ?int $target_user_id = null): void
 {
     $ip = ip_addr();
@@ -3086,6 +3091,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     $is_muted = $admin ? (isset($_POST['is_muted']) ? 1 : 0) : (int)($old_user['is_muted'] ?? 0);
     $pwd = (string)($_POST['password'] ?? '');
     $pwd2 = (string)($_POST['password2'] ?? '');
+    if ($pwd !== '') require_password_length($pwd);
     if ($pwd !== '' && $pwd !== $pwd2) err('两次密码不一致');
     $filtered = hook('user.before_save', [
         'username' => $username,
@@ -3312,6 +3318,7 @@ function reset_password_page(): void
         $pwd = (string)($_POST['password'] ?? '');
         $pwd2 = (string)($_POST['password2'] ?? '');
         if ($pwd === '') err('密码不能为空');
+        require_password_length($pwd);
         if ($pwd !== $pwd2) err('两次密码不一致');
         q("UPDATE app_users SET password=? WHERE id=?", [password_hash($pwd, PASSWORD_DEFAULT), (int)$row['user_id']]);
         q("UPDATE app_password_resets SET used_at=? WHERE id=?", [now(), (int)$row['id']]);
