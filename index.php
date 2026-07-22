@@ -657,6 +657,16 @@ function plugin_assets_mark_dirty(): void
     if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
     @file_put_contents(PLUGIN_ASSET_DIRTY_FILE, (string)time(), LOCK_EX);
 }
+function plugin_opcache_refresh(): int
+{
+    if (!function_exists('opcache_invalidate')) return 0;
+    $files = [...array_keys(plugin_files_state()), PLUGIN_CACHE_FILE, PLUGIN_ASSET_CACHE_FILE];
+    $count = 0;
+    foreach (array_unique($files) as $file) {
+        if (is_file($file) && @opcache_invalidate($file, true)) $count++;
+    }
+    return $count;
+}
 function plugin_asset_write(string $file, string $content): void
 {
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
@@ -4233,8 +4243,9 @@ function admin_page(): void
         $plugin_action = (string)($_POST['plugin_action'] ?? '');
         $plugin_id = (string)($_POST['plugin_id'] ?? '');
         if ($plugin_action === 'assets_rebuild') {
+            $opcache_count = plugin_opcache_refresh();
             plugin_assets_rebuild();
-            set_flash('插件资源已重建');
+            set_flash('插件资源已重建' . ($opcache_count > 0 ? '，OPcache 已刷新 ' . $opcache_count . ' 个文件' : ''));
         } elseif ($plugin_action === 'enable') {
             plugin_set_enabled($plugin_id, true);
             set_flash('插件已启用');
