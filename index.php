@@ -1881,9 +1881,11 @@ function can_speak(): bool
 function consume_auth_return_url(): string
 {
     secure_session_start();
-    $url = (string)($_SESSION['auth_return_url'] ?? '');
+    $url = trim((string)($_SESSION['auth_return_url'] ?? ''));
     unset($_SESSION['auth_return_url']);
-    return $url !== '' && !preg_match('/^https?:\/\//i', $url) ? $url : route_url('home');
+    if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')) return route_url('home');
+    if (preg_match('/[\x00-\x1F\x7F]/', $url) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $url)) return route_url('home');
+    return $url;
 }
 function start_authenticated_session(int $user_id): void
 {
