@@ -1148,12 +1148,17 @@ function save_settings(): void
 }
 function forums_cache(bool $refresh = false): array
 {
-    return load_array_cache(FORUM_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM app_forums ORDER BY sort,id")->fetchAll());
+    $forums = load_array_cache(FORUM_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM app_forums ORDER BY sort,id")->fetchAll());
+    if ($refresh) unset($GLOBALS['__forum_by_id_map']);
+    return $forums;
 }
 function forum_by_id(int $id): ?array
 {
-    foreach (forums_cache() as $f) if ((int)$f['id'] === $id) return $f;
-    return null;
+    if (!is_array($GLOBALS['__forum_by_id_map'] ?? null)) {
+        $GLOBALS['__forum_by_id_map'] = [];
+        foreach (forums_cache() as $forum) $GLOBALS['__forum_by_id_map'][(int)$forum['id']] = $forum;
+    }
+    return $GLOBALS['__forum_by_id_map'][$id] ?? null;
 }
 function forum_group_select_options(?array $forum = null, string $field = '', string $label = '', int $size = 5): string
 {
@@ -1185,13 +1190,18 @@ function forum_group_allowed(?array $forum, string $field): bool
 }
 function groups_cache(bool $refresh = false): array
 {
-    return load_array_cache(GROUP_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id")->fetchAll(),
+    $groups = load_array_cache(GROUP_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id")->fetchAll(),
         null, fn(array $cached): bool => !$cached || array_key_exists('upload_quota_mb', (array)reset($cached)));
+    if ($refresh) unset($GLOBALS['__group_by_id_map']);
+    return $groups;
 }
 function group_by_id(int $id): ?array
 {
-    foreach (groups_cache() as $g) if ((int)$g['id'] === $id) return $g;
-    return null;
+    if (!is_array($GLOBALS['__group_by_id_map'] ?? null)) {
+        $GLOBALS['__group_by_id_map'] = [];
+        foreach (groups_cache() as $group) $GLOBALS['__group_by_id_map'][(int)$group['id']] = $group;
+    }
+    return $GLOBALS['__group_by_id_map'][$id] ?? null;
 }
 function user_by_id(int $id): ?array
 {
