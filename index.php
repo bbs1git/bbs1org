@@ -988,7 +988,10 @@ function hook_registry(): array
 }
 function hook(string $name, mixed $value = null, array $ctx = []): mixed
 {
-    foreach (hook_registry()[$name] ?? [] as $entry) {
+    $registry = $GLOBALS['__hook_registry'] ?? hook_registry();
+    $entries = $registry[$name] ?? null;
+    if (!$entries) return $value;
+    foreach ($entries as $entry) {
         $plugin = $entry['plugin'];
         $fn = $entry['fn'];
         $next = plugin_call($plugin, fn(): mixed => function_exists($fn) ? $fn($value, $ctx) : null);
