@@ -552,8 +552,8 @@ function plugin_load(array $plugin): void
 {
     $file = (string)($plugin['file'] ?? '');
     if ($file === '' || !is_file($file)) return;
-    $raw = include_once $file;
-    if (is_array($raw)) $GLOBALS['__plugin_raw'][$file] = $raw;
+    if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) return;
+    $GLOBALS['__plugin_raw'][$file] = include $file;
 }
 function plugin_disable_after_exception(string $id, Throwable $e): void
 {
@@ -603,7 +603,7 @@ function plugins_rebuild_cache(): array
     }
     foreach (array_keys($files_state) as $file) {
         try {
-            $raw = $GLOBALS['__plugin_raw'][$file] ?? include_once $file;
+            $raw = array_key_exists($file, $GLOBALS['__plugin_raw'] ?? []) ? $GLOBALS['__plugin_raw'][$file] : include $file;
         } catch (Throwable $e) {
             $plugin = $previous_by_file[$file] ?? null;
             $id = is_array($plugin) ? (string)($plugin['id'] ?? '') : basename(dirname($file));
@@ -612,8 +612,8 @@ function plugins_rebuild_cache(): array
             if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
             continue;
         }
-        if (!is_array($raw)) continue;
         $GLOBALS['__plugin_raw'][$file] = $raw;
+        if (!is_array($raw)) continue;
         $plugin = plugin_normalize($raw, $file);
         if ($plugin) $plugins[$plugin['id']] = $plugin;
     }
@@ -943,7 +943,8 @@ function plugin_market_install(string $id): void
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-    plugins(true);
+    @unlink(PLUGIN_CACHE_FILE);
+    if (function_exists('opcache_invalidate')) @opcache_invalidate(PLUGIN_CACHE_FILE, true);
     save_settings_values(['plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)), 'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0)]);
     plugin_assets_mark_dirty();
 }
