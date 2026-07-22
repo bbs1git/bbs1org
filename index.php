@@ -1273,10 +1273,12 @@ function create_reply_notifications(int $topic_id, int $reply_id, string $body, 
 {
     $topic = one("SELECT title,user_id FROM app_topics WHERE id=?", [$topic_id]);
     if (!$topic) return;
+    $usernames = notification_targets($body);
     $targets = [];
-    foreach (notification_targets($body) as $username) {
-        $u = one("SELECT id FROM app_users WHERE username=?", [$username]);
-        if ($u) $targets[(int)$u['id']] = true;
+    if ($usernames) {
+        $marks = sql_marks(count($usernames));
+        $users = q("SELECT id FROM app_users WHERE username IN ($marks)", $usernames)->fetchAll();
+        foreach ($users as $user) $targets[(int)$user['id']] = true;
     }
     unset($targets[$sender_id]);
     $excerpt = notification_excerpt($body);
@@ -3023,6 +3025,8 @@ function page(string $title, string $body, array $seo = []): void
     $site_name_title = trim((string)($settings['site_name_title'] ?? '')) ?: $site_name;
     $is_home = ($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '';
     $page_title = $is_home || $title === '' || $title === $site_name ? $site_name_title : $title . ' - ' . $site_name_title;
+    $hook_seo = hook('page.seo', $seo, ['title' => $title, 'page_title' => $page_title]);
+    if (is_array($hook_seo)) $seo = $hook_seo;
     $meta = '';
     $description = trim((string)($seo['description'] ?? ($settings['site_description'] ?? '')));
     if ($is_home && ($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
@@ -4458,7 +4462,7 @@ function admin_edit_page(): void
 function robots_page(): void
 {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "User-agent: *\nDisallow:\n";
+    echo (string)hook('robots.txt', "User-agent: *\nDisallow:\n", []);
     exit;
 }
 function favicon_page(): void
