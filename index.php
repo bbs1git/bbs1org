@@ -416,7 +416,7 @@ function save_settings_values(array $values): void
     settings_cache(true);
     foreach (array_keys($values) as $name) {
         if (str_starts_with((string)$name, 'plugin_')) {
-            hook_registry_reset();
+            plugin_runtime_cache_reset();
             break;
         }
     }
@@ -494,9 +494,9 @@ function plugin_id_valid(string $id): bool
 {
     return preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id) === 1;
 }
-function hook_registry_reset(): void
+function plugin_runtime_cache_reset(): void
 {
-    unset($GLOBALS['__hook_registry']);
+    unset($GLOBALS['__hook_registry'], $GLOBALS['__plugin_enabled_cache']);
 }
 function plugin_normalize(array $plugin, string $file = ''): ?array
 {
@@ -625,7 +625,7 @@ function plugins(bool $refresh = false): array
         }
     }
     $plugins = plugins_rebuild_cache();
-    hook_registry_reset();
+    plugin_runtime_cache_reset();
     return $plugins;
 }
 function plugins_refresh_if_changed(): array
@@ -638,7 +638,10 @@ function plugins_refresh_if_changed(): array
 }
 function plugin_enabled(array $plugin): bool
 {
-    return setting('plugin_' . (string)$plugin['id'] . '_enabled', '0') === '1';
+    $id = (string)($plugin['id'] ?? '');
+    if ($id === '') return false;
+    if (!is_array($GLOBALS['__plugin_enabled_cache'] ?? null)) $GLOBALS['__plugin_enabled_cache'] = [];
+    return $GLOBALS['__plugin_enabled_cache'][$id] ??= setting('plugin_' . $id . '_enabled', '0') === '1';
 }
 function plugin_assets_mark_dirty(): void
 {
@@ -784,7 +787,7 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
     }
     q("DELETE FROM app_settings WHERE name IN (?,?,?,?)", ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config', 'plugin_' . $id . '_disabled_reason']);
     settings_cache(true);
-    hook_registry_reset();
+    plugin_runtime_cache_reset();
     plugin_assets_mark_dirty();
 }
 function plugin_share_topic_title(array $plugin): string
