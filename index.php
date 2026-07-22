@@ -955,7 +955,12 @@ function plugin_market_install(string $id): void
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
     @unlink(PLUGIN_CACHE_FILE);
     if (function_exists('opcache_invalidate')) @opcache_invalidate(PLUGIN_CACHE_FILE, true);
-    save_settings_values(['plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)), 'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0)]);
+    save_settings_values([
+        'plugin_' . $id . '_enabled' => '0',
+        'plugin_' . $id . '_disabled_reason' => '',
+        'plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)),
+        'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0),
+    ]);
     plugin_assets_mark_dirty();
 }
 function plugin_market_update_info(array $plugin, ?array $item): ?array
@@ -4236,7 +4241,7 @@ function admin_plugins_market_page_html(): string
         $needs_update = isset($update_ids[$id]);
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
-        $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
@@ -4315,7 +4320,7 @@ function admin_page(): void
             set_flash('插件入口显示已更新');
         } elseif ($plugin_action === 'market_install') {
             plugin_market_install($plugin_id);
-            set_flash('插件已安装或更新，请确认后手动启用。');
+            set_flash('插件已安装或更新，已自动停用，请启用后使用。');
         } else err('参数错误');
         go(admin_url(['tab' => 'plugins', 'view' => (string)($_GET['view'] ?? '') === 'market' ? 'market' : null]));
     }
