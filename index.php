@@ -1765,17 +1765,28 @@ function form_shell(string $body, ?array $m = null): string
 }
 function stats_cache(bool $refresh = false, bool $force = false): array
 {
+    static $last_check_at = 0;
     $reload = fn(): array => [
         'topics' => (int)val("SELECT COUNT(*) FROM app_topics"),
         'replies' => (int)val("SELECT COUNT(*) FROM app_replies"),
         'users' => (int)val("SELECT COUNT(*) FROM app_users"),
         'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(),
     ];
-    if ($refresh && $force) return load_array_cache(STATS_CACHE_FILE, true, $reload);
+    $now = time();
+    $hard_refresh = $refresh && $force;
+    if (!$hard_refresh && $last_check_at > 0 && $last_check_at >= $now - STATS_CACHE_TTL) {
+        return load_array_cache(STATS_CACHE_FILE, false, $reload);
+    }
+    if ($hard_refresh) {
+        $stats = load_array_cache(STATS_CACHE_FILE, true, $reload);
+        $last_check_at = $now;
+        return $stats;
+    }
+    $last_check_at = $now;
 
     clearstatcache(true, STATS_CACHE_FILE);
     $mtime = @filemtime(STATS_CACHE_FILE);
-    if ($mtime !== false && $mtime >= time() - STATS_CACHE_TTL) {
+    if ($mtime !== false && $mtime >= $now - STATS_CACHE_TTL) {
         return load_array_cache(STATS_CACHE_FILE, false, $reload);
     }
     $fallback = null;
