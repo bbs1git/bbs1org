@@ -1220,6 +1220,20 @@ function content_excerpt(string $body, int $max = 120): string
     $body = trim(preg_replace('/\s+/u', ' ', $body) ?? '');
     return cut($body, $max);
 }
+function markdown_without_code_blocks(string $body): string
+{
+    $body = str_replace(["\r\n", "\r"], "\n", $body);
+    $lines = [];
+    $in_code = false;
+    foreach (explode("\n", $body) as $line) {
+        if (preg_match('/^\s*```\s*[\w-]*\s*$/u', $line)) {
+            $in_code = !$in_code;
+            continue;
+        }
+        if (!$in_code) $lines[] = $line;
+    }
+    return implode("\n", $lines);
+}
 function notification_excerpt(string $body, int $max = 120): string
 {
     $body = preg_replace('/^\s*>.*(?:\n|$)/mu', '', $body) ?? $body;
@@ -3812,7 +3826,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             $rows[] = $topics[$topic_id] + [
                 'my_reply_at' => (int)$reply['created_at'],
                 'my_reply_id' => (int)$reply['id'],
-                'my_reply_excerpt' => content_excerpt((string)$reply['body'], 180),
+                'my_reply_excerpt' => content_excerpt(markdown_without_code_blocks((string)$reply['body']), 180),
             ];
         }
         $rows = attach_topic_list_users($rows);
