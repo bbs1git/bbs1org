@@ -414,6 +414,12 @@ function save_settings_values(array $values): void
     $stmt = db()->prepare(app_db_upsert_sql(db_driver(), 'app_settings', ['name', 'value'], ['name']));
     foreach ($values as $name => $value) $stmt->execute([$name, $value]);
     settings_cache(true);
+    foreach (array_keys($values) as $name) {
+        if (str_starts_with((string)$name, 'plugin_')) {
+            hook_registry_reset();
+            break;
+        }
+    }
 }
 function update_state_data(): array
 {
@@ -487,6 +493,10 @@ register_shutdown_function(function (): void {
 function plugin_id_valid(string $id): bool
 {
     return preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id) === 1;
+}
+function hook_registry_reset(): void
+{
+    unset($GLOBALS['__hook_registry']);
 }
 function plugin_normalize(array $plugin, string $file = ''): ?array
 {
@@ -614,7 +624,9 @@ function plugins(bool $refresh = false): array
             return $plugins = $cached['plugins'];
         }
     }
-    return $plugins = plugins_rebuild_cache();
+    $plugins = plugins_rebuild_cache();
+    hook_registry_reset();
+    return $plugins;
 }
 function plugins_refresh_if_changed(): array
 {
@@ -772,6 +784,7 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
     }
     q("DELETE FROM app_settings WHERE name IN (?,?,?,?)", ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config', 'plugin_' . $id . '_disabled_reason']);
     settings_cache(true);
+    hook_registry_reset();
     plugin_assets_mark_dirty();
 }
 function plugin_share_topic_title(array $plugin): string
@@ -936,17 +949,27 @@ function plugin_market_update_info(array $plugin, ?array $item): ?array
     if (!$sha_update && !$version_update) return null;
     return ['version' => $remote_version, 'sha256' => $remote_sha];
 }
-function hook(string $name, mixed $value = null, array $ctx = []): mixed
+function hook_registry(): array
 {
+    if (is_array($GLOBALS['__hook_registry'] ?? null)) return $GLOBALS['__hook_registry'];
+    $registry = [];
     foreach (plugins() as $plugin) {
         if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
-        if ($name === 'sidebar.feature_links' && !plugin_entry_enabled($plugin, 'feature_links')) continue;
-        if ($name === 'sidebar.stack' && !plugin_entry_enabled($plugin, 'sidebar_cards')) continue;
-        $fn = $plugin['hooks'][$name] ?? null;
-        if (is_string($fn)) {
-            $next = plugin_call($plugin, fn(): mixed => function_exists($fn) ? $fn($value, $ctx) : null);
-            if ($next !== null) $value = $next;
+        foreach ($plugin['hooks'] as $name => $fn) {
+            if ($name === 'sidebar.feature_links' && !plugin_entry_enabled($plugin, 'feature_links')) continue;
+            if ($name === 'sidebar.stack' && !plugin_entry_enabled($plugin, 'sidebar_cards')) continue;
+            $registry[$name][] = ['plugin' => $plugin, 'fn' => $fn];
         }
+    }
+    return $GLOBALS['__hook_registry'] = $registry;
+}
+function hook(string $name, mixed $value = null, array $ctx = []): mixed
+{
+    foreach (hook_registry()[$name] ?? [] as $entry) {
+        $plugin = $entry['plugin'];
+        $fn = $entry['fn'];
+        $next = plugin_call($plugin, fn(): mixed => function_exists($fn) ? $fn($value, $ctx) : null);
+        if ($next !== null) $value = $next;
     }
     return $value;
 }
