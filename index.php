@@ -2772,12 +2772,14 @@ function quote_reply_action(array $row, int $floor = 0): string
 }
 function topic_list_select_columns(): string
 {
+    static $cached = null;
+    if ($cached !== null) return $cached;
     $columns = 'id,title,highlight_style,created_at,reply_count,last_reply_at,last_reply_user_id,forum_id,user_id';
     $allowed = ['id', 'forum_id', 'user_id', 'title', 'body', 'highlight_style', 'reply_order', 'reply_count', 'view_count', 'last_reply_at', 'last_reply_user_id', 'created_at'];
     $extra = hook('topic.list_columns', [], ['columns' => explode(',', $columns)]);
-    if (!is_array($extra)) return $columns;
+    if (!is_array($extra)) return $cached = $columns;
     $extra = array_values(array_intersect($allowed, array_filter($extra, 'is_string')));
-    return implode(',', array_values(array_unique(array_merge(explode(',', $columns), $extra))));
+    return $cached = implode(',', array_values(array_unique(array_merge(explode(',', $columns), $extra))));
 }
 function topic_list_rows(array $rows): array
 {
