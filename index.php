@@ -18,6 +18,8 @@ define('UPLOAD_DIR', APP_DIR . '/upload');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
+define('STATS_CACHE_LOCK_FILE', CACHE_DIR . '/stats.lock');
+define('STATS_CACHE_TTL', 60);
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
@@ -1705,14 +1707,45 @@ function form_shell(string $body, ?array $m = null): string
 {
     return shell_html($body, sidebar_stack_html([sidebar_user_card_html($m)]));
 }
-function stats_cache(bool $refresh = false): array
+function stats_cache(bool $refresh = false, bool $force = false): array
 {
-    return load_array_cache(STATS_CACHE_FILE, $refresh, fn(): array => [
+    $reload = fn(): array => [
         'topics' => (int)val("SELECT COUNT(*) FROM app_topics"),
         'replies' => (int)val("SELECT COUNT(*) FROM app_replies"),
         'users' => (int)val("SELECT COUNT(*) FROM app_users"),
         'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(),
-    ]);
+    ];
+    if ($refresh && $force) return load_array_cache(STATS_CACHE_FILE, true, $reload);
+
+    clearstatcache(true, STATS_CACHE_FILE);
+    $mtime = @filemtime(STATS_CACHE_FILE);
+    if ($mtime !== false && $mtime >= time() - STATS_CACHE_TTL) {
+        return load_array_cache(STATS_CACHE_FILE, false, $reload);
+    }
+    $fallback = null;
+    if ($mtime !== false) {
+        $cached = include STATS_CACHE_FILE;
+        if (is_array($cached)) $fallback = $cached;
+    }
+
+    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
+    $lock = @fopen(STATS_CACHE_LOCK_FILE, 'c');
+    if (!$lock) return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
+    if (!flock($lock, LOCK_EX)) {
+        fclose($lock);
+        return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
+    }
+    try {
+        clearstatcache(true, STATS_CACHE_FILE);
+        $mtime = @filemtime(STATS_CACHE_FILE);
+        if ($mtime !== false && $mtime >= time() - STATS_CACHE_TTL) {
+            return load_array_cache(STATS_CACHE_FILE, false, $reload);
+        }
+        return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
 }
 function now(): int
 {

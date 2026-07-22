@@ -225,7 +225,7 @@ function setup_install_run(): never
     $db->prepare("INSERT INTO app_users(username,password,email,bio,avatar_style,avatar_seed,group_id,last_post_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, $welcome_ts, $welcome_ts]);
     forums_cache(true);
     groups_cache(true);
-    stats_cache(true);
+    stats_cache(true, true);
     settings_cache(true);
     file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX);
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
@@ -1181,7 +1181,7 @@ function migrate_refresh_caches(): void
     settings_cache(true);
     forums_cache(true);
     groups_cache(true);
-    stats_cache(true);
+    stats_cache(true, true);
     plugin_assets_mark_dirty();
 }
 
