@@ -295,8 +295,17 @@ function val(string $sql, array $p = [])
 }
 function cache_write_php(string $file, mixed $value): void
 {
-    if (!is_dir(dirname($file))) mkdir(dirname($file), 0755, true);
-    file_put_contents($file, "<?php\nif (!defined('APP_ROOT')) exit;\nreturn " . var_export($value, true) . ";\n", LOCK_EX);
+    $dir = dirname($file);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) throw new RuntimeException('无法创建缓存目录');
+    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
+    $content = "<?php\nif (!defined('APP_ROOT')) exit;\nreturn " . var_export($value, true) . ";\n";
+    try {
+        if (file_put_contents($tmp, $content, LOCK_EX) === false) throw new RuntimeException('无法写入缓存临时文件');
+        if (!@rename($tmp, $file)) throw new RuntimeException('无法原子替换缓存文件');
+    } finally {
+        if (is_file($tmp)) @unlink($tmp);
+    }
+    clearstatcache(true, $file);
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
 }
 function load_array_cache(string $file, bool $refresh, callable $reload, ?array $fallback = null, ?callable $validate = null): array
