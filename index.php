@@ -1924,7 +1924,7 @@ function need_site_access(): void
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin()) {
-        $core_allowed = in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
+        $core_allowed = in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'robots.txt', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
         if (!$core_allowed && hook('site.closed_allow', false, ['action' => $a]) !== true) err('网站已关闭');
     }
 }
@@ -4458,30 +4458,7 @@ function admin_edit_page(): void
 function robots_page(): void
 {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "User-agent: *\nDisallow:\nSitemap: " . absolute_url(app_url('sitemap.xml')) . "\n";
-    exit;
-}
-function sitemap_page(): void
-{
-    $urls = [
-        ['loc' => absolute_url(route_url('home')), 'lastmod' => time()],
-    ];
-    foreach (forums_cache() as $f) {
-        if ((string)($f['allow_view_groups'] ?? '') !== '') continue;
-        $urls[] = ['loc' => absolute_url(route_url('forum', ['id' => (int)$f['id']])), 'lastmod' => time()];
-    }
-    foreach (q("SELECT id,created_at,last_reply_at FROM app_topics ORDER BY id DESC LIMIT 5000")->fetchAll() as $t) {
-        $urls[] = ['loc' => absolute_url(route_url('topic', ['id' => (int)$t['id']])), 'lastmod' => max((int)$t['created_at'], (int)$t['last_reply_at'])];
-    }
-    foreach (q("SELECT id FROM app_users ORDER BY id DESC LIMIT 5000")->fetchAll() as $u) {
-        $urls[] = ['loc' => absolute_url(route_url('user', ['id' => (int)$u['id']])), 'lastmod' => time()];
-    }
-    header('Content-Type: application/xml; charset=utf-8');
-    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
-    foreach ($urls as $url) {
-        echo "  <url><loc>" . h($url['loc']) . "</loc><lastmod>" . date('c', (int)$url['lastmod']) . "</lastmod></url>\n";
-    }
-    echo "</urlset>\n";
+    echo "User-agent: *\nDisallow:\n";
     exit;
 }
 function favicon_page(): void
@@ -4560,7 +4537,7 @@ function admin_route(): void
 function core_routes(): array
 {
     return [
-        'home'=>'home_page', 'robots.txt'=>'robots_page', 'sitemap.xml'=>'sitemap_page',
+        'home'=>'home_page', 'robots.txt'=>'robots_page',
         'favicon.ico'=>'favicon_page', 'apple-touch-icon.png'=>'favicon_page', 'apple-touch-icon-precomposed.png'=>'favicon_page',
         'search'=>'search_page', 'forum'=>'forum_page', 'topic'=>'topic_page', 'user'=>'user_page', 'favorite'=>'favorite_page',
         'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'forgot_password'=>'forgot_password_page', 'reset_password'=>'reset_password_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
