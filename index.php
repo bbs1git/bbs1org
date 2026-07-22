@@ -2529,36 +2529,52 @@ function markdown_token(array &$tokens, string $html): string
 }
 function markdown_inline(string $text, int $topic_id = 0): string
 {
+    if (strpbrk($text, '`*[@') === false && !str_contains($text, 'http')) return h($text);
+    $has_url = str_contains($text, 'http://') || str_contains($text, 'https://');
     $text = h($text);
     $codes = [];
-    $clean_url = fn($url) => html_entity_decode((string)$url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $text = preg_replace_callback('/`([^`\n]+)`/u', function ($m) use (&$codes) {
-        return markdown_token($codes, '<code>' . $m[1] . '</code>');
-    }, $text) ?? $text;
-    $text = preg_replace('/\*\*([^*\n]+)\*\*/u', '<strong>$1</strong>', $text) ?? $text;
-    $text = preg_replace('/(?<!\*)\*([^*\n]+)\*(?!\*)/u', '<em>$1</em>', $text) ?? $text;
-    $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
-        $url = html_entity_decode((string)$m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return markdown_token($codes, '<img src="' . h($url) . '" alt="' . $m[1] . '" loading="lazy" referrerpolicy="no-referrer">');
-    }, $text) ?? $text;
-    $text = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes, $clean_url) {
-        return markdown_token($codes, '<a href="' . h($clean_url($m[2])) . '" target="_blank" rel="nofollow noopener">' . $m[1] . '</a>');
-    }, $text) ?? $text;
-    $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$codes, $topic_id) {
-        if ($topic_id <= 0) return $m[0];
-        $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
-        return markdown_token($codes, '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
-    }, $text) ?? $text;
-    $text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
-        $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
-    }, $text) ?? $text;
-    $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
-        $raw_url = rtrim($m[1], '.,;:!?');
-        $url = html_entity_decode($raw_url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $tail = substr($m[1], strlen($raw_url));
-        return '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . h($url) . '</a>' . h($tail);
-    }, $text) ?? $text;
+    if (str_contains($text, '`')) {
+        $text = preg_replace_callback('/`([^`\n]+)`/u', function ($m) use (&$codes) {
+            return markdown_token($codes, '<code>' . $m[1] . '</code>');
+        }, $text) ?? $text;
+    }
+    if (str_contains($text, '*')) {
+        $text = preg_replace_callback('/\*\*\*([^*\n]+)\*\*\*|\*\*([^*\n]+)\*\*|(?<!\*)\*([^*\n]+)\*(?!\*)/u', function ($m) {
+            if (($m[1] ?? '') !== '') return '<em><strong>' . $m[1] . '</strong></em>';
+            if (($m[2] ?? '') !== '') return '<strong>' . $m[2] . '</strong>';
+            return '<em>' . $m[3] . '</em>';
+        }, $text) ?? $text;
+    }
+    if (str_contains($text, '[') && $has_url) {
+        $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)|\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
+            $image = str_starts_with($m[0], '![');
+            $label = (string)$m[$image ? 1 : 3];
+            $url = html_entity_decode((string)$m[$image ? 2 : 4], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $html = $image
+                ? '<img src="' . h($url) . '" alt="' . $label . '" loading="lazy" referrerpolicy="no-referrer">'
+                : '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . $label . '</a>';
+            return markdown_token($codes, $html);
+        }, $text) ?? $text;
+    }
+    if (str_contains($text, '@')) {
+        $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$codes, $topic_id) {
+            if ($topic_id <= 0) return $m[0];
+            $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
+            return markdown_token($codes, '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
+        }, $text) ?? $text;
+        $text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
+            $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
+        }, $text) ?? $text;
+    }
+    if ($has_url) {
+        $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
+            $raw_url = rtrim($m[1], '.,;:!?');
+            $url = html_entity_decode($raw_url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $tail = substr($m[1], strlen($raw_url));
+            return '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . h($url) . '</a>' . h($tail);
+        }, $text) ?? $text;
+    }
     return strtr($text, $codes);
 }
 function markdown_table_cells(string $line): array
