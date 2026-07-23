@@ -46,8 +46,9 @@ define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/av
 define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/setup/setup.func.php']);
 define('SEARCH_MIN_CHARS', 3);
 define('PASSWORD_MIN_LENGTH', 4);
+define('COOKIE_TTL', 15552000);
 define('AUTH_COOKIE_NAME', 'bbs_auth');
-define('AUTH_COOKIE_TTL', 2592000);
+define('AUTH_COOKIE_TTL', COOKIE_TTL);
 define('CSRF_COOKIE_NAME', 'bbs_csrf');
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
@@ -386,7 +387,7 @@ function csrf_token(): string
     if (!preg_match('/^[a-f0-9]{64}$/D', $token)) {
         $token = bin2hex(random_bytes(32));
         setcookie(CSRF_COOKIE_NAME, $token, [
-            'expires' => time() + 86400,
+            'expires' => time() + COOKIE_TTL,
             'path' => '/',
             'secure' => auth_cookie_secure(),
             'httponly' => true,
@@ -1656,7 +1657,7 @@ function remember_forum(int $fid): void
     $ids = array_values(array_diff(array_filter($raw), [$fid]));
     array_unshift($ids, $fid);
     $value = implode(',', array_slice($ids, 0, 10));
-    setcookie('__recent_forums', $value, ['expires' => time() + 31536000, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    setcookie('__recent_forums', $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
     $_COOKIE['__recent_forums'] = $value;
 }
 function recent_forums(): array
@@ -3953,7 +3954,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $sort = 'post';
     } elseif (array_key_exists('sort', $_GET)) {
         $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
-        setcookie('__topic_index_sort', $sort, ['expires' => time() + 31536000, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+        setcookie('__topic_index_sort', $sort, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
         $_COOKIE['__topic_index_sort'] = $sort;
     } else {
         $sort = (($_COOKIE['__topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
