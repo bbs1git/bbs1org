@@ -4,7 +4,7 @@ declare(strict_types=1);
 define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v6.0');
+define('APP_VERSION', 'v6.1');
 define('APP_SQL_DEBUG', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1235,7 +1235,17 @@ function markdown_without_code_blocks(string $body): string
             $in_code = !$in_code;
             continue;
         }
-        if (!$in_code) $lines[] = $line;
+        if ($in_code) continue;
+        if (str_contains($line, '|')) {
+            $cells = markdown_table_cells($line);
+            $separator = $cells && count(array_filter($cells, fn(string $cell): bool => preg_match('/^:?-{3,}:?$/', trim($cell)) === 1)) === count($cells);
+            if ($separator) continue;
+            if (count($cells) > 1) {
+                $lines[] = implode(' ', array_filter(array_map('trim', $cells), 'strlen'));
+                continue;
+            }
+        }
+        $lines[] = $line;
     }
     return implode("\n", $lines);
 }
@@ -1583,7 +1593,8 @@ function admin_reply_row(array $r, bool $manageable = true): string
     $topic_url = route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]);
     $topic_title = (string)($r['topic_title'] ?? '主题已删除');
     $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'], 'danger', '确定删除？') . admin_row_check_html((int)$r['id']) . '</div>' : '';
-    return '<li class="admin-list-item admin-object-row admin-reply-row"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h(cut($r['body'], 150)) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
+    $excerpt = content_excerpt(markdown_without_code_blocks((string)$r['body']), 150);
+    return '<li class="admin-list-item admin-object-row admin-reply-row"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h($excerpt) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
 {

@@ -220,6 +220,7 @@ app_db_upsert('plugin_hello_items', [
 - 需要计算多个时间值的最大值时使用 `app_db_greatest('表达式1', '表达式2')`，不要直接写 SQLite 专用的 `MAX(a,b)`。
 - 插件表名建议使用 `plugin_插件ID_` 前缀，并为 Upsert 的键建立 `UNIQUE` 或主键。
 - 主题和回帖搜索不要直接操作 `app_topics_fts`、`app_replies_fts`。新增或更新内容后分别调用 `topic_fts_sync($topic_id, $title, $body)`、`reply_fts_sync($reply_id, $body)`；系统会按数据库使用 SQLite FTS5、MySQL ngram FULLTEXT 或 PostgreSQL `pg_trgm` 索引。
+- 插件需要在正文中保存结构化且可搜索的内容时，优先使用标准 Markdown 表格；不要用 Base64 或自定义标记封装需要搜索的字段。表格单元格中的换行应转为空格，`|` 应写成 `\|`。
 
 ### Hook 和页面
 
