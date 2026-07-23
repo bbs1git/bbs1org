@@ -3889,7 +3889,14 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $profile_tab = $_GET['tab'] ?? 'topics';
     if (!in_array($profile_tab, ['topics', 'replies', 'favorites', 'files', 'notifications'], true)) $profile_tab = 'topics';
     if ($profile_uid && !$own_profile && $profile_tab === 'notifications') $profile_tab = 'topics';
-    $sort = $profile_uid ? 'post' : (($_GET['sort'] ?? 'comment') === 'post' ? 'post' : 'comment');
+    if ($profile_uid) {
+        $sort = 'post';
+    } elseif (array_key_exists('sort', $_GET)) {
+        $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
+        $_SESSION['topic_index_sort'] = $sort;
+    } else {
+        $sort = (($_SESSION['topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
+    }
     $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
     $q = trim((string)($_GET['q'] ?? ''));
     $search_field = topic_search_field((string)($_GET['field'] ?? 'title'));
