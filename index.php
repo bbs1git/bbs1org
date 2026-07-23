@@ -2627,9 +2627,10 @@ function markdown_inline(string $text, int $topic_id = 0): string
         }, $text) ?? $text;
     }
     if (str_contains($text, '[') && $has_url) {
-        $text = preg_replace_callback('/!\[([^\]\n]*)\]\((https?:\/\/[^\s)<]+)\)|\[([^\]\n]+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
+        $text = preg_replace_callback('/!\[((?:\\\\.|[^\]\\\\\n])*)\]\((https?:\/\/[^\s)<]+)\)|\[((?:\\\\.|[^\]\\\\\n])+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
             $image = str_starts_with($m[0], '![');
             $label = (string)$m[$image ? 1 : 3];
+            $label = str_replace(['\\]', '\\[', '\\\\'], [']', '[', '\\'], $label);
             $url = html_entity_decode((string)$m[$image ? 2 : 4], ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $html = $image
                 ? '<img src="' . h($url) . '" alt="' . $label . '" loading="lazy" referrerpolicy="no-referrer">'
