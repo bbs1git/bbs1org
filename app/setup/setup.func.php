@@ -77,9 +77,11 @@ function app_db_schema(string $driver): array
     if ($driver === 'mysql') {
         $indexes['idx_topics_search_title'] = 'CREATE FULLTEXT INDEX idx_topics_search_title ON app_topics(title) WITH PARSER ngram';
         $indexes['idx_topics_search_body'] = 'CREATE FULLTEXT INDEX idx_topics_search_body ON app_topics(body) WITH PARSER ngram';
+        $indexes['idx_replies_search_body'] = 'CREATE FULLTEXT INDEX idx_replies_search_body ON app_replies(body) WITH PARSER ngram';
     } elseif ($driver === 'pgsql') {
         $indexes['idx_topics_search_title'] = 'CREATE INDEX idx_topics_search_title ON app_topics USING gin (title gin_trgm_ops)';
         $indexes['idx_topics_search_body'] = 'CREATE INDEX idx_topics_search_body ON app_topics USING gin (body gin_trgm_ops)';
+        $indexes['idx_replies_search_body'] = 'CREATE INDEX idx_replies_search_body ON app_replies USING gin (body gin_trgm_ops)';
     }
     return [$tables, $indexes];
 }
@@ -205,7 +207,10 @@ function setup_install_run(): never
     i_save_db_config($config);
     [$tables, $indexes] = app_db_schema($driver);
     foreach ($tables as $table => $sql) if (!app_db_table_exists($db, $driver, $table)) $db->exec($sql);
-    if ($driver === 'sqlite') $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')");
+    if ($driver === 'sqlite') {
+        $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')");
+        $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')");
+    }
     app_db_prepare_search($db, $driver);
     foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, app_db_index_table($sql))) $db->exec($sql);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin', 'upload_quota_mb'], ['id']));
@@ -626,7 +631,10 @@ function us_install_schema(): array
         if ($table) $tables[$table['name']] = $table;
     }
     $virtual_tables = [];
-    if ($driver === 'sqlite') $virtual_tables['app_topics_fts'] = "CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')";
+    if ($driver === 'sqlite') {
+        $virtual_tables['app_topics_fts'] = "CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')";
+        $virtual_tables['app_replies_fts'] = "CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')";
+    }
     return [$tables, $virtual_tables, $schema_indexes];
 }
 
@@ -690,9 +698,11 @@ function us_sync_schema(): array
         if ($transactional) $db->beginTransaction();
         $changes = array_merge($changes, us_rename_legacy_system_tables($db, db_driver()));
         app_db_prepare_search($db, db_driver());
+        $created_virtual_tables = [];
         foreach ($virtual_tables as $table => $sql) {
             if (!app_db_table_exists($db, db_driver(), $table)) {
                 $db->exec($sql);
+                $created_virtual_tables[] = $table;
                 $changes[] = '新增虚拟表：' . $table;
             }
         }
@@ -708,6 +718,14 @@ function us_sync_schema(): array
                 $db->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $table) . ' ADD COLUMN ' . $definition);
                 $changes[] = '新增字段：' . $table . '.' . $column;
             }
+        }
+        if (in_array('app_topics_fts', $created_virtual_tables, true)) {
+            $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
+            $changes[] = '初始化主题搜索索引';
+        }
+        if (in_array('app_replies_fts', $created_virtual_tables, true)) {
+            $db->exec('INSERT INTO app_replies_fts(rowid,body) SELECT id,body FROM app_replies');
+            $changes[] = '初始化回帖搜索索引';
         }
         foreach (['idx_attachments_hash'=>'app_attachments', 'idx_topics_user'=>'app_topics', 'idx_topics_user_updated'=>'app_topics', 'idx_topics_forum_updated'=>'app_topics', 'idx_users_created'=>'app_users', 'idx_replies_user'=>'app_replies', 'idx_replies_user_topic_time'=>'app_replies', 'idx_notifications_recipient_read'=>'app_notifications', 'idx_notifications_sender'=>'app_notifications'] as $index => $table) {
             if (!app_db_index_exists($db, db_driver(), $index, $table)) continue;
@@ -1065,6 +1083,7 @@ function migrate_core_table_map(): array
         'ip_logs' => 'app_ip_logs',
         'settings' => 'app_settings',
         'topics_fts' => 'app_topics_fts',
+        'replies_fts' => 'app_replies_fts',
     ];
 }
 
@@ -1088,9 +1107,15 @@ function migrate_value(mixed $value): mixed
 
 function migrate_rebuild_search(PDO $db, string $driver): void
 {
-    if ($driver !== 'sqlite' || !app_db_table_exists($db, $driver, 'app_topics_fts')) return;
-    $db->exec('DELETE FROM app_topics_fts');
-    $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
+    if ($driver !== 'sqlite') return;
+    if (app_db_table_exists($db, $driver, 'app_topics_fts')) {
+        $db->exec('DELETE FROM app_topics_fts');
+        $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
+    }
+    if (app_db_table_exists($db, $driver, 'app_replies_fts')) {
+        $db->exec('DELETE FROM app_replies_fts');
+        $db->exec('INSERT INTO app_replies_fts(rowid,body) SELECT id,body FROM app_replies');
+    }
 }
 
 function migrate_reset_sequences(PDO $db, string $driver, array $tables): void

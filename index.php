@@ -1424,8 +1424,9 @@ function admin_filter_sql(string $type, string $query = '', string $field = 'tit
                 $where[] = 'user_id IN (' . sql_marks(count($uids)) . ')';
                 $params = array_merge($params, $uids);
             } else {
-                $where[] = "body LIKE ? ESCAPE '!'";
-                $params[] = $like;
+                [$condition, $search_params] = reply_search_condition($query);
+                $where[] = '(' . $condition . ')';
+                $params = array_merge($params, $search_params);
             }
         }
     } else {
@@ -1491,14 +1492,16 @@ function admin_bulk_delete_form_open(string $tab, string $query): string
 {
     return '<form id="admin-bulk-form" method="post" action="' . h(admin_url(['do' => 'batch_action'])) . '" data-confirm="确定执行批量操作？">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
 }
-function admin_rebuild_fts_form(): string
+function admin_rebuild_fts_form(string $type = 'topics'): string
 {
     if (db_driver() !== 'sqlite') return '';
-    return '<form class="admin-rebuild-fts-form" method="post" action="' . h(admin_url(['do' => 'rebuild_fts'])) . '" data-prompt-title="重建主题索引" data-prompt-message="请输入起始主题 ID，将重建该 ID 及之后的主题搜索索引。" data-prompt-field="start_id" data-prompt-value="1">' . form_token() . '<input type="hidden" name="start_id" value="1"><button class="admin-search-link" type="submit">重建索引</button></form>';
+    $is_reply = $type === 'replies';
+    $label = $is_reply ? '回帖' : '主题';
+    return '<form class="admin-rebuild-fts-form" method="post" action="' . h(admin_url(['do' => 'rebuild_fts'])) . '" data-prompt-title="重建' . $label . '索引" data-prompt-message="请输入起始' . $label . ' ID，将重建该 ID 及之后的' . $label . '搜索索引。" data-prompt-field="start_id" data-prompt-value="1">' . form_token() . '<input type="hidden" name="fts_type" value="' . h($type) . '"><input type="hidden" name="start_id" value="1"><button class="admin-search-link" type="submit">重建索引</button></form>';
 }
 function admin_topics_tools_html(): string
 {
-    return '<div class="admin-topic-tools">' . admin_rebuild_fts_form() . '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a></div>';
+    return '<div class="admin-topic-tools">' . admin_rebuild_fts_form('topics') . '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a></div>';
 }
 function admin_pagination(string $tab, string $query, int $total, int $page, int $size, string $field = '', int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1, bool $simple = false, bool $has_next = false): string
 {
@@ -2879,6 +2882,10 @@ function topic_fts_create(): void
 {
     if (db_driver() === 'sqlite') q("CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')");
 }
+function reply_fts_create(): void
+{
+    if (db_driver() === 'sqlite') q("CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')");
+}
 function search_char_len(string $query): int
 {
     preg_match_all('/./us', trim($query), $m);
@@ -2894,11 +2901,30 @@ function require_search_min_chars(string $query): void
 }
 function topic_search_field(string $field): string
 {
-    return in_array($field, ['title', 'body'], true) ? $field : 'title';
+    return in_array($field, ['title', 'body', 'reply'], true) ? $field : 'title';
+}
+function reply_search_condition(string $query): array
+{
+    if (db_driver() === 'mysql') {
+        $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
+        return ['MATCH(body) AGAINST(? IN BOOLEAN MODE)', [$value]];
+    }
+    if (db_driver() === 'pgsql') {
+        $value = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
+        return ["body ILIKE ? ESCAPE '\\'", [$value]];
+    }
+    return [
+        "id IN (SELECT rowid FROM app_replies_fts WHERE app_replies_fts MATCH ?)",
+        [topic_fts_query($query)],
+    ];
 }
 function topic_search_condition(string $query, string $field = 'title'): array
 {
     $field = topic_search_field($field);
+    if ($field === 'reply') {
+        [$condition, $params] = reply_search_condition($query);
+        return ['id IN (SELECT topic_id FROM app_replies WHERE ' . $condition . ')', $params];
+    }
     if (db_driver() === 'mysql') {
         $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
         return ['MATCH(' . $field . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
@@ -2923,6 +2949,17 @@ function topic_fts_delete(int $id): void
     if (db_driver() !== 'sqlite') return;
     q("DELETE FROM app_topics_fts WHERE rowid=?", [$id]);
 }
+function reply_fts_sync(int $id, string $body): void
+{
+    if (db_driver() !== 'sqlite') return;
+    q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
+    q("INSERT INTO app_replies_fts(rowid,body) VALUES(?,?)", [$id, $body]);
+}
+function reply_fts_delete(int $id): void
+{
+    if (db_driver() !== 'sqlite') return;
+    q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
+}
 function topic_fts_rebuild_from(int $start_id): int
 {
     $start_id = max(1, $start_id);
@@ -2946,6 +2983,46 @@ function topic_fts_rebuild_from(int $start_id): int
         if ($db->inTransaction()) $db->rollBack();
         throw $e;
     }
+}
+function reply_fts_rebuild_from(int $start_id): int
+{
+    $start_id = max(1, $start_id);
+    if (db_driver() !== 'sqlite') return (int)val('SELECT COUNT(*) FROM app_replies WHERE id>=?', [$start_id]);
+    $db = db();
+    $db->beginTransaction();
+    try {
+        if ($start_id === 1) {
+            q("DROP TABLE IF EXISTS app_replies_fts");
+            reply_fts_create();
+        } else {
+            reply_fts_create();
+        }
+        q("DELETE FROM app_replies_fts WHERE rowid>=?", [$start_id]);
+        $rows = q("SELECT id,body FROM app_replies WHERE id>=? ORDER BY id", [$start_id])->fetchAll();
+        $stmt = $db->prepare("INSERT INTO app_replies_fts(rowid,body) VALUES(?,?)");
+        foreach ($rows as $row) $stmt->execute([(int)$row['id'], (string)$row['body']]);
+        $db->commit();
+        return count($rows);
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
+    }
+}
+function topic_list_rows_for_replies(array $reply_rows): array
+{
+    if (!$reply_rows) return [];
+    $topics = rows_by_ids('app_topics', array_column($reply_rows, 'topic_id'), topic_list_select_columns());
+    $rows = [];
+    foreach ($reply_rows as $reply) {
+        $topic_id = (int)$reply['topic_id'];
+        if (!isset($topics[$topic_id])) continue;
+        $rows[] = $topics[$topic_id] + [
+            'my_reply_at' => (int)$reply['created_at'],
+            'my_reply_id' => (int)$reply['id'],
+            'my_reply_excerpt' => content_excerpt(markdown_without_code_blocks((string)$reply['body']), 180),
+        ];
+    }
+    return topic_list_rows(attach_topic_list_users($rows));
 }
 function topic_list_row(array $t, string $sort): string
 {
@@ -3014,7 +3091,7 @@ function page_nav_html(string $site_name): string
         foreach ($forums as $f) $more_panel_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
         $more_panel_html .= '</div></div>';
     }
-    return $html . '</nav>' . $more_button_html . '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
+    return $html . '</nav>' . $more_button_html . '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form><a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
 }
 function page_footer_html(array $settings, string $title, string $flash): string
 {
@@ -3170,7 +3247,10 @@ function trash_restore_row(int $id): string
     q('DELETE FROM ' . $physical_table . ' WHERE id=?', [(int)$row['id']]);
     q('INSERT INTO ' . $physical_table . ' (' . implode(',', $fields) . ') VALUES(' . sql_marks(count($fields)) . ')', $values);
     if ($table === 'topics') topic_fts_sync((int)$row['id'], (string)($row['title'] ?? ''), (string)($row['body'] ?? ''));
-    if ($table === 'replies') refresh_topic_stats((int)($row['topic_id'] ?? 0));
+    if ($table === 'replies') {
+        reply_fts_sync((int)$row['id'], (string)($row['body'] ?? ''));
+        refresh_topic_stats((int)($row['topic_id'] ?? 0));
+    }
     q('DELETE FROM app_trash WHERE id=?', [$id]);
     return $table;
 }
@@ -3620,7 +3700,10 @@ function save_reply(): array
     if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), 10000);
     if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
     if (id()) {
-        q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
+        tx(function () use ($body, $tid) {
+            q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
+            reply_fts_sync(id(), $body);
+        });
         attachment_upload_count_reset();
         fire('reply.after_save', ['id' => (int)$r['id'], 'topic_id' => (int)$r['topic_id'], 'body' => $body, 'editing' => true]);
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
@@ -3632,6 +3715,7 @@ function save_reply(): array
     $rid = tx(function () use ($tid, $author, $body, $ts) {
         q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
         $rid = app_db_last_insert_id('app_replies');
+        reply_fts_sync($rid, $body);
         q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
         q("UPDATE app_topics SET reply_count=reply_count+1,last_reply_at=?,last_reply_user_id=? WHERE id=?", [$ts, (int)$author['user_id'], $tid]);
         create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
@@ -3656,6 +3740,7 @@ function del(string $table, int $id): void
         if (!$r) err('记录不存在');
         tx(function () use ($id, $r) {
             trash_rows_copy('replies', $r);
+            reply_fts_delete($id);
             q("DELETE FROM app_replies WHERE id=?", [$id]);
             refresh_topic_stats((int)$r['topic_id']);
         });
@@ -3809,7 +3894,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $where_parts[] = 'forum_id=?';
         $params[] = $fid;
     }
-    if ($q !== '') {
+    if ($q !== '' && $search_field !== 'reply') {
         [$condition, $search_params] = topic_search_condition($q, $search_field);
         $where_parts[] = '(' . $condition . ')';
         $params = array_merge($params, $search_params);
@@ -3823,19 +3908,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     } elseif ($profile_uid && $profile_tab === 'replies') {
         $total = (int)val("SELECT COUNT(*) FROM app_replies WHERE user_id=?", [$profile_uid]);
         $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
-        $topics = rows_by_ids('app_topics', array_column($reply_rows, 'topic_id'), topic_list_select_columns());
-        $rows = [];
-        foreach ($reply_rows as $reply) {
-            $topic_id = (int)$reply['topic_id'];
-            if (!isset($topics[$topic_id])) continue;
-            $rows[] = $topics[$topic_id] + [
-                'my_reply_at' => (int)$reply['created_at'],
-                'my_reply_id' => (int)$reply['id'],
-                'my_reply_excerpt' => content_excerpt(markdown_without_code_blocks((string)$reply['body']), 180),
-            ];
-        }
-        $rows = attach_topic_list_users($rows);
-        $rows = topic_list_rows($rows);
+        $rows = topic_list_rows_for_replies($reply_rows);
     } elseif ($profile_uid && $profile_tab === 'favorites') {
         $fav_rows = q("SELECT topic_id,created_at favorite_at FROM app_favorites WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
         $total = (int)val("SELECT COUNT(*) FROM app_favorites WHERE user_id=?", [$profile_uid]);
@@ -3854,29 +3927,53 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $file_quota_bytes = attachment_quota_bytes($filter_user);
         $rows = q("SELECT * FROM app_attachments WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
     } else {
-        if ($profile_uid) {
-            $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
-            $params[] = $profile_uid;
-        }
-        $total = $q !== '' ? 0 : (($fid || $profile_uid) ? (int)q("SELECT COUNT(*) FROM app_topics $where", $params)->fetchColumn() : (int)$stats['topics']);
-        $index_hint = db_driver() === 'mysql' && $q === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
-        $query_size = $q !== '' ? $size + 1 : $size;
-        $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $off]))->fetchAll();
-        if ($q !== '') {
+        if ($q !== '' && $search_field === 'reply') {
+            [$reply_condition, $reply_params] = reply_search_condition($q);
+            $topic_scope = [];
+            $topic_scope_params = [];
+            if ($fid) {
+                $topic_scope[] = 'forum_id=?';
+                $topic_scope_params[] = $fid;
+            }
+            if ($profile_uid) {
+                $topic_scope[] = 'user_id=?';
+                $topic_scope_params[] = $profile_uid;
+            }
+            $reply_where = '(' . $reply_condition . ')';
+            $reply_where .= ' AND topic_id IN (SELECT id FROM app_topics' . ($topic_scope ? ' WHERE ' . implode(' AND ', $topic_scope) : '') . ')';
+            $reply_rows = q(
+                "SELECT id,topic_id,body,created_at FROM app_replies WHERE $reply_where ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                array_merge($reply_params, $topic_scope_params, [$size + 1, $off])
+            )->fetchAll();
+            $total = 0;
             $search_simple_pagination = true;
-            $has_next_search_page = count($rows) > $size;
-            $rows = array_slice($rows, 0, $size);
+            $has_next_search_page = count($reply_rows) > $size;
+            $rows = topic_list_rows_for_replies(array_slice($reply_rows, 0, $size));
+        } else {
+            if ($profile_uid) {
+                $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
+                $params[] = $profile_uid;
+            }
+            $total = $q !== '' ? 0 : (($fid || $profile_uid) ? (int)q("SELECT COUNT(*) FROM app_topics $where", $params)->fetchColumn() : (int)$stats['topics']);
+            $index_hint = db_driver() === 'mysql' && $q === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
+            $query_size = $q !== '' ? $size + 1 : $size;
+            $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $off]))->fetchAll();
+            if ($q !== '') {
+                $search_simple_pagination = true;
+                $has_next_search_page = count($rows) > $size;
+                $rows = array_slice($rows, 0, $size);
+            }
+            if ($pinned_ids && $p === 1) {
+                $pinned_rows = array_values(rows_by_ids('app_topics', $pinned_ids, topic_list_select_columns()));
+                $by_id = [];
+                foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
+                $ordered = [];
+                foreach ($pinned_ids as $pid) if (isset($by_id[$pid])) $ordered[] = $by_id[$pid];
+                $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !in_array((int)$r['id'], $pinned_ids, true))));
+            }
+            $rows = attach_topic_list_users($rows);
+            $rows = topic_list_rows($rows);
         }
-        if ($pinned_ids && $p === 1) {
-            $pinned_rows = array_values(rows_by_ids('app_topics', $pinned_ids, topic_list_select_columns()));
-            $by_id = [];
-            foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
-            $ordered = [];
-            foreach ($pinned_ids as $pid) if (isset($by_id[$pid])) $ordered[] = $by_id[$pid];
-            $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !in_array((int)$r['id'], $pinned_ids, true))));
-        }
-        $rows = attach_topic_list_users($rows);
-        $rows = topic_list_rows($rows);
     }
     $main = '';
     $search_query = $q !== '' ? 'q=' . rawurlencode($q) . '&field=' . $search_field . '&' : '';
@@ -3921,7 +4018,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         else foreach ($rows as $file) $main .= attachment_row_html($file);
     } elseif (!$rows) {
         $empty = $profile_uid ? ($profile_tab === 'replies' ? '暂无回帖' : ($profile_tab === 'favorites' ? '暂无收藏' : '暂无主题')) : '暂无主题';
-        $main .= '<li class="empty-state">' . ($q !== '' ? '没有找到匹配的主题' : $empty) . '</li>';
+        $main .= '<li class="empty-state">' . ($q !== '' ? '没有找到匹配的' . ($search_field === 'reply' ? '回帖' : '主题') : $empty) . '</li>';
     } else {
         foreach ($rows as $t) {
             $time = (int)($t['my_reply_at'] ?? $t['favorite_at'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
@@ -4427,7 +4524,8 @@ function admin_page(): void
         $html .= admin_object_list_html('replies', $q, $manageable, $admin_size,
             fn(): int => admin_count('replies'),
             fn(): array => admin_list('replies', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['field' => $reply_field]),
-            fn(int $total, bool $simple, bool $has_next): string => admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field, 0, -1, -1, $simple, $has_next)
+            fn(int $total, bool $simple, bool $has_next): string => admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field, 0, -1, -1, $simple, $has_next),
+            $manageable ? admin_rebuild_fts_form('replies') : ''
         );
     } elseif ($tab === 'trash') {
         $trash_table = in_array((string)($_GET['table'] ?? ''), ['users', 'topics', 'replies'], true) ? (string)$_GET['table'] : '';
@@ -4528,12 +4626,15 @@ function admin_route(): void
         if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true); go(admin_url(['tab' => 'trash']));
     }
     if ($do === 'rebuild_fts') {
+        $fts_type = (string)($_POST['fts_type'] ?? 'topics') === 'replies' ? 'replies' : 'topics';
         if (db_driver() !== 'sqlite') {
             set_flash('当前数据库的搜索索引由数据库自动维护，无需重建');
-            go(admin_url(['tab' => 'topics']));
+            go(admin_url(['tab' => $fts_type]));
         }
-        $start_id = max(1, (int)($_POST['start_id'] ?? 1)); set_flash('已重建主题索引：' . topic_fts_rebuild_from($start_id) . ' 条');
-        go(admin_url(['tab' => 'topics']));
+        $start_id = max(1, (int)($_POST['start_id'] ?? 1));
+        $count = $fts_type === 'replies' ? reply_fts_rebuild_from($start_id) : topic_fts_rebuild_from($start_id);
+        set_flash('已重建' . ($fts_type === 'replies' ? '回帖' : '主题') . '索引：' . $count . ' 条');
+        go(admin_url(['tab' => $fts_type]));
     }
     $tab = $_POST['tab'] ?? ''; $action = (string)($_POST['batch_action'] ?? 'delete');
     if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
