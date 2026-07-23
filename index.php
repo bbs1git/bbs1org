@@ -1837,10 +1837,15 @@ function stats_cache(bool $refresh = false, bool $force = false): array
 
     if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
     $lock = @fopen(STATS_CACHE_LOCK_FILE, 'c');
-    if (!$lock) return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
-    if (!flock($lock, LOCK_EX)) {
+    if (!$lock) return $fallback ?? load_array_cache(STATS_CACHE_FILE, true, $reload);
+    $locked = flock($lock, LOCK_EX | LOCK_NB);
+    if (!$locked && $fallback !== null) {
         fclose($lock);
-        return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
+        return $fallback;
+    }
+    if (!$locked && !flock($lock, LOCK_EX)) {
+        fclose($lock);
+        return load_array_cache(STATS_CACHE_FILE, true, $reload);
     }
     try {
         clearstatcache(true, STATS_CACHE_FILE);
