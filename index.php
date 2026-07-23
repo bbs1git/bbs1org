@@ -790,6 +790,8 @@ function plugin_set_enabled(string $id, bool $enabled): void
         'plugin_' . $id . '_version' => (string)($plugin['version'] ?? ''),
         'plugin_' . $id . '_disabled_reason' => '',
     ]);
+    $file = (string)($plugin['file'] ?? '');
+    if ($enabled && $file !== '' && is_file($file)) @touch($file);
     plugin_assets_mark_dirty();
 }
 function plugin_uninstall(string $id, bool $keep_data = true): void
