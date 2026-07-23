@@ -14,4 +14,3 @@ app/assets/plugins.js
 .vscode
 .codebuddy
 docker/.env
-migrate_repository_cards.php
