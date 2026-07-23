@@ -190,7 +190,7 @@ h3{margin-bottom:8px;font-size:14px;color:var(--text)}
 .post-content ul{margin:4px 0 8px 18px;padding:0}
 .post-content li{margin:2px 0}
 .post-content .markdown-table-wrap{max-width:100%;margin:10px 0 12px;overflow-x:auto}
-.post-content table{width:100%;min-width:360px;border-collapse:collapse;border:1px solid var(--line);background:#fff;font-size:13px;line-height:1.5}
+.post-content table{width:100%;min-width:360px;table-layout:fixed;border-collapse:collapse;border:1px solid var(--line);background:#fff;font-size:13px;line-height:1.5}
 .post-content th,.post-content td{padding:7px 9px;border:1px solid var(--line);text-align:left;vertical-align:top}
 .post-content th{background:#fafafa;color:#555;font-weight:700}
 .post-content tr:nth-child(even) td{background:#fcfcfc}
