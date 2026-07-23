@@ -311,7 +311,7 @@ function us_acquire_lock(): void
 
 function us_legacy_upgrade_page(string $error = ''): never
 {
-    $token = $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
+    $token = csrf_token();
     $body = '<h1 class="update-title">旧版本数据库升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测到数据库仍使用无 app_ 前缀的旧系统表。升级将原子改名系统表并同步当前结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';
     $body .= '<div class="update-warning"><strong>操作前必须完整备份数据库。</strong>若旧库结构不完整，请重新安装后使用“数据迁入”。</div><form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="legacy_upgrade" value="1"><div class="update-grid"><label class="update-panel"><strong>旧版管理员用户名</strong><input type="text" name="username" required autocomplete="username"></label><label class="update-panel"><strong>旧版管理员密码</strong><input type="password" name="password" required autocomplete="current-password"></label></div><label class="update-warning"><input type="checkbox" name="confirm_backup" value="1" required> 已完成数据库备份</label><div class="update-actions"><button class="primary" type="submit">升级旧数据库</button></div></form>';
@@ -321,14 +321,14 @@ function us_legacy_upgrade_page(string $error = ''): never
 function us_handle_legacy_upgrade(): never
 {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') us_legacy_upgrade_page();
-    if (!hash_equals((string)($_SESSION['csrf'] ?? ''), (string)($_POST['_csrf'] ?? ''))) us_legacy_upgrade_page('请求已过期，请返回重试。');
+    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) us_legacy_upgrade_page('请求已过期，请返回重试。');
     if (!isset($_POST['confirm_backup'])) us_legacy_upgrade_page('请先确认已完成数据库备份。');
     $user_id = us_legacy_admin_id((string)($_POST['username'] ?? ''), (string)($_POST['password'] ?? ''));
     if ($user_id <= 0) us_legacy_upgrade_page('管理员账号或密码错误。');
     us_acquire_lock();
     try {
         $changes = us_sync_schema();
-        start_authenticated_session($user_id);
+        start_cookie_login($user_id);
         us_result_page('升级完成', $changes);
     } catch (Throwable $e) {
         us_result_page('升级失败', [], $e->getMessage());
@@ -444,7 +444,7 @@ function us_notice_check(): never
 
 function us_update_page(?array $release = null, string $error = ''): void
 {
-    $token = $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
+    $token = csrf_token();
     $state = update_state_data();
     $local = isset($state['sha']) ? substr((string)$state['sha'], 0, 12) : '未记录';
     $local_time = ($timestamp = strtotime((string)($state['updated_at'] ?? ''))) !== false ? date('Y-m-d H:i', $timestamp) : '';
@@ -793,13 +793,12 @@ function us_sync_schema(): array
 function us_defer_schema_after_update(array $changes): never
 {
     $nonce = bin2hex(random_bytes(24));
-    $_SESSION['update_schema_pending'] = [
+    cache_write_php(CACHE_DIR . '/update-schema-' . $nonce . '.php', [
         'nonce' => $nonce,
         'created_at' => time(),
         'changes' => array_values($changes),
-    ];
+    ]);
     us_unlock();
-    session_write_close();
     header('Location: index.php?a=update&schema_after_update=' . rawurlencode($nonce), true, 303);
     exit;
 }
@@ -807,8 +806,9 @@ function us_defer_schema_after_update(array $changes): never
 function us_run_deferred_schema(): never
 {
     $nonce = (string)($_GET['schema_after_update'] ?? '');
-    $pending = $_SESSION['update_schema_pending'] ?? null;
-    unset($_SESSION['update_schema_pending']);
+    $file = preg_match('/^[a-f0-9]{48}$/D', $nonce) ? CACHE_DIR . '/update-schema-' . $nonce . '.php' : '';
+    $pending = $file !== '' && is_file($file) ? include $file : null;
+    if ($file !== '' && is_file($file)) @unlink($file);
     if (!is_array($pending)
         || $nonce === ''
         || !hash_equals((string)($pending['nonce'] ?? ''), $nonce)
@@ -851,7 +851,7 @@ function setup_update_run(): never
             us_update_page(null, $e->getMessage());
         }
     }
-    if (!hash_equals((string)($_SESSION['csrf'] ?? ''), (string)($_POST['_csrf'] ?? ''))) us_result_page('升级失败', [], '请求已过期，请返回重试。');
+    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) us_result_page('升级失败', [], '请求已过期，请返回重试。');
     
     us_acquire_lock();
     
