@@ -351,6 +351,21 @@ function secure_session_start(): void
     ]);
     session_start();
 }
+function release_session_lock(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) return;
+    if (!array_key_exists('__request_uid', $GLOBALS)) $GLOBALS['__request_uid'] = (int)($_SESSION['uid'] ?? 0);
+    session_write_close();
+}
+function session_access(callable $callback): mixed
+{
+    secure_session_start();
+    try {
+        return $callback();
+    } finally {
+        release_session_lock();
+    }
+}
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
     $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
@@ -1606,15 +1621,15 @@ function deletable_post_row(string $type, int $id): ?array
 }
 function remember_forum(int $fid): void
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return;
     if (!$fid || !forum_by_id($fid)) return;
-    $ids = array_values(array_diff(array_map('intval', $_SESSION['recent_forums'] ?? []), [$fid]));
-    array_unshift($ids, $fid);
-    $_SESSION['recent_forums'] = array_slice($ids, 0, 10);
+    session_access(function () use ($fid): void {
+        $ids = array_values(array_diff(array_map('intval', $_SESSION['recent_forums'] ?? []), [$fid]));
+        array_unshift($ids, $fid);
+        $_SESSION['recent_forums'] = array_slice($ids, 0, 10);
+    });
 }
 function recent_forums(): array
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return forums_cache();
     $list = [];
     foreach (array_map('intval', $_SESSION['recent_forums'] ?? []) as $fid) {
         $f = forum_by_id($fid);
@@ -1624,12 +1639,13 @@ function recent_forums(): array
 }
 function mark_viewed(int $tid): bool
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return true;
-    $seen = $_SESSION['viewed_topics'] ?? [];
-    if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
-    $seen[$tid] = time();
-    $_SESSION['viewed_topics'] = array_slice($seen, -200, null, true);
-    return true;
+    return session_access(function () use ($tid): bool {
+        $seen = $_SESSION['viewed_topics'] ?? [];
+        if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
+        $seen[$tid] = time();
+        $_SESSION['viewed_topics'] = array_slice($seen, -200, null, true);
+        return true;
+    });
 }
 function quick_forums_html(): string
 {
@@ -1865,6 +1881,7 @@ function now(): int
 }
 function uid(): int
 {
+    if (array_key_exists('__request_uid', $GLOBALS)) return (int)$GLOBALS['__request_uid'];
     if (session_status() !== PHP_SESSION_ACTIVE) return 0;
     return (int)($_SESSION['uid'] ?? 0);
 }
@@ -1878,9 +1895,13 @@ function session_password_fingerprint(string $password_hash): string
 }
 function clear_authenticated_session(): void
 {
+    $release = session_status() !== PHP_SESSION_ACTIVE;
+    secure_session_start();
     $_SESSION = [];
+    $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
-    if (session_status() === PHP_SESSION_ACTIVE) @session_regenerate_id(true);
+    @session_regenerate_id(true);
+    if ($release) release_session_lock();
 }
 function me(): ?array
 {
@@ -1923,6 +1944,7 @@ function consume_auth_return_url(): string
     secure_session_start();
     $url = trim((string)($_SESSION['auth_return_url'] ?? ''));
     unset($_SESSION['auth_return_url']);
+    release_session_lock();
     if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')) return route_url('home');
     if (preg_match('/[\x00-\x1F\x7F]/', $url) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $url)) return route_url('home');
     return $url;
@@ -1934,6 +1956,7 @@ function start_authenticated_session(int $user_id): void
     session_regenerate_id(true);
     $_SESSION['uid'] = $user_id;
     $_SESSION['password_fingerprint'] = session_password_fingerprint((string)$user['password']);
+    $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
 }
 function complete_login(int $user_id): never
@@ -2002,6 +2025,7 @@ function form_error_redirect(string $message): never
         'message' => $message,
         'created_at' => time(),
     ];
+    release_session_lock();
     go(route_url('form_error'));
 }
 function ajax_error(string $m, bool $log = true): never
@@ -2136,7 +2160,9 @@ function id(string $k = 'id'): int
 function form_token(): string
 {
     secure_session_start();
-    return '<input type="hidden" name="_csrf" value="' . h($_SESSION['csrf'] ??= bin2hex(random_bytes(16))) . '">';
+    $token = $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
+    release_session_lock();
+    return '<input type="hidden" name="_csrf" value="' . h($token) . '">';
 }
 function hidden_inputs(array $fields): string
 {
@@ -2431,17 +2457,25 @@ function attachment_used_bytes(int $user_id): int
 }
 function attachment_upload_count(): int
 {
-    $state = is_array($_SESSION['attachment_upload_window'] ?? null) ? $_SESSION['attachment_upload_window'] : [];
-    if ((int)($state['updated_at'] ?? 0) < now() - 7200) return 0;
-    return max(0, (int)($state['count'] ?? 0));
+    return session_access(function (): int {
+        $state = is_array($_SESSION['attachment_upload_window'] ?? null) ? $_SESSION['attachment_upload_window'] : [];
+        if ((int)($state['updated_at'] ?? 0) < now() - 7200) return 0;
+        return max(0, (int)($state['count'] ?? 0));
+    });
 }
 function attachment_upload_count_increment(): void
 {
-    $_SESSION['attachment_upload_window'] = ['count' => attachment_upload_count() + 1, 'updated_at' => now()];
+    session_access(function (): void {
+        $state = is_array($_SESSION['attachment_upload_window'] ?? null) ? $_SESSION['attachment_upload_window'] : [];
+        $count = (int)($state['updated_at'] ?? 0) < now() - 7200 ? 0 : max(0, (int)($state['count'] ?? 0));
+        $_SESSION['attachment_upload_window'] = ['count' => $count + 1, 'updated_at' => now()];
+    });
 }
 function attachment_upload_count_reset(): void
 {
-    unset($_SESSION['attachment_upload_window']);
+    session_access(function (): void {
+        unset($_SESSION['attachment_upload_window']);
+    });
 }
 class AttachmentUploadException extends RuntimeException {}
 function attachment_store(int $user_id, string $tmp, string $target, string $hash, string $file_name, string $original, string $ext, string $mime, int $size, bool $is_image): void
@@ -2874,7 +2908,9 @@ function favorite_topic_states(array $topic_ids): array
             $items[$topic_id] = ['favorite' => isset($favorite_ids[$topic_id]), 'cached_at' => now()];
         }
         $items = array_slice($items, -500, null, true);
-        $_SESSION['favorite_topic_states'] = ['uid' => $uid, 'items' => $items];
+        session_access(function () use ($uid, $items): void {
+            $_SESSION['favorite_topic_states'] = ['uid' => $uid, 'items' => $items];
+        });
     }
     $states = [];
     foreach ($topic_ids as $topic_id) $states[$topic_id] = !empty($items[$topic_id]['favorite']);
@@ -2883,11 +2919,14 @@ function favorite_topic_states(array $topic_ids): array
 function favorite_topic_state_set(int $topic_id, bool $favorite): void
 {
     if (!uid() || $topic_id <= 0) return;
-    $state = is_array($_SESSION['favorite_topic_states'] ?? null) ? $_SESSION['favorite_topic_states'] : [];
-    $items = (int)($state['uid'] ?? 0) === uid() && is_array($state['items'] ?? null) ? $state['items'] : [];
-    unset($items[$topic_id]);
-    $items[$topic_id] = ['favorite' => $favorite, 'cached_at' => now()];
-    $_SESSION['favorite_topic_states'] = ['uid' => uid(), 'items' => array_slice($items, -500, null, true)];
+    $uid = uid();
+    session_access(function () use ($uid, $topic_id, $favorite): void {
+        $state = is_array($_SESSION['favorite_topic_states'] ?? null) ? $_SESSION['favorite_topic_states'] : [];
+        $items = (int)($state['uid'] ?? 0) === $uid && is_array($state['items'] ?? null) ? $state['items'] : [];
+        unset($items[$topic_id]);
+        $items[$topic_id] = ['favorite' => $favorite, 'cached_at' => now()];
+        $_SESSION['favorite_topic_states'] = ['uid' => $uid, 'items' => array_slice($items, -500, null, true)];
+    });
 }
 function topic_fts_query(string $query, string $field = ''): string
 {
@@ -3901,7 +3940,9 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $sort = 'post';
     } elseif (array_key_exists('sort', $_GET)) {
         $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
-        $_SESSION['topic_index_sort'] = $sort;
+        session_access(function () use ($sort): void {
+            $_SESSION['topic_index_sort'] = $sort;
+        });
     } else {
         $sort = (($_SESSION['topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
     }
@@ -4077,9 +4118,12 @@ function search_page(): void
     if ($q === '') go(route_url('home'));
     require_search_min_chars($q);
     $seconds = post_interval_seconds();
-    $wait = $seconds - (time() - (int)($_SESSION['last_search_at'] ?? 0));
+    $wait = session_access(function () use ($seconds): int {
+        $wait = $seconds - (time() - (int)($_SESSION['last_search_at'] ?? 0));
+        if ($seconds <= 0 || $wait <= 0) $_SESSION['last_search_at'] = time();
+        return $wait;
+    });
     if ($seconds > 0 && $wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
-    $_SESSION['last_search_at'] = time();
     go(route_url('home', ['q' => $q]));
 }
 function forum_page(): void
@@ -4617,10 +4661,23 @@ function favicon_page(): void
 }
 function form_error_route(): void
 {
-    $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
-    unset($_SESSION['form_error']); error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
+    $data = session_access(function (): array {
+        $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
+        unset($_SESSION['form_error']);
+        return $data;
+    });
+    error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
 }
-function logout_route(): void { require_post(); session_destroy(); go(route_url('home')); }
+function logout_route(): void
+{
+    require_post();
+    secure_session_start();
+    $_SESSION = [];
+    session_destroy();
+    $GLOBALS['__request_uid'] = 0;
+    $GLOBALS['__me_cache'] = null;
+    go(route_url('home'));
+}
 function delete_route(): void
 {
     require_post(); need_login();
@@ -4712,6 +4769,7 @@ if ($setup_action === 'update') {
 }
 if (!db_schema_ready()) simple_error_page('欢迎使用，请先进行数据初始化安装', index_url(['a' => 'install']));
 check();
+release_session_lock();
 need_site_access();
 if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins_refresh_if_changed();
 fire('app.boot');
