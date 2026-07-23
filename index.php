@@ -48,6 +48,7 @@ define('SEARCH_MIN_CHARS', 3);
 define('PASSWORD_MIN_LENGTH', 4);
 define('AUTH_COOKIE_NAME', 'bbs_auth');
 define('AUTH_COOKIE_TTL', 2592000);
+define('CSRF_COOKIE_NAME', 'bbs_csrf');
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
 define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
@@ -340,19 +341,6 @@ function tx(callable $fn)
         throw $e;
     }
 }
-function secure_session_start(): void
-{
-    if (session_status() === PHP_SESSION_ACTIVE) return;
-    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path' => '/',
-        'secure' => $secure,
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
-    session_start();
-}
 function auth_cookie_secure(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
@@ -389,6 +377,24 @@ function auth_cookie_parts(): ?array
     $id = (int)$m[1];
     $expire = (int)$m[2];
     return $id > 0 && $expire > 0 ? ['id' => $id, 'expire' => $expire, 'signature' => $m[3]] : null;
+}
+function csrf_token(): string
+{
+    static $token = null;
+    if ($token !== null) return $token;
+    $token = (string)($_COOKIE[CSRF_COOKIE_NAME] ?? '');
+    if (!preg_match('/^[a-f0-9]{64}$/D', $token)) {
+        $token = bin2hex(random_bytes(32));
+        setcookie(CSRF_COOKIE_NAME, $token, [
+            'expires' => time() + 86400,
+            'path' => '/',
+            'secure' => auth_cookie_secure(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        $_COOKIE[CSRF_COOKIE_NAME] = $token;
+    }
+    return $token;
 }
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
@@ -1645,17 +1651,18 @@ function deletable_post_row(string $type, int $id): ?array
 }
 function remember_forum(int $fid): void
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return;
     if (!$fid || !forum_by_id($fid)) return;
-    $ids = array_values(array_diff(array_map('intval', $_SESSION['recent_forums'] ?? []), [$fid]));
+    $raw = array_map('intval', explode(',', (string)($_COOKIE['__recent_forums'] ?? '')));
+    $ids = array_values(array_diff(array_filter($raw), [$fid]));
     array_unshift($ids, $fid);
-    $_SESSION['recent_forums'] = array_slice($ids, 0, 10);
+    $value = implode(',', array_slice($ids, 0, 10));
+    setcookie('__recent_forums', $value, ['expires' => time() + 31536000, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    $_COOKIE['__recent_forums'] = $value;
 }
 function recent_forums(): array
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return forums_cache();
     $list = [];
-    foreach (array_map('intval', $_SESSION['recent_forums'] ?? []) as $fid) {
+    foreach (array_map('intval', explode(',', (string)($_COOKIE['__recent_forums'] ?? ''))) as $fid) {
         $f = forum_by_id($fid);
         if ($f) $list[] = $f;
     }
@@ -1663,11 +1670,18 @@ function recent_forums(): array
 }
 function mark_viewed(int $tid): bool
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return true;
-    $seen = $_SESSION['viewed_topics'] ?? [];
+    $seen = [];
+    foreach (explode(',', (string)($_COOKIE['__viewed_topics'] ?? '')) as $entry) {
+        [$id, $at] = array_pad(explode(':', $entry, 2), 2, 0);
+        if ((int)$id > 0 && (int)$at > time() - 3600) $seen[(int)$id] = (int)$at;
+    }
     if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
     $seen[$tid] = time();
-    $_SESSION['viewed_topics'] = array_slice($seen, -200, null, true);
+    $pairs = [];
+    foreach (array_slice($seen, -64, null, true) as $id => $at) $pairs[] = (int)$id . ':' . (int)$at;
+    $value = implode(',', $pairs);
+    setcookie('__viewed_topics', $value, ['expires' => time() + 7200, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    $_COOKIE['__viewed_topics'] = $value;
     return true;
 }
 function quick_forums_html(): string
@@ -1914,11 +1928,9 @@ function is_super_user(): bool
 }
 function clear_authenticated_session(): void
 {
-    $_SESSION = [];
     auth_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
-    if (session_status() === PHP_SESSION_ACTIVE) @session_regenerate_id(true);
 }
 function me(): ?array
 {
@@ -1963,18 +1975,15 @@ function can_speak(): bool
 }
 function consume_auth_return_url(): string
 {
-    secure_session_start();
-    $url = trim((string)($_SESSION['auth_return_url'] ?? ''));
-    unset($_SESSION['auth_return_url']);
+    $url = trim((string)($_COOKIE['__auth_return_url'] ?? ''));
+    setcookie('__auth_return_url', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
     if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')) return route_url('home');
     if (preg_match('/[\x00-\x1F\x7F]/', $url) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $url)) return route_url('home');
     return $url;
 }
 function start_authenticated_session(int $user_id): void
 {
-    secure_session_start();
     $user = one("SELECT password FROM app_users WHERE id=?", [$user_id]) ?: err('用户不存在');
-    session_regenerate_id(true);
     auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
@@ -2020,8 +2029,7 @@ function check(): void
     if (uid()) me();
     $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
     if ($is_post && hook('request.csrf_exempt', false, ['action' => (string)($_GET['a'] ?? '')]) === true) return;
-    if ($is_post) secure_session_start();
-    if ($is_post && !hash_equals($_SESSION['csrf'] ?? '', $_POST['_csrf'] ?? '')) {
+    if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
         ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
     }
 }
@@ -2040,11 +2048,11 @@ function set_flash(string $message): void
 }
 function form_error_redirect(string $message): never
 {
-    secure_session_start();
-    $_SESSION['form_error'] = [
+    $value = base64_encode(json_encode([
         'message' => $message,
         'created_at' => time(),
-    ];
+    ], JSON_UNESCAPED_UNICODE));
+    setcookie('__form_error', $value, ['expires' => time() + 30, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
     go(route_url('form_error'));
 }
 function ajax_error(string $m, bool $log = true): never
@@ -2178,8 +2186,7 @@ function id(string $k = 'id'): int
 }
 function form_token(): string
 {
-    secure_session_start();
-    return '<input type="hidden" name="_csrf" value="' . h($_SESSION['csrf'] ??= bin2hex(random_bytes(16))) . '">';
+    return '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">';
 }
 function hidden_inputs(array $fields): string
 {
@@ -2474,17 +2481,18 @@ function attachment_used_bytes(int $user_id): int
 }
 function attachment_upload_count(): int
 {
-    $state = is_array($_SESSION['attachment_upload_window'] ?? null) ? $_SESSION['attachment_upload_window'] : [];
-    if ((int)($state['updated_at'] ?? 0) < now() - 7200) return 0;
-    return max(0, (int)($state['count'] ?? 0));
+    return max(0, (int)($_COOKIE['__attachment_upload_count'] ?? 0));
 }
 function attachment_upload_count_increment(): void
 {
-    $_SESSION['attachment_upload_window'] = ['count' => attachment_upload_count() + 1, 'updated_at' => now()];
+    $count = attachment_upload_count() + 1;
+    setcookie('__attachment_upload_count', (string)$count, ['expires' => time() + 7200, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    $_COOKIE['__attachment_upload_count'] = (string)$count;
 }
 function attachment_upload_count_reset(): void
 {
-    unset($_SESSION['attachment_upload_window']);
+    setcookie('__attachment_upload_count', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    unset($_COOKIE['__attachment_upload_count']);
 }
 class AttachmentUploadException extends RuntimeException {}
 function attachment_store(int $user_id, string $tmp, string $target, string $hash, string $file_name, string $original, string $ext, string $mime, int $size, bool $is_image): void
@@ -2903,7 +2911,7 @@ function favorite_topic_states(array $topic_ids): array
     $uid = uid();
     $topic_ids = array_values(array_unique(array_filter(array_map('intval', $topic_ids))));
     if (!$uid || !$topic_ids) return [];
-    $state = is_array($_SESSION['favorite_topic_states'] ?? null) ? $_SESSION['favorite_topic_states'] : [];
+    $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
     $items = (int)($state['uid'] ?? 0) === $uid && is_array($state['items'] ?? null) ? $state['items'] : [];
     $missing = [];
     foreach ($topic_ids as $topic_id) {
@@ -2917,7 +2925,7 @@ function favorite_topic_states(array $topic_ids): array
             $items[$topic_id] = ['favorite' => isset($favorite_ids[$topic_id]), 'cached_at' => now()];
         }
         $items = array_slice($items, -500, null, true);
-        $_SESSION['favorite_topic_states'] = ['uid' => $uid, 'items' => $items];
+        $GLOBALS['__favorite_topic_states'] = ['uid' => $uid, 'items' => $items];
     }
     $states = [];
     foreach ($topic_ids as $topic_id) $states[$topic_id] = !empty($items[$topic_id]['favorite']);
@@ -2926,11 +2934,11 @@ function favorite_topic_states(array $topic_ids): array
 function favorite_topic_state_set(int $topic_id, bool $favorite): void
 {
     if (!uid() || $topic_id <= 0) return;
-    $state = is_array($_SESSION['favorite_topic_states'] ?? null) ? $_SESSION['favorite_topic_states'] : [];
+    $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
     $items = (int)($state['uid'] ?? 0) === uid() && is_array($state['items'] ?? null) ? $state['items'] : [];
     unset($items[$topic_id]);
     $items[$topic_id] = ['favorite' => $favorite, 'cached_at' => now()];
-    $_SESSION['favorite_topic_states'] = ['uid' => uid(), 'items' => array_slice($items, -500, null, true)];
+    $GLOBALS['__favorite_topic_states'] = ['uid' => uid(), 'items' => array_slice($items, -500, null, true)];
 }
 function topic_fts_query(string $query, string $field = ''): string
 {
@@ -3944,9 +3952,10 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $sort = 'post';
     } elseif (array_key_exists('sort', $_GET)) {
         $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
-        $_SESSION['topic_index_sort'] = $sort;
+        setcookie('__topic_index_sort', $sort, ['expires' => time() + 31536000, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+        $_COOKIE['__topic_index_sort'] = $sort;
     } else {
-        $sort = (($_SESSION['topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
+        $sort = (($_COOKIE['__topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
     }
     $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
     $q = trim((string)($_GET['q'] ?? ''));
@@ -4120,9 +4129,11 @@ function search_page(): void
     if ($q === '') go(route_url('home'));
     require_search_min_chars($q);
     $seconds = post_interval_seconds();
-    $wait = $seconds - (time() - (int)($_SESSION['last_search_at'] ?? 0));
-    if ($seconds > 0 && $wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
-    $_SESSION['last_search_at'] = time();
+    if ($seconds > 0 && uid()) {
+        $wait = $seconds - (time() - (int)(val("SELECT last_post_at FROM app_users WHERE id=?", [uid()]) ?: 0));
+        if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
+        q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
+    }
     go(route_url('home', ['q' => $q]));
 }
 function forum_page(): void
@@ -4660,15 +4671,15 @@ function favicon_page(): void
 }
 function form_error_route(): void
 {
-    $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
-    unset($_SESSION['form_error']); error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
+    $raw = base64_decode((string)($_COOKIE['__form_error'] ?? ''), true);
+    $data = is_string($raw) ? json_decode($raw, true) : [];
+    setcookie('__form_error', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    error_page('操作失败', trim((string)(is_array($data) ? ($data['message'] ?? '') : '') ?: '操作失败'));
 }
 function logout_route(): void
 {
     require_post();
     auth_cookie_clear();
-    $_SESSION = [];
-    session_destroy();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
     go(route_url('home'));
@@ -4757,7 +4768,6 @@ if ($setup_action === 'install') {
     require_once UPDATE_SETUP_FILE;
     setup_install_run();
 }
-secure_session_start();
 if ($setup_action === 'update') {
     require_once UPDATE_SETUP_FILE;
     setup_update_run();
