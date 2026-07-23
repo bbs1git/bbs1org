@@ -1927,7 +1927,7 @@ function is_super_user(): bool
 {
     return uid() === 1;
 }
-function clear_authenticated_session(): void
+function clear_auth_cookie(): void
 {
     auth_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
@@ -1944,7 +1944,7 @@ function me(): ?array
     $u = one("SELECT * FROM app_users WHERE id=?", [$parts['id']]);
     $expected = $u ? hash_hmac('sha256', $parts['id'] . '|' . $parts['expire'], (string)$u['password']) : '';
     if (!$u || !hash_equals($expected, $parts['signature'])) {
-        clear_authenticated_session();
+        clear_auth_cookie();
         return null;
     }
     $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
@@ -1982,7 +1982,7 @@ function consume_auth_return_url(): string
     if (preg_match('/[\x00-\x1F\x7F]/', $url) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $url)) return route_url('home');
     return $url;
 }
-function start_authenticated_session(int $user_id): void
+function start_cookie_login(int $user_id): void
 {
     $user = one("SELECT password FROM app_users WHERE id=?", [$user_id]) ?: err('用户不存在');
     auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
@@ -1991,7 +1991,7 @@ function start_authenticated_session(int $user_id): void
 }
 function complete_login(int $user_id): never
 {
-    start_authenticated_session($user_id);
+    start_cookie_login($user_id);
     go(consume_auth_return_url());
 }
 function need_login(): void
@@ -3884,7 +3884,7 @@ function register_page(): void
         save_user(false);
         $user_id = (int)($GLOBALS['__last_saved_user_id'] ?? 0);
         if ($user_id <= 0) err('注册失败');
-        start_authenticated_session($user_id);
+        start_cookie_login($user_id);
         go(consume_auth_return_url());
     }
     $sidebar = sidebar_stack_html([
