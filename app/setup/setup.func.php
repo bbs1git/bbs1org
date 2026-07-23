@@ -461,7 +461,7 @@ function us_update_page(?array $release = null, string $error = ''): void
                 $type = (string)($change['type'] ?? '变更');
                 $body .= '<li><label><input type="checkbox" name="files[]" value="' . h($path) . '" form="online-update-form" checked><span class="update-file-type">' . h($type) . '</span><span class="update-file-path">' . h($path) . '</span></label></li>';
             }
-            $body .= '<li class="update-schema-item"><label><input type="checkbox" name="sync_schema" value="1" form="online-update-form" checked><span class="update-schema-copy"><strong>同步数据库结构</strong><span>文件更新完成后，自动同步缺少的表、字段和索引</span></span></label></li>';
+            $body .= '<li class="update-schema-item"><label><input type="checkbox" name="sync_schema" value="1" form="online-update-form" checked><span class="update-schema-copy"><strong>同步数据库结构</strong><span>文件更新并确认 OPcache 已清理后，由新请求同步缺少的表、字段和索引</span></span></label></li>';
             $body .= '</ul>';
         } else {
             $body .= '<div class="update-notice">当前程序文件已是最新版本。</div>';
@@ -506,7 +506,35 @@ function us_writable_parent(string $path): bool
     return is_dir($parent) && is_writable($parent);
 }
 
-function us_install_files(string $sha, array $remote_files, array $selected): int
+function us_refresh_opcache_after_update(array $files): string
+{
+    $php_updated = (bool)array_filter($files, static fn(string $path): bool => str_ends_with(strtolower($path), '.php'));
+    if (!$php_updated) return '本次未更新 PHP 文件，无需清理 OPcache';
+
+    $opcache_enabled = filter_var((string)ini_get('opcache.enable'), FILTER_VALIDATE_BOOL);
+    if (function_exists('opcache_get_status')) {
+        try {
+            $opcache_enabled = $opcache_enabled || is_array(@opcache_get_status(false));
+        } catch (Throwable $e) {
+            // 无法读取状态时，以配置值判断，随后仍要求 opcache_reset() 成功。
+        }
+    }
+    if (!$opcache_enabled) return 'OPcache 未启用，无需清理';
+    if (!function_exists('opcache_reset')) {
+        throw new RuntimeException('程序文件已更新，但 OPcache 已启用且无法调用 opcache_reset()；数据库结构尚未同步，请清理 OPcache 后重试。');
+    }
+    try {
+        $cleared = opcache_reset();
+    } catch (Throwable $e) {
+        $cleared = false;
+    }
+    if (!$cleared) {
+        throw new RuntimeException('程序文件已更新，但 OPcache 清理失败；数据库结构尚未同步，请清理 OPcache 后重试。');
+    }
+    return 'OPcache 已成功清理';
+}
+
+function us_install_files(string $sha, array $remote_files, array $selected): array
 {
     if (!preg_match('/^[a-f0-9]{40}$/', $sha)) throw new RuntimeException('升级版本无效。');
     $temp = UPDATE_DATA_DIR . '/update-' . bin2hex(random_bytes(6));
@@ -582,9 +610,8 @@ function us_install_files(string $sha, array $remote_files, array $selected): in
             if ($rollback_errors) throw new RuntimeException($e->getMessage() . '；回滚失败：' . implode('、', $rollback_errors), 0, $e);
             throw new RuntimeException($e->getMessage() . '；已恢复升级前文件。', 0, $e);
         }
-        $php_updated = (bool)array_filter($files, static fn(string $path): bool => str_ends_with(strtolower($path), '.php'));
-        if ($php_updated && function_exists('opcache_reset')) @opcache_reset();
-        return count($files);
+        clearstatcache();
+        return ['count' => count($files), 'opcache' => us_refresh_opcache_after_update($files)];
     } finally {
         us_remove_dir($temp);
     }
@@ -763,6 +790,45 @@ function us_sync_schema(): array
     }
 }
 
+function us_defer_schema_after_update(array $changes): never
+{
+    $nonce = bin2hex(random_bytes(24));
+    $_SESSION['update_schema_pending'] = [
+        'nonce' => $nonce,
+        'created_at' => time(),
+        'changes' => array_values($changes),
+    ];
+    us_unlock();
+    session_write_close();
+    header('Location: index.php?a=update&schema_after_update=' . rawurlencode($nonce), true, 303);
+    exit;
+}
+
+function us_run_deferred_schema(): never
+{
+    $nonce = (string)($_GET['schema_after_update'] ?? '');
+    $pending = $_SESSION['update_schema_pending'] ?? null;
+    unset($_SESSION['update_schema_pending']);
+    if (!is_array($pending)
+        || $nonce === ''
+        || !hash_equals((string)($pending['nonce'] ?? ''), $nonce)
+        || time() - (int)($pending['created_at'] ?? 0) > 300
+    ) {
+        us_result_page('升级失败', [], '数据库同步请求无效或已过期，请返回升级页重试。');
+    }
+
+    $changes = array_values(array_filter((array)($pending['changes'] ?? []), 'is_string'));
+    us_acquire_lock();
+    try {
+        $schema_changes = us_sync_schema();
+        $changes = array_merge($changes, $schema_changes ?: ['数据库结构同步完成，当前结构无需调整']);
+        us_result_page('升级完成', $changes);
+    } catch (Throwable $e) {
+        $prefix = $changes ? implode('；', $changes) . '；' : '';
+        us_result_page('数据库同步失败', [], $prefix . $e->getMessage());
+    }
+}
+
 function setup_update_run(): never
 {
     if (!is_file(UPDATE_INSTALL_LOCK_FILE) || !is_file(UPDATE_DB_CONFIG_FILE)) us_result_page('请先安装', [], '请先执行安装操作。');
@@ -772,6 +838,8 @@ function setup_update_run(): never
     if ($legacy_state === 'legacy') us_handle_legacy_upgrade();
     if ($legacy_state !== '') us_result_page('无法自动升级', [], $legacy_state);
     us_need_admin();
+
+    if (isset($_GET['schema_after_update'])) us_run_deferred_schema();
     
     if ((string)($_GET['notice_check'] ?? '') === '1') us_notice_check();
     
@@ -796,8 +864,10 @@ function setup_update_run(): never
             if (!hash_equals($remote['sha'], $requested_sha)) throw new RuntimeException('远端版本已变化，请重新检测后再升级。');
             $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => in_array((string)$path, UPDATE_CODE_FILES, true))));
             if ($selected) {
-                $count = us_install_files($remote['sha'], $remote['files'], $selected);
-                $changes[] = '程序代码已更新至 ' . $remote['short_sha'] . '（' . $count . ' 个文件）';
+                $installed = us_install_files($remote['sha'], $remote['files'], $selected);
+                $changes[] = '程序代码已更新至 ' . $remote['short_sha'] . '（' . (int)$installed['count'] . ' 个文件）';
+                $changes[] = (string)$installed['opcache'];
+                if (isset($_POST['sync_schema'])) us_defer_schema_after_update($changes);
             } elseif (!isset($_POST['sync_schema'])) {
                 throw new RuntimeException('请至少选择一个需要执行的升级操作。');
             }
