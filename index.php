@@ -46,6 +46,8 @@ define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/av
 define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/setup/setup.func.php']);
 define('SEARCH_MIN_CHARS', 3);
 define('PASSWORD_MIN_LENGTH', 4);
+define('AUTH_COOKIE_NAME', 'bbs_auth');
+define('AUTH_COOKIE_TTL', 2592000);
 define('PLUGIN_MARKET_BASE_URL', 'https://bbs1.org/index.php');
 define('PLUGIN_SHARE_BODY_MAX', 200000);
 define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
@@ -350,6 +352,43 @@ function secure_session_start(): void
         'samesite' => 'Lax',
     ]);
     session_start();
+}
+function auth_cookie_secure(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+}
+function auth_cookie_clear(): void
+{
+    setcookie(AUTH_COOKIE_NAME, '', [
+        'expires' => time() - 3600,
+        'path' => '/',
+        'secure' => auth_cookie_secure(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($_COOKIE[AUTH_COOKIE_NAME]);
+}
+function auth_cookie_set(array $user): void
+{
+    $id = (int)($user['id'] ?? 0);
+    $expire = time() + AUTH_COOKIE_TTL;
+    $payload = $id . '|' . $expire;
+    $signature = hash_hmac('sha256', $payload, (string)($user['password'] ?? ''));
+    setcookie(AUTH_COOKIE_NAME, $id . '.' . $expire . '.' . $signature, [
+        'expires' => $expire,
+        'path' => '/',
+        'secure' => auth_cookie_secure(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+function auth_cookie_parts(): ?array
+{
+    $value = (string)($_COOKIE[AUTH_COOKIE_NAME] ?? '');
+    if (!preg_match('/^(\d+)\.(\d+)\.([a-f0-9]{64})$/D', $value, $m)) return null;
+    $id = (int)$m[1];
+    $expire = (int)$m[2];
+    return $id > 0 && $expire > 0 ? ['id' => $id, 'expire' => $expire, 'signature' => $m[3]] : null;
 }
 function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
@@ -1865,34 +1904,38 @@ function now(): int
 }
 function uid(): int
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) return 0;
-    return (int)($_SESSION['uid'] ?? 0);
+    if (array_key_exists('__request_uid', $GLOBALS)) return (int)$GLOBALS['__request_uid'];
+    $user = me();
+    return $user ? (int)$user['id'] : 0;
 }
 function is_super_user(): bool
 {
     return uid() === 1;
 }
-function session_password_fingerprint(string $password_hash): string
-{
-    return hash('sha256', "bbs1org-session-password\0" . $password_hash);
-}
 function clear_authenticated_session(): void
 {
     $_SESSION = [];
+    auth_cookie_clear();
+    $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
     if (session_status() === PHP_SESSION_ACTIVE) @session_regenerate_id(true);
 }
 function me(): ?array
 {
-    if (!uid()) return null;
     if (array_key_exists('__me_cache', $GLOBALS)) return is_array($GLOBALS['__me_cache']) ? $GLOBALS['__me_cache'] : null;
-    $u = one("SELECT * FROM app_users WHERE id=?", [uid()]);
-    $session_fingerprint = (string)($_SESSION['password_fingerprint'] ?? '');
-    if (!$u || $session_fingerprint === '' || !hash_equals(session_password_fingerprint((string)$u['password']), $session_fingerprint)) {
+    $parts = auth_cookie_parts();
+    if (!$parts || $parts['expire'] < time()) {
+        if ($parts) auth_cookie_clear();
+        return $GLOBALS['__me_cache'] = null;
+    }
+    $u = one("SELECT * FROM app_users WHERE id=?", [$parts['id']]);
+    $expected = $u ? hash_hmac('sha256', $parts['id'] . '|' . $parts['expire'], (string)$u['password']) : '';
+    if (!$u || !hash_equals($expected, $parts['signature'])) {
         clear_authenticated_session();
         return null;
     }
     $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
+    $GLOBALS['__request_uid'] = (int)$u['id'];
     return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'group_id' => (int)($u['group_id'] ?? 0), 'is_banned' => (int)($u['is_banned'] ?? 0), 'is_muted' => (int)($u['is_muted'] ?? 0), 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
 }
 function can_manage(): bool
@@ -1932,8 +1975,8 @@ function start_authenticated_session(int $user_id): void
     secure_session_start();
     $user = one("SELECT password FROM app_users WHERE id=?", [$user_id]) ?: err('用户不存在');
     session_regenerate_id(true);
-    $_SESSION['uid'] = $user_id;
-    $_SESSION['password_fingerprint'] = session_password_fingerprint((string)$user['password']);
+    auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
+    $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
 }
 function complete_login(int $user_id): never
@@ -4620,7 +4663,16 @@ function form_error_route(): void
     $data = is_array($_SESSION['form_error'] ?? null) ? $_SESSION['form_error'] : [];
     unset($_SESSION['form_error']); error_page('操作失败', trim((string)($data['message'] ?? '操作失败')));
 }
-function logout_route(): void { require_post(); session_destroy(); go(route_url('home')); }
+function logout_route(): void
+{
+    require_post();
+    auth_cookie_clear();
+    $_SESSION = [];
+    session_destroy();
+    $GLOBALS['__request_uid'] = 0;
+    $GLOBALS['__me_cache'] = null;
+    go(route_url('home'));
+}
 function delete_route(): void
 {
     require_post(); need_login();
