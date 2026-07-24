@@ -44,6 +44,8 @@ define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/ind
 define('SEARCH_MIN_CHARS', 3);
 define('PASSWORD_MIN_LENGTH', 4);
 define('COOKIE_TTL', 15552000);
+define('FAVORITE_COOKIE_LIMIT', 50);
+define('FAVORITE_COOKIE_NAME', '__favorite_topics');
 define('AUTH_COOKIE_NAME', 'bbs_auth');
 define('AUTH_COOKIE_TTL', COOKIE_TTL);
 define('CSRF_COOKIE_NAME', 'bbs_csrf');
@@ -1910,6 +1912,7 @@ function is_super_user(): bool
 function clear_auth_cookie(): void
 {
     auth_cookie_clear();
+    favorite_topics_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
 }
@@ -1965,6 +1968,7 @@ function consume_auth_return_url(): string
 function start_cookie_login(int $user_id): void
 {
     $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
+    favorite_topics_cookie_clear();
     auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
@@ -2892,6 +2896,14 @@ function favorite_topic_states(array $topic_ids): array
     $uid = uid();
     $topic_ids = array_values(array_unique(array_filter(array_map('intval', $topic_ids))));
     if (!$uid || !$topic_ids) return [];
+    $cookie = favorite_topics_cookie();
+    if ($cookie === null) $cookie = favorite_topics_cookie_load();
+    if ($cookie !== false) {
+        $favorites = array_fill_keys($cookie, true);
+        $states = [];
+        foreach ($topic_ids as $topic_id) $states[$topic_id] = isset($favorites[$topic_id]);
+        return $states;
+    }
     $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
     $items = (int)($state['uid'] ?? 0) === $uid && is_array($state['items'] ?? null) ? $state['items'] : [];
     $missing = [];
@@ -2912,9 +2924,56 @@ function favorite_topic_states(array $topic_ids): array
     foreach ($topic_ids as $topic_id) $states[$topic_id] = !empty($items[$topic_id]['favorite']);
     return $states;
 }
+function favorite_topics_cookie_name(): string
+{
+    return FAVORITE_COOKIE_NAME;
+}
+function favorite_topics_cookie_clear(): void
+{
+    setcookie(FAVORITE_COOKIE_NAME, '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    unset($_COOKIE[FAVORITE_COOKIE_NAME]);
+}
+function favorite_topics_cookie(): array|false|null
+{
+    $raw = $_COOKIE[favorite_topics_cookie_name()] ?? null;
+    if (!is_string($raw)) return null;
+    if ($raw === '-1') return false;
+    if ($raw === '0') return [];
+    if (preg_match('/^\d+(?:\.\d+)*$/D', $raw) !== 1) return null;
+    $ids = array_values(array_unique(array_filter(array_map('intval', explode('.', $raw)))));
+    return count($ids) <= FAVORITE_COOKIE_LIMIT ? $ids : null;
+}
+function favorite_topics_cookie_write(array|false $ids): void
+{
+    $value = '-1';
+    if (is_array($ids)) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        sort($ids, SORT_NUMERIC);
+        $value = $ids ? implode('.', $ids) : '0';
+    }
+    $name = favorite_topics_cookie_name();
+    setcookie($name, $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    $_COOKIE[$name] = $value;
+}
+function favorite_topics_cookie_load(): array|false
+{
+    $ids = array_map('intval', array_column(q("SELECT topic_id FROM app_favorites WHERE user_id=? ORDER BY topic_id LIMIT " . (FAVORITE_COOKIE_LIMIT + 1), [uid()])->fetchAll(), 'topic_id'));
+    $value = count($ids) > FAVORITE_COOKIE_LIMIT ? false : $ids;
+    favorite_topics_cookie_write($value);
+    return $value;
+}
 function favorite_topic_state_set(int $topic_id, bool $favorite): void
 {
     if (!uid() || $topic_id <= 0) return;
+    $cookie = favorite_topics_cookie();
+    if ($cookie === null || $cookie === false) {
+        favorite_topics_cookie_load();
+    } else {
+        $favorites = array_fill_keys($cookie, true);
+        if ($favorite) $favorites[$topic_id] = true;
+        else unset($favorites[$topic_id]);
+        favorite_topics_cookie_write(count($favorites) > FAVORITE_COOKIE_LIMIT ? false : array_keys($favorites));
+    }
     $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
     $items = (int)($state['uid'] ?? 0) === uid() && is_array($state['items'] ?? null) ? $state['items'] : [];
     unset($items[$topic_id]);
@@ -4666,6 +4725,7 @@ function logout_route(): void
 {
     require_post();
     auth_cookie_clear();
+    favorite_topics_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
     go(route_url('home'));
