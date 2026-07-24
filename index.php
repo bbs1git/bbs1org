@@ -428,6 +428,11 @@ function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
     $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
     if (!$ids) return [];
+    if (in_array($table, ['app_users', 'app_topics'], true) && count($ids) === 1) {
+        $row = row($table, 'id', $ids[0]);
+        if (!$row) return [];
+        return [$ids[0] => $row];
+    }
     $marks = sql_marks(count($ids));
     $rows = q("SELECT $cols FROM $table WHERE id IN ($marks)", $ids)->fetchAll();
     $map = [];
