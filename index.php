@@ -195,6 +195,7 @@ function app_db_write(string $table, array $data, array $keys, bool $ignore = fa
         $sql = db_driver() === 'mysql' ? str_replace('INSERT INTO', 'INSERT IGNORE INTO', $base) : $base . ' ON CONFLICT(' . implode(',', $keys) . ') DO NOTHING';
     } else $sql = app_db_upsert_sql(db_driver(), $table, $columns, $keys);
     db()->prepare($sql)->execute(array_values($data));
+    db_row_cache_clear();
 }
 
 function app_db_upsert(string $table, array $data, array $keys): void
@@ -280,8 +281,25 @@ function sql_query_count(bool $increment = false): int
     if ($increment) $count++;
     return $count;
 }
+function db_row_cache_clear(): void
+{
+    $GLOBALS['__db_row_cache'] = [];
+}
+function row(string $table, string $key, mixed $value): ?array
+{
+    $cache =& $GLOBALS['__db_row_cache'];
+    if (!is_array($cache)) $cache = [];
+    $cache_key = $table . "\0" . $key . "\0" . serialize($value);
+    if (!array_key_exists($cache_key, $cache)) {
+        $table = app_db_identifier(db_driver(), $table);
+        $key = app_db_identifier(db_driver(), $key);
+        $cache[$cache_key] = one("SELECT * FROM $table WHERE $key=?", [$value]) ?: false;
+    }
+    return $cache[$cache_key] ?: null;
+}
 function q(string $sql, array $p = []): PDOStatement
 {
+    if (strncasecmp(ltrim($sql), 'SELECT', 6) !== 0) db_row_cache_clear();
     sql_query_count(true);
     $s = db()->prepare($sql);
     $s->execute($p);
@@ -468,6 +486,7 @@ function save_settings_values(array $values): void
 {
     $stmt = db()->prepare(app_db_upsert_sql(db_driver(), 'app_settings', ['name', 'value'], ['name']));
     foreach ($values as $name => $value) $stmt->execute([$name, $value]);
+    db_row_cache_clear();
     settings_cache(true);
     foreach (array_keys($values) as $name) {
         if (str_starts_with((string)$name, 'plugin_')) {
@@ -1159,7 +1178,7 @@ function check_post_interval(): void
 {
     $seconds = post_interval_seconds();
     if ($seconds <= 0 || !uid()) return;
-    $wait = $seconds - (time() - (int)(val("SELECT last_post_at FROM app_users WHERE id=?", [uid()]) ?: 0));
+    $wait = $seconds - (time() - (int)(row('app_users', 'id', uid())['last_post_at'] ?? 0));
     if ($wait > 0) err('操作太频繁，请 ' . $wait . ' 秒后再试');
 }
 function clear_opcache_cache(): bool
@@ -1262,7 +1281,7 @@ function group_by_id(int $id): ?array
 function user_by_id(int $id): ?array
 {
     if ($id > 0 && $id === uid()) return me();
-    return one("SELECT * FROM app_users WHERE id=?", [$id]);
+    return row('app_users', 'id', $id);
 }
 function notification_badge_html(int $count): string
 {
@@ -1327,7 +1346,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
 {
     if ($user_id <= 0 || $delta === 0) return 0;
     $actual = tx(function () use ($user_id, $delta) {
-        $old = (int)(val("SELECT points FROM app_users WHERE id=?", [$user_id]) ?: 0);
+        $old = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
         $new = $old + $delta;
         $actual = $new - $old;
         if ($actual !== 0) q("UPDATE app_users SET points=? WHERE id=?", [$new, $user_id]);
@@ -1335,7 +1354,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
     });
     if ($actual === 0) return 0;
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
-    $now_points = (int)(val("SELECT points FROM app_users WHERE id=?", [$user_id]) ?: 0);
+    $now_points = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
     $verb = $actual > 0 ? '增加' : '减少';
     create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
     return $actual;
@@ -1343,12 +1362,12 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
 function user_points_set(int $user_id, int $points, string $reason = '系统调整'): int
 {
     if ($user_id <= 0) return 0;
-    $old = (int)(val("SELECT points FROM app_users WHERE id=?", [$user_id]) ?: 0);
+    $old = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
     return user_points_change($user_id, $points - $old, $reason);
 }
 function create_reply_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
 {
-    $topic = one("SELECT title,user_id FROM app_topics WHERE id=?", [$topic_id]);
+    $topic = row('app_topics', 'id', $topic_id);
     if (!$topic) return;
     $usernames = notification_targets($body);
     $targets = [];
@@ -1646,7 +1665,7 @@ function admin_reply_row(array $r, bool $manageable = true): string
 }
 function deletable_post_row(string $type, int $id): ?array
 {
-    if ($type === 'topics') return one("SELECT * FROM app_topics WHERE id=?", [$id]);
+    if ($type === 'topics') return row('app_topics', 'id', $id);
     if ($type === 'replies') return one("SELECT * FROM app_replies WHERE id=?", [$id]);
     return null;
 }
@@ -1941,7 +1960,7 @@ function me(): ?array
         if ($parts) auth_cookie_clear();
         return $GLOBALS['__me_cache'] = null;
     }
-    $u = one("SELECT * FROM app_users WHERE id=?", [$parts['id']]);
+    $u = row('app_users', 'id', $parts['id']);
     $expected = $u ? hash_hmac('sha256', $parts['id'] . '|' . $parts['expire'], (string)$u['password']) : '';
     if (!$u || !hash_equals($expected, $parts['signature'])) {
         clear_auth_cookie();
@@ -1984,7 +2003,7 @@ function consume_auth_return_url(): string
 }
 function start_cookie_login(int $user_id): void
 {
-    $user = one("SELECT password FROM app_users WHERE id=?", [$user_id]) ?: err('用户不存在');
+    $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
     auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
@@ -3387,7 +3406,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         if ($avatar_seed === '') $avatar_seed = avatar_seed($avatar_style, (string)$user_id);
     }
     if ($username === '') err('用户名不能为空');
-    $old_user = $user_id ? one("SELECT username,group_id,points,is_banned,is_muted FROM app_users WHERE id=?", [$user_id]) : null;
+    $old_user = $user_id ? row('app_users', 'id', $user_id) : null;
     if ($user_id && !$old_user) err('用户不存在');
     if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && in_array(function_exists('mb_strtolower') ? mb_strtolower($username, 'UTF-8') : strtolower($username), array_map(fn($v) => function_exists('mb_strtolower') ? mb_strtolower($v, 'UTF-8') : strtolower($v), preg_split('/[\s,，]+/u', setting('reserved_usernames'), -1, PREG_SPLIT_NO_EMPTY) ?: []), true)) err('用户名已保留');
     $gid = $admin ? max(1, (int)$_POST['group_id']) : ($old_user ? (int)$old_user['group_id'] : (int)setting('default_group_id', '2'));
@@ -3484,7 +3503,7 @@ function apply_puppet_topic_author(string $title, string $body): array
 function user_notify_page(): void
 {
     need_login();
-    $target = one("SELECT id,username,avatar_style,avatar_seed,group_id FROM app_users WHERE id=?", [id()]) ?: err('用户不存在');
+    $target = row('app_users', 'id', id()) ?: err('用户不存在');
     if ((int)$target['id'] === uid()) err('不能通知自己');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
@@ -3682,7 +3701,7 @@ function save_topic(): int
         }
     }
     if (id()) {
-        $t = one("SELECT * FROM app_topics WHERE id=?", [id()]) ?: err('主题不存在');
+        $t = row('app_topics', 'id', id()) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
         if ($action !== '' && !can_manage()) err('无权限');
         if ($action === 'delete') {
@@ -3764,7 +3783,7 @@ function save_reply(): array
     } else {
         $tid = max(1, (int)$_POST['topic_id']);
     }
-    $topic = one("SELECT id,forum_id FROM app_topics WHERE id=?", [$tid]) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
+    $topic = row('app_topics', 'id', $tid) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
     if (!forum_group_allowed($forum, 'allow_reply_groups')) $ajax ? ajax_error('无权限') : err('无权限');
     $body = post('body', 10000);
@@ -3820,7 +3839,7 @@ function del(string $table, int $id): void
         return;
     }
     if ($table === 'users') {
-        $r = one("SELECT * FROM app_users WHERE id=?", [$id]);
+        $r = row('app_users', 'id', $id);
         if (!$r) err('记录不存在');
         $tids = q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll();
         tx(function () use ($id, $r, $tids) {
@@ -3832,7 +3851,7 @@ function del(string $table, int $id): void
         return;
     }
     if ($table === 'topics') {
-        $r = one("SELECT * FROM app_topics WHERE id=?", [$id]);
+        $r = row('app_topics', 'id', $id);
         if (!$r) err('记录不存在');
         tx(function () use ($id, $r) {
             fire('topic.before_delete', ['id' => $id, 'row' => $r]);
@@ -3912,7 +3931,7 @@ function user_page(): void
     else {
         $user = $username !== ''
             ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM app_users WHERE username=?", [$username])
-            : one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM app_users WHERE id=?", [id()]);
+            : row('app_users', 'id', id());
     }
     $user = $user ?: err('你访问的页面不存在', 404);
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
@@ -3927,7 +3946,7 @@ function favorite_page(): void
     check();
     $tid = id('topic_id') ?: id();
     if (!$tid) err('参数错误');
-    one("SELECT id FROM app_topics WHERE id=?", [$tid]) ?: err('主题不存在');
+    row('app_topics', 'id', $tid) ?: err('主题不存在');
     $favorite = q("DELETE FROM app_favorites WHERE user_id=? AND topic_id=?", [uid(), $tid])->rowCount() === 0;
     if ($favorite) q("INSERT INTO app_favorites(user_id,topic_id,created_at) VALUES(?,?,?)", [uid(), $tid, now()]);
     favorite_topic_state_set($tid, $favorite);
@@ -3967,7 +3986,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         if (!uid()) err('请登录后操作');
         $seconds = post_interval_seconds();
         if ($p === 1 && $seconds > 0) {
-            $wait = $seconds - (time() - (int)(val("SELECT last_post_at FROM app_users WHERE id=?", [uid()]) ?: 0));
+            $wait = $seconds - (time() - (int)(row('app_users', 'id', uid())['last_post_at'] ?? 0));
             if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
             q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
         }
@@ -4156,7 +4175,7 @@ function topic_page(): void
         $reply = one("SELECT topic_id FROM app_replies WHERE id=?", [id('replyid')]) ?: err('你访问的帖子可能已经删除', 404);
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
-    $t = one("SELECT * FROM app_topics WHERE id=?", [id()]) ?: err('你访问的帖子可能已经删除', 404);
+    $t = row('app_topics', 'id', id()) ?: err('你访问的帖子可能已经删除', 404);
     $forum = forum_by_id((int)$t['forum_id']) ?: err('你访问的页面不存在', 404);
     if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
     remember_forum((int)$t['forum_id']);
@@ -4231,7 +4250,7 @@ function topic_edit_page(): void
     need_speak();
     $t = ['id' => 0, 'forum_id' => id('fid') ?: 1, 'title' => '', 'body' => '', 'user_id' => uid()];
     if (id()) {
-        $t = one("SELECT * FROM app_topics WHERE id=?", [id()]) ?: err('主题不存在');
+        $t = row('app_topics', 'id', id()) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST') go(route_url('topic', ['id' => save_topic()]));
@@ -4273,7 +4292,7 @@ function reply_edit_page(): void
         if (ajax_request()) {
             $row = one("SELECT * FROM app_replies WHERE id=?", [$saved['reply_id']]) ?: err('回复不存在');
             $row = attach_users([$row])[0];
-            $topic = one("SELECT view_count,reply_count,reply_order FROM app_topics WHERE id=?", [$saved['topic_id']]) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
+            $topic = row('app_topics', 'id', $saved['topic_id']) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
             $floor = (int)$topic['reply_count'];
             $ops = quote_reply_action($row, $floor);
             if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
@@ -4745,7 +4764,7 @@ function admin_route(): void
     } elseif ($tab === 'topics' && $action === 'move') {
         $forum_id = max(1, (int)($_POST['forum_id'] ?? 0)); if (!forum_by_id($forum_id)) err('版块不存在');
         foreach ($ids as $tid) {
-            $row = one("SELECT forum_id FROM app_topics WHERE id=?", [$tid]);
+            $row = row('app_topics', 'id', $tid);
             if (!$row) continue;
             q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id=?", [$forum_id, now(), $tid]);
             refresh_forum_last_topic((int)$row['forum_id']);
