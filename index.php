@@ -5,7 +5,6 @@ define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 define('APP_VERSION', 'v6.2');
-define('APP_SQL_DEBUG', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
@@ -290,6 +289,14 @@ function sql_query_count(bool $increment = false): int
     if ($increment) $count++;
     return $count;
 }
+function sql_debug_mode_enabled(): bool
+{
+    static $enabled = null;
+    if ($enabled !== null) return $enabled;
+    if (!is_file(SETTING_CACHE_FILE)) return $enabled = false;
+    $settings = include SETTING_CACHE_FILE;
+    return $enabled = is_array($settings) && (string)($settings['sql_debug_mode'] ?? '0') === '1';
+}
 function db_row_cache_clear(): void
 {
     $GLOBALS['__db_row_cache'] = [];
@@ -312,7 +319,7 @@ function q(string $sql, array $p = []): PDOStatement
     sql_query_count(true);
     $s = db()->prepare($sql);
     $s->execute($p);
-    if (APP_SQL_DEBUG === true) $GLOBALS['__sql_queries'][] = [$sql, $p];
+    if (sql_debug_mode_enabled()) $GLOBALS['__sql_queries'][] = [$sql, $p];
     return $s;
 }
 function one(string $sql, array $p = []): ?array
@@ -485,6 +492,7 @@ function default_settings(): array
         'post_interval_seconds' => '5',
         'attachment_max_count' => '10',
         'attachment_max_mb' => '20',
+        'sql_debug_mode' => '0',
     ];
 }
 function settings_cache(bool $refresh = false): array
@@ -1229,7 +1237,7 @@ function save_settings(): void
         'default_group_id' => (string)$gid,
     ];
     foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
-    foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
+    foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'sql_debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
     foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_count' => [0, PHP_INT_MAX, 10], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
@@ -3217,7 +3225,7 @@ function page_footer_html(array $settings, string $title, string $flash): string
 }
 function sql_debug_html(): string
 {
-    if (APP_SQL_DEBUG !== true || uid() !== 1) return '';
+    if (!sql_debug_mode_enabled() || uid() !== 1) return '';
     $queries = (array)($GLOBALS['__sql_queries'] ?? []);
     $html = '';
     foreach ($queries as $i => [$sql, $params]) {
@@ -4590,6 +4598,7 @@ function admin_page(): void
             'avatar_mirror' => ['html' => $avatar_mirror_field],
             'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
             'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
+            'sql_debug_mode' => ['label' => 'SQL Debug 模式', 'type' => 'checkbox', 'help' => '仅对 UID=1 显示页面 SQL 查询。'],
             'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
             'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
             'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
