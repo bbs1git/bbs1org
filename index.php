@@ -3229,7 +3229,7 @@ function sql_debug_html(): string
     $queries = (array)($GLOBALS['__sql_queries'] ?? []);
     $html = '';
     foreach ($queries as $i => [$sql, $params]) {
-        $html .= '<pre>' . h('#' . ($i + 1) . "\n" . $sql . ($params ? "\n" . json_encode($params, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) : '')) . '</pre>';
+        $html .= '<pre>' . h('#' . ($i + 1) . " " . $sql . ($params ? " " . json_encode($params, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) : '')) . '</pre>';
     }
     return '<details class="runtime-info" open><summary>SQL Debug · ' . count($queries) . ' queries</summary>' . $html . '</details>';
 }
