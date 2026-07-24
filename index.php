@@ -17,6 +17,7 @@ define('UPLOAD_DIR', APP_DIR . '/upload');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
+define('HOME_STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
 define('PLUGIN_ASSET_CACHE_FILE', CACHE_DIR . '/plugin-assets.php');
@@ -250,14 +251,6 @@ function app_db_last_insert_id(string $table): int
         $id = (int)$stmt->fetchColumn();
     } else {
         $id = (int)db()->lastInsertId();
-    }
-    $setting = ['app_topics' => 'stats_topics', 'app_replies' => 'stats_replies', 'app_users' => 'stats_users'][$table] ?? '';
-    if ($setting !== '') {
-        $values = [$setting => (string)$id];
-        if ($table === 'app_users') {
-            $values['latest_users'] = json_encode(q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(), JSON_UNESCAPED_UNICODE);
-        }
-        save_settings_values($values);
     }
     return $id;
 }
@@ -1892,15 +1885,41 @@ function form_shell(string $body, ?array $m = null): string
 {
     return shell_html($body, sidebar_stack_html([sidebar_user_card_html($m)]));
 }
-function stats_cache(bool $refresh = false, bool $force = false): array
+function home_stats_default(): array
 {
-    $latest_users = json_decode(setting('latest_users', '[]'), true);
     return [
-        'topics' => (int)setting('stats_topics', '0'),
-        'replies' => (int)setting('stats_replies', '0'),
-        'users' => (int)setting('stats_users', '0'),
-        'latest_users' => is_array($latest_users) ? $latest_users : [],
+        'topics' => 0,
+        'replies' => 0,
+        'users' => 0,
+        'latest_users' => [],
     ];
+}
+function stats_cache(): array
+{
+    if (is_array($GLOBALS['__home_stats_cache'] ?? null)) return $GLOBALS['__home_stats_cache'];
+    if (!is_file(HOME_STATS_CACHE_FILE)) return $GLOBALS['__home_stats_cache'] = home_stats_default();
+    $cached = include HOME_STATS_CACHE_FILE;
+    if (!is_array($cached)) return $GLOBALS['__home_stats_cache'] = home_stats_default();
+    return $GLOBALS['__home_stats_cache'] = array_merge(home_stats_default(), $cached);
+}
+function home_stats_record_insert(string $type, int $id, array $user = []): array
+{
+    $stats = stats_cache();
+    if ($type === 'topics') {
+        $stats['topics'] = $id;
+    } elseif ($type === 'replies') {
+        $stats['replies'] = $id;
+    } elseif ($type === 'users') {
+        $stats['users'] = $id;
+        $user = ['id' => $id, 'username' => (string)($user['username'] ?? ''), 'avatar_style' => (string)($user['avatar_style'] ?? ''), 'avatar_seed' => (string)($user['avatar_seed'] ?? '')];
+        $latest_users = array_values(array_filter((array)$stats['latest_users'], fn($item): bool => (int)($item['id'] ?? 0) !== $id));
+        array_unshift($latest_users, $user);
+        $stats['latest_users'] = array_slice($latest_users, 0, 8);
+    } else {
+        throw new InvalidArgumentException('无效的首页统计类型。');
+    }
+    cache_write_php(HOME_STATS_CACHE_FILE, $stats);
+    return $GLOBALS['__home_stats_cache'] = $stats;
 }
 function now(): int
 {
@@ -3489,7 +3508,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         if (!$admin && !id()) rate_hit_bucket($ip, 'register');
         fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
     }
-    stats_cache(true);
+    if (!$user_id && !$admin) home_stats_record_insert('users', (int)$new_user_id, ['username' => $username, 'avatar_style' => $avatar_style, 'avatar_seed' => $avatar_seed]);
 }
 function puppet_username_from_body(string $body): string
 {
@@ -3507,7 +3526,6 @@ function puppet_user_id(string $username): int
     $pwd = bin2hex(random_bytes(16));
     q("INSERT INTO app_users(username,password,email,bio,avatar_style,avatar_seed,group_id,is_banned,is_muted,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $username . '@local', '', '', '', (int)setting('default_group_id', '2'), 0, 0, now()]);
     $user_id = app_db_last_insert_id('app_users');
-    stats_cache(true);
     return $user_id;
 }
 function apply_puppet_author(string $body): array
@@ -3790,7 +3808,7 @@ function save_topic(): int
         return $tid;
     });
     forums_cache(true);
-    stats_cache(true);
+    home_stats_record_insert('topics', $tid);
     attachment_upload_count_reset();
     fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
     return $tid;
@@ -3839,7 +3857,7 @@ function save_reply(): array
         create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
         return $rid;
     });
-    stats_cache(true);
+    home_stats_record_insert('replies', $rid);
     attachment_upload_count_reset();
     fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
     return ['topic_id' => $tid, 'reply_id' => $rid];
@@ -3862,7 +3880,6 @@ function del(string $table, int $id): void
             q("DELETE FROM app_replies WHERE id=?", [$id]);
             refresh_topic_stats((int)$r['topic_id']);
         });
-        stats_cache(true);
         return;
     }
     if ($table === 'users') {
@@ -3874,7 +3891,6 @@ function del(string $table, int $id): void
             q("DELETE FROM app_users WHERE id=?", [$id]);
             foreach ($tids as $row) refresh_topic_stats((int)$row['topic_id']);
         });
-        stats_cache(true);
         return;
     }
     if ($table === 'topics') {
@@ -3887,17 +3903,14 @@ function del(string $table, int $id): void
             q("DELETE FROM app_topics WHERE id=?", [$id]);
             refresh_forum_last_topic((int)$r['forum_id']);
         });
-        stats_cache(true);
         return;
     }
     if ($table === 'groups') tx(fn() => q('DELETE FROM app_groups WHERE id=?', [$id]));
     if ($table === 'forums') tx(fn() => q('DELETE FROM app_forums WHERE id=?', [$id]));
     if ($table === 'forums') {
         forums_cache(true);
-        stats_cache(true);
     }
     if ($table === 'groups') groups_cache(true);
-    if ($table === 'topics') stats_cache(true);
 }
 function login_page(): void
 {
@@ -4035,7 +4048,6 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $params = array_merge($params, $search_params);
     }
     $where = $where_parts ? 'WHERE ' . implode(' AND ', $where_parts) : '';
-    $stats = stats_cache();
     if ($profile_uid && $profile_tab === 'notifications') {
         $total = notifications_total($profile_uid);
         $unread_total = notifications_unread_total($profile_uid);
@@ -4089,7 +4101,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
                 $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
                 $params[] = $profile_uid;
             }
-            $total = $q !== '' ? 0 : (($fid || $profile_uid) ? (int)q("SELECT COUNT(*) FROM app_topics $where", $params)->fetchColumn() : (int)$stats['topics']);
+            $total = $q !== '' ? 0 : (($fid || $profile_uid) ? (int)q("SELECT COUNT(*) FROM app_topics $where", $params)->fetchColumn() : (int)stats_cache()['topics']);
             $index_hint = db_driver() === 'mysql' && $q === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
             $query_size = $q !== '' ? $size + 1 : $size;
             $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $off]))->fetchAll();
@@ -4768,8 +4780,8 @@ function admin_route(): void
     }
     need_manage();
     if ($do === 'restore') {
-        $type = trash_restore_row(id());
-        if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true); go(admin_url(['tab' => 'trash']));
+        trash_restore_row(id());
+        go(admin_url(['tab' => 'trash']));
     }
     if ($do === 'rebuild_fts') {
         $fts_type = (string)($_POST['fts_type'] ?? 'topics') === 'replies' ? 'replies' : 'topics';
@@ -4786,10 +4798,7 @@ function admin_route(): void
     if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
     $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
     if ($tab === 'trash' && $action === 'restore') {
-        foreach ($ids as $trash_id) {
-            $type = trash_restore_row($trash_id);
-            if (in_array($type, ['users', 'topics', 'replies'], true)) stats_cache(true);
-        }
+        foreach ($ids as $trash_id) trash_restore_row($trash_id);
     } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
         $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted'; $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
         foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE app_users SET $field=? WHERE id=?", [$value, $uid]);
@@ -4803,7 +4812,12 @@ function admin_route(): void
             refresh_forum_last_topic($forum_id);
         }
         forums_cache(true);
-    } elseif ($action === 'delete') foreach ($ids as $rid) if (can_admin_delete($tab, $rid)) del($tab, $rid);
+    } elseif ($action === 'delete') {
+        foreach ($ids as $rid) {
+            if (!can_admin_delete($tab, $rid)) continue;
+            del($tab, $rid);
+        }
+    }
     go(admin_url(['tab' => $tab]));
 }
 function core_routes(): array
