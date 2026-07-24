@@ -1905,9 +1905,7 @@ function stats_cache(): array
 function home_stats_record_insert(string $type, int $id, array $user = []): array
 {
     $stats = stats_cache();
-    if ($type === 'topics') {
-        $stats['topics'] = $id;
-    } elseif ($type === 'replies') {
+    if ($type === 'replies') {
         $stats['replies'] = $id;
     } elseif ($type === 'users') {
         $stats['users'] = $id;
@@ -1918,6 +1916,13 @@ function home_stats_record_insert(string $type, int $id, array $user = []): arra
     } else {
         throw new InvalidArgumentException('无效的首页统计类型。');
     }
+    cache_write_php(HOME_STATS_CACHE_FILE, $stats);
+    return $GLOBALS['__home_stats_cache'] = $stats;
+}
+function home_stats_refresh_topics(): array
+{
+    $stats = stats_cache();
+    $stats['topics'] = (int)val('SELECT COUNT(*) FROM app_topics');
     cache_write_php(HOME_STATS_CACHE_FILE, $stats);
     return $GLOBALS['__home_stats_cache'] = $stats;
 }
@@ -3808,7 +3813,7 @@ function save_topic(): int
         return $tid;
     });
     forums_cache(true);
-    home_stats_record_insert('topics', $tid);
+    home_stats_refresh_topics();
     attachment_upload_count_reset();
     fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
     return $tid;
@@ -3903,6 +3908,7 @@ function del(string $table, int $id): void
             q("DELETE FROM app_topics WHERE id=?", [$id]);
             refresh_forum_last_topic((int)$r['forum_id']);
         });
+        home_stats_refresh_topics();
         return;
     }
     if ($table === 'groups') tx(fn() => q('DELETE FROM app_groups WHERE id=?', [$id]));
@@ -4780,7 +4786,7 @@ function admin_route(): void
     }
     need_manage();
     if ($do === 'restore') {
-        trash_restore_row(id());
+        if (trash_restore_row(id()) === 'topics') home_stats_refresh_topics();
         go(admin_url(['tab' => 'trash']));
     }
     if ($do === 'rebuild_fts') {
@@ -4798,7 +4804,9 @@ function admin_route(): void
     if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
     $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
     if ($tab === 'trash' && $action === 'restore') {
-        foreach ($ids as $trash_id) trash_restore_row($trash_id);
+        $topics_changed = false;
+        foreach ($ids as $trash_id) if (trash_restore_row($trash_id) === 'topics') $topics_changed = true;
+        if ($topics_changed) home_stats_refresh_topics();
     } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
         $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted'; $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
         foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE app_users SET $field=? WHERE id=?", [$value, $uid]);
