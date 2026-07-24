@@ -17,9 +17,6 @@ define('AVATAR_DIR', APP_DIR . '/avatars');
 define('UPLOAD_DIR', APP_DIR . '/upload');
 define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
 define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
-define('STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
-define('STATS_CACHE_LOCK_FILE', CACHE_DIR . '/stats.lock');
-define('STATS_CACHE_TTL', 60);
 define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
@@ -249,9 +246,19 @@ function app_db_last_insert_id(string $table): int
     if (db_driver() === 'pgsql') {
         $stmt = db()->prepare("SELECT currval(pg_get_serial_sequence(?, 'id'))");
         $stmt->execute([$table]);
-        return (int)$stmt->fetchColumn();
+        $id = (int)$stmt->fetchColumn();
+    } else {
+        $id = (int)db()->lastInsertId();
     }
-    return (int)db()->lastInsertId();
+    $setting = ['app_topics' => 'stats_topics', 'app_replies' => 'stats_replies', 'app_users' => 'stats_users'][$table] ?? '';
+    if ($setting !== '') {
+        $values = [$setting => (string)$id];
+        if ($table === 'app_users') {
+            $values['latest_users'] = json_encode(q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(), JSON_UNESCAPED_UNICODE);
+        }
+        save_settings_values($values);
+    }
+    return $id;
 }
 
 function app_db_greatest(string ...$expressions): string
@@ -1878,59 +1885,13 @@ function form_shell(string $body, ?array $m = null): string
 }
 function stats_cache(bool $refresh = false, bool $force = false): array
 {
-    static $last_check_at = 0;
-    $reload = fn(): array => [
-        'topics' => (int)val("SELECT COUNT(*) FROM app_topics"),
-        'replies' => (int)val("SELECT COUNT(*) FROM app_replies"),
-        'users' => (int)val("SELECT COUNT(*) FROM app_users"),
-        'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(),
+    $latest_users = json_decode(setting('latest_users', '[]'), true);
+    return [
+        'topics' => (int)setting('stats_topics', '0'),
+        'replies' => (int)setting('stats_replies', '0'),
+        'users' => (int)setting('stats_users', '0'),
+        'latest_users' => is_array($latest_users) ? $latest_users : [],
     ];
-    $now = time();
-    $hard_refresh = $refresh && $force;
-    if (!$hard_refresh && $last_check_at > 0 && $last_check_at >= $now - STATS_CACHE_TTL) {
-        return load_array_cache(STATS_CACHE_FILE, false, $reload);
-    }
-    if ($hard_refresh) {
-        $stats = load_array_cache(STATS_CACHE_FILE, true, $reload);
-        $last_check_at = $now;
-        return $stats;
-    }
-    $last_check_at = $now;
-
-    clearstatcache(true, STATS_CACHE_FILE);
-    $mtime = @filemtime(STATS_CACHE_FILE);
-    if ($mtime !== false && $mtime >= $now - STATS_CACHE_TTL) {
-        return load_array_cache(STATS_CACHE_FILE, false, $reload);
-    }
-    $fallback = null;
-    if ($mtime !== false) {
-        $cached = include STATS_CACHE_FILE;
-        if (is_array($cached)) $fallback = $cached;
-    }
-
-    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
-    $lock = @fopen(STATS_CACHE_LOCK_FILE, 'c');
-    if (!$lock) return $fallback ?? load_array_cache(STATS_CACHE_FILE, true, $reload);
-    $locked = flock($lock, LOCK_EX | LOCK_NB);
-    if (!$locked && $fallback !== null) {
-        fclose($lock);
-        return $fallback;
-    }
-    if (!$locked && !flock($lock, LOCK_EX)) {
-        fclose($lock);
-        return load_array_cache(STATS_CACHE_FILE, true, $reload);
-    }
-    try {
-        clearstatcache(true, STATS_CACHE_FILE);
-        $mtime = @filemtime(STATS_CACHE_FILE);
-        if ($mtime !== false && $mtime >= time() - STATS_CACHE_TTL) {
-            return load_array_cache(STATS_CACHE_FILE, false, $reload);
-        }
-        return load_array_cache(STATS_CACHE_FILE, true, $reload, $fallback);
-    } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
-    }
 }
 function now(): int
 {
