@@ -1686,17 +1686,17 @@ function deletable_post_row(string $type, int $id): ?array
 function remember_forum(int $fid): void
 {
     if (!$fid || !forum_by_id($fid)) return;
-    $raw = array_map('intval', explode(',', (string)($_COOKIE['__recent_forums'] ?? '')));
+    $raw = array_map('intval', explode('.', (string)($_COOKIE['__recent_forums'] ?? '')));
     $ids = array_values(array_diff(array_filter($raw), [$fid]));
     array_unshift($ids, $fid);
-    $value = implode(',', array_slice($ids, 0, 10));
+    $value = implode('.', array_slice($ids, 0, 10));
     setcookie('__recent_forums', $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
     $_COOKIE['__recent_forums'] = $value;
 }
 function recent_forums(): array
 {
     $list = [];
-    foreach (array_map('intval', explode(',', (string)($_COOKIE['__recent_forums'] ?? ''))) as $fid) {
+    foreach (array_map('intval', explode('.', (string)($_COOKIE['__recent_forums'] ?? ''))) as $fid) {
         $f = forum_by_id($fid);
         if ($f) $list[] = $f;
     }
@@ -1704,17 +1704,11 @@ function recent_forums(): array
 }
 function mark_viewed(int $tid): bool
 {
-    $seen = [];
-    foreach (explode(',', (string)($_COOKIE['__viewed_topics'] ?? '')) as $entry) {
-        [$id, $at] = array_pad(explode(':', $entry, 2), 2, 0);
-        if ((int)$id > 0 && (int)$at > time() - 3600) $seen[(int)$id] = (int)$at;
-    }
-    if (isset($seen[$tid]) && $seen[$tid] > time() - 3600) return false;
-    $seen[$tid] = time();
-    $pairs = [];
-    foreach (array_slice($seen, -64, null, true) as $id => $at) $pairs[] = (int)$id . ':' . (int)$at;
-    $value = implode(',', $pairs);
-    setcookie('__viewed_topics', $value, ['expires' => time() + 7200, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    $seen = array_values(array_unique(array_filter(array_map('intval', explode('.', (string)($_COOKIE['__viewed_topics'] ?? ''))))));
+    if (in_array($tid, $seen, true)) return false;
+    $seen[] = $tid;
+    $value = implode('.', array_slice($seen, -64));
+    setcookie('__viewed_topics', $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
     $_COOKIE['__viewed_topics'] = $value;
     return true;
 }
