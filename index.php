@@ -428,7 +428,7 @@ function rows_by_ids(string $table, array $ids, string $cols = '*'): array
 {
     $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
     if (!$ids) return [];
-    if (in_array($table, ['app_users', 'app_topics'], true) && count($ids) === 1) {
+    if (in_array($table, ['app_users', 'app_topics', 'app_replies'], true) && count($ids) === 1) {
         $row = row($table, 'id', $ids[0]);
         if (!$row) return [];
         return [$ids[0] => $row];
@@ -1680,7 +1680,7 @@ function admin_reply_row(array $r, bool $manageable = true): string
 function deletable_post_row(string $type, int $id): ?array
 {
     if ($type === 'topics') return row('app_topics', 'id', $id);
-    if ($type === 'replies') return one("SELECT * FROM app_replies WHERE id=?", [$id]);
+    if ($type === 'replies') return row('app_replies', 'id', $id);
     return null;
 }
 function remember_forum(int $fid): void
@@ -3802,7 +3802,7 @@ function save_reply(): array
     $ajax = ajax_request();
     $r = null;
     if (id()) {
-        $r = one("SELECT * FROM app_replies WHERE id=?", [id()]) ?: err('回复不存在');
+        $r = row('app_replies', 'id', id()) ?: err('回复不存在');
         if (!can_manage_reply($r)) $ajax ? ajax_error('无权限') : err('无权限');
         $tid = (int)$r['topic_id'];
     } else {
@@ -3852,7 +3852,7 @@ function del(string $table, int $id): void
     if ($table === 'groups' && $id === (int)setting('default_group_id', '2')) err('默认用户组不能删除');
     if ($table === 'forums' && count(forums_cache()) <= 1) err('至少保留一个版块');
     if ($table === 'replies') {
-        $r = one("SELECT * FROM app_replies WHERE id=?", [$id]);
+        $r = row('app_replies', 'id', $id);
         if (!$r) err('记录不存在');
         tx(function () use ($id, $r) {
             trash_rows_copy('replies', $r);
@@ -4197,7 +4197,7 @@ function forum_page(): void
 function topic_page(): void
 {
     if (!id() && id('replyid')) {
-        $reply = one("SELECT topic_id FROM app_replies WHERE id=?", [id('replyid')]) ?: err('你访问的帖子可能已经删除', 404);
+        $reply = row('app_replies', 'id', id('replyid')) ?: err('你访问的帖子可能已经删除', 404);
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
     $t = row('app_topics', 'id', id()) ?: err('你访问的帖子可能已经删除', 404);
@@ -4217,7 +4217,8 @@ function topic_page(): void
         $display_position = $reply_desc ? (int)$t['reply_count'] - $floor + 1 : $floor;
         $_GET['p'] = (string)max(1, (int)ceil($display_position / $size));
     } elseif ($replyid > 0) {
-        $reply = one("SELECT id,created_at FROM app_replies WHERE id=? AND topic_id=?", [$replyid, (int)$t['id']]);
+        $reply = row('app_replies', 'id', $replyid);
+        if ($reply && (int)$reply['topic_id'] !== (int)$t['id']) $reply = null;
         if ($reply) {
             $position_sql = $reply_desc ? '(created_at>? OR (created_at=? AND id>=?))' : '(created_at<? OR (created_at=? AND id<=?))';
             $before = (int)q("SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND $position_sql", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
@@ -4300,7 +4301,7 @@ function reply_edit_page(): void
     need_speak();
     $r = ['id' => 0, 'topic_id' => id('topic_id'), 'body' => '', 'user_id' => uid()];
     if (id()) {
-        $r = one("SELECT * FROM app_replies WHERE id=?", [id()]) ?: err('回复不存在');
+        $r = row('app_replies', 'id', id()) ?: err('回复不存在');
         if (!can_manage_reply($r)) err('无权限');
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'mute_author') {
             if (!can_manage()) err('无权限');
@@ -4315,7 +4316,7 @@ function reply_edit_page(): void
         if (!empty($saved['redirect'])) go($saved['redirect']);
         if (ajax_request() && $editing) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
         if (ajax_request()) {
-            $row = one("SELECT * FROM app_replies WHERE id=?", [$saved['reply_id']]) ?: err('回复不存在');
+            $row = row('app_replies', 'id', $saved['reply_id']) ?: err('回复不存在');
             $row = attach_users([$row])[0];
             $topic = row('app_topics', 'id', $saved['topic_id']) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
             $floor = (int)$topic['reply_count'];
