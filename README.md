@@ -25,65 +25,16 @@ https://bbs1.org
 
 服务器需先安装 Docker Engine 和 Docker Compose 插件，并确保 `80` 端口未被占用。
 
-### 1. 下载并准备配置
-
 ```bash
 cd /opt
-git clone https://github.com/bbs1org/bbs1org.git
-cd /opt/bbs1org/docker
+git clone https://github.com/bbs1org/bbs1org.git bbs1org
+git clone https://github.com/bbs1org/bbs1org_docker.git docker
+cd /opt/docker
 cp .env.example .env
-```
-
-### 2. 选择数据库
-
-启动前编辑 `/opt/bbs1org/docker/.env`：
-
-| `COMPOSE_PROFILES` | 数据库 | 安装时填写 |
-|---|---|---|
-| `sqlite` | SQLite | 无需连接信息 |
-| `mysql` | MySQL 8.4 | 主机 `mysql`，端口 `3306` |
-| `pgsql` | PostgreSQL 18 | 主机 `postgres`，端口 `5432` |
-
-MySQL/PostgreSQL 的数据库名、用户名和密码使用 `.env` 中的 `DB_NAME`、`DB_USER`、`DB_PASSWORD`，HTTP 端口使用 `HTTP_PORT`；启用 MySQL 或 PostgreSQL 时必须修改默认密码。
-
-### 3. 完成安装
-
-```bash
 docker compose up -d
 ```
 
-访问 `http://服务器地址/index.php?a=install`，按 `.env` 选择数据库并填写连接信息。
-
-### 4. 常用命令
-
-以下命令均在 `/opt/bbs1org/docker` 中执行：
-
-```bash
-cd /opt/bbs1org/docker
-# 查看容器状态
-docker compose ps
-# 查看实时日志
-docker compose logs -f
-# 重启服务
-docker compose restart
-# 停止服务但保留数据卷
-docker compose down
-# 拉取最新镜像
-docker compose pull
-# 后台启动服务
-docker compose up -d
-```
-
-更新代码后重启 PHP 以清除生产 OPcache：
-
-```bash
-cd /opt/bbs1org
-git pull
-cd docker
-docker compose restart php
-```
-
-`docker compose down` 会保留数据；不要在未备份时使用 `docker compose down -v`。
+启动前编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。访问 `http://服务器地址/index.php?a=install` 完成安装。完整配置、更新、备份和维护说明见 [bbs1org_docker](https://github.com/bbs1org/bbs1org_docker)。
 
 ## 手动部署
 
@@ -94,7 +45,7 @@ chown -R www-data:www-data .
 ```
 
 1. 将站点根目录指向项目目录，并将 PHP 请求交给 PHP-FPM
-2. 配置不存在文件回退到 `/index.php?$query_string`，禁止公网访问 `app/data/`、`app/cache/`、`app/plugins/`、点文件及 `app/upload/` 中的脚本文件；Nginx 可参考 `docker/nginx.conf`，并将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
+2. 配置不存在文件回退到 `/index.php?$query_string`，禁止公网访问 `app/data/`、`app/cache/`、`app/plugins/`、点文件及 `app/upload/` 中的脚本文件；Nginx 可参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)，并将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
 3. 确保项目根目录和 `app/` 可写
 4. MySQL/PostgreSQL 需提前创建空数据库；然后访问 `http://服务器地址/index.php?a=install`，选择已安装 PDO 驱动对应的数据库并完成安装
 

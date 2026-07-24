@@ -13,4 +13,4 @@ app/assets/plugins.js
 .DS_Store
 .vscode
 .codebuddy
-docker/.env
+/docker/
