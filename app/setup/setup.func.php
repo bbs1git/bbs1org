@@ -59,7 +59,7 @@ function app_db_schema(string $driver): array
         'app_users' => "CREATE TABLE app_users(id $id,username $key NOT NULL UNIQUE,password $short NOT NULL,email $short NOT NULL DEFAULT '',bio $long NOT NULL,avatar_style $short NOT NULL DEFAULT '',avatar_seed $short NOT NULL DEFAULT '',group_id $uint NOT NULL DEFAULT 2,points INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications $uint NOT NULL DEFAULT 0,last_post_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_trash' => "CREATE TABLE app_trash(id $id,table_name $short NOT NULL,row_id $uint NOT NULL,row_data $long NOT NULL,deleted_by $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_notifications' => "CREATE TABLE app_notifications(id $id,recipient_id $uint NOT NULL,sender_id $uint DEFAULT NULL,kind $short NOT NULL DEFAULT 'direct',content $long NOT NULL,topic_id $uint DEFAULT NULL,reply_id $uint DEFAULT NULL,read_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
-        'app_forums' => "CREATE TABLE app_forums(id $id,name $short NOT NULL,description $long NOT NULL,sort $uint NOT NULL DEFAULT 0,allow_view_groups $short NOT NULL DEFAULT '',allow_post_groups $short NOT NULL DEFAULT '',allow_reply_groups $short NOT NULL DEFAULT '',last_topic_id $uint NOT NULL DEFAULT 0,last_topic_title $short NOT NULL DEFAULT '')",
+        'app_forums' => "CREATE TABLE app_forums(id $id,name $short NOT NULL,description $long NOT NULL,sort $uint NOT NULL DEFAULT 0,allow_view_groups $short NOT NULL DEFAULT '',allow_post_groups $short NOT NULL DEFAULT '',allow_reply_groups $short NOT NULL DEFAULT '')",
         'app_topics' => "CREATE TABLE app_topics(id $id,forum_id $uint NOT NULL,user_id $uint NOT NULL,title $short NOT NULL,body $long NOT NULL,highlight_style $short NOT NULL DEFAULT '',reply_order INTEGER NOT NULL DEFAULT 0,reply_count $uint NOT NULL DEFAULT 0,view_count $uint NOT NULL DEFAULT 0,last_reply_at $uint NOT NULL DEFAULT 0,last_reply_user_id $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_replies' => "CREATE TABLE app_replies(id $id,topic_id $uint NOT NULL,user_id $uint NOT NULL,body $long NOT NULL,created_at $uint NOT NULL,updated_at $uint NOT NULL)",
         'app_attachments' => "CREATE TABLE app_attachments(id $id,user_id $uint NOT NULL,hash $short NOT NULL,file_name $short NOT NULL,original_name $short NOT NULL DEFAULT '',ext $short NOT NULL DEFAULT '',mime $short NOT NULL DEFAULT '',size $uint NOT NULL DEFAULT 0,is_image INTEGER NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
@@ -235,8 +235,8 @@ function setup_install_run(): never
     foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, app_db_index_table($sql))) $db->exec($sql);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin', 'upload_quota_mb'], ['id']));
     $seed->execute([1, '管理员', 1, 1, 0]); $seed->execute([2, '会员', 0, 0, 0]);
-    $seed = $db->prepare(app_db_upsert_sql($driver, 'app_forums', ['id', 'name', 'description', 'sort', 'last_topic_id', 'last_topic_title'], ['id']));
-    $seed->execute([1, $forum_name, '欢迎发帖', 0, 0, '']);
+    $seed = $db->prepare(app_db_upsert_sql($driver, 'app_forums', ['id', 'name', 'description', 'sort'], ['id']));
+    $seed->execute([1, $forum_name, '欢迎发帖', 0]);
     if ($driver === 'pgsql') {
         $db->exec("SELECT setval(pg_get_serial_sequence('app_groups','id'), (SELECT MAX(id) FROM app_groups))");
         $db->exec("SELECT setval(pg_get_serial_sequence('app_forums','id'), (SELECT MAX(id) FROM app_forums))");
@@ -785,6 +785,13 @@ function us_sync_schema(): array
         if (isset($topic_columns['updated_at'])) {
             $db->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $topics_table) . ' DROP COLUMN ' . app_db_identifier(db_driver(), 'updated_at'));
             $changes[] = '删除字段：topics.updated_at';
+        }
+        $forums_table = app_db_identifier(db_driver(), 'app_forums');
+        $forum_columns = app_db_columns($db, db_driver(), 'app_forums');
+        foreach (['last_topic_id', 'last_topic_title'] as $column) {
+            if (!isset($forum_columns[$column])) continue;
+            $db->exec("ALTER TABLE $forums_table DROP COLUMN " . app_db_identifier(db_driver(), $column));
+            $changes[] = '删除字段：forums.' . $column;
         }
         $cron_table = app_db_identifier(db_driver(), 'app_cron_tasks');
         $cron_columns = app_db_columns($db, db_driver(), 'app_cron_tasks');

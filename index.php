@@ -466,6 +466,14 @@ function save_settings_values(array $values): void
         }
     }
 }
+function settings_rows_cache(string $key, string $sql, bool $refresh): array
+{
+    $rows = $refresh ? null : json_decode(setting($key), true);
+    if (is_array($rows)) return $rows;
+    $rows = q($sql)->fetchAll();
+    save_settings_values([$key => json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+    return $rows;
+}
 function update_state_data(): array
 {
     if (!is_file(UPDATE_STATE_FILE)) return [];
@@ -1420,7 +1428,7 @@ function save_settings(): void
 function forums_cache(bool $refresh = false): array
 {
     if ($refresh) unset($GLOBALS['__forums_cache'], $GLOBALS['__forum_by_id_map']);
-    return $GLOBALS['__forums_cache'] ??= q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM app_forums ORDER BY sort,id")->fetchAll();
+    return $GLOBALS['__forums_cache'] ??= settings_rows_cache('cache_forums', "SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups FROM app_forums ORDER BY sort,id", $refresh);
 }
 function forum_by_id(int $id): ?array
 {
@@ -1461,7 +1469,7 @@ function forum_group_allowed(?array $forum, string $field): bool
 function groups_cache(bool $refresh = false): array
 {
     if ($refresh) unset($GLOBALS['__groups_cache'], $GLOBALS['__group_by_id_map']);
-    return $GLOBALS['__groups_cache'] ??= q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id")->fetchAll();
+    return $GLOBALS['__groups_cache'] ??= settings_rows_cache('cache_groups', "SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id", $refresh);
 }
 function group_by_id(int $id): ?array
 {
@@ -3570,11 +3578,6 @@ function refresh_topic_stats(int $tid): void
 {
     q("UPDATE app_topics SET reply_count=(SELECT COUNT(*) FROM app_replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT created_at FROM app_replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),created_at),last_reply_user_id=COALESCE((SELECT user_id FROM app_replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),0) WHERE id=?", [$tid, $tid, $tid, $tid]);
 }
-function refresh_forum_last_topic(int $fid): void
-{
-    $t = one("SELECT id,title FROM app_topics WHERE forum_id=? ORDER BY last_reply_at DESC,id DESC LIMIT 1", [$fid]);
-    q("UPDATE app_forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [(int)($t['id'] ?? 0), (string)($t['title'] ?? ''), $fid]);
-}
 function require_password_length(string $password): void
 {
     if ((int)preg_match_all('/./us', $password) < PASSWORD_MIN_LENGTH) err('密码至少' . PASSWORD_MIN_LENGTH . '位');
@@ -3924,13 +3927,10 @@ function save_topic(): int
         }
         $topic_id = id();
         $reply_order = (int)($_POST['reply_order'] ?? 0) === 1 ? 1 : 0;
-        tx(function () use ($topic_id, $fid, $title, $body, $reply_order, $t) {
+        tx(function () use ($topic_id, $fid, $title, $body, $reply_order) {
             q("UPDATE app_topics SET forum_id=?,title=?,body=?,reply_order=?,last_reply_at=? WHERE id=?", [$fid, $title, $body, $reply_order, now(), $topic_id]);
             topic_fts_sync($topic_id, $title, $body);
-            if ((int)$t['forum_id'] !== $fid) q("UPDATE app_forums SET last_topic_id=0,last_topic_title='' WHERE id=?", [(int)$t['forum_id']]);
-            q("UPDATE app_forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$topic_id, $title, $fid]);
         });
-        forums_cache(true);
         attachment_upload_count_reset();
         fire('topic.after_save', ['id' => $topic_id, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'editing' => true]);
         return $topic_id;
@@ -3947,10 +3947,8 @@ function save_topic(): int
         $tid = app_db_last_insert_id('app_topics');
         topic_fts_sync($tid, $title, $body);
         q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-        q("UPDATE app_forums SET last_topic_id=?,last_topic_title=? WHERE id=?", [$tid, $title, $fid]);
         return $tid;
     });
-    forums_cache(true);
     home_stats_refresh_topics();
     attachment_upload_count_reset();
     fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
@@ -4044,7 +4042,6 @@ function del(string $table, int $id): void
             trash_rows_copy('topics', $r);
             topic_fts_delete($id);
             q("DELETE FROM app_topics WHERE id=?", [$id]);
-            refresh_forum_last_topic((int)$r['forum_id']);
         });
         home_stats_refresh_topics();
         return;
@@ -4993,11 +4990,8 @@ function admin_route(): void
         $forum_id = max(1, (int)($_POST['forum_id'] ?? 0)); if (!forum_by_id($forum_id)) err('版块不存在');
         if ($ids) {
             $marks = sql_marks(count($ids));
-            $forum_ids = array_map('intval', array_column(q("SELECT DISTINCT forum_id FROM app_topics WHERE id IN ($marks)", $ids)->fetchAll(), 'forum_id'));
             q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id IN ($marks)", array_merge([$forum_id, now()], $ids));
-            foreach (array_unique(array_merge($forum_ids, [$forum_id])) as $fid) refresh_forum_last_topic($fid);
         }
-        forums_cache(true);
     } elseif ($action === 'delete') {
         foreach ($ids as $rid) {
             if (!can_admin_delete($tab, $rid)) continue;
