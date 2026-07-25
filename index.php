@@ -572,7 +572,7 @@ function plugin_id_valid(string $id): bool
 }
 function plugin_runtime_cache_reset(): void
 {
-    unset($GLOBALS['__hook_registry'], $GLOBALS['__plugin_enabled_cache']);
+    unset($GLOBALS['__hook_registry']);
 }
 function plugin_normalize(array $plugin, string $file = ''): ?array
 {
@@ -624,38 +624,25 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
     foreach (['install', 'uninstall'] as $key) if ($base[$key] !== '' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $base[$key]) !== 1) $base[$key] = '';
     return $base;
 }
-function plugin_files_state(): array
+function plugin_files(): array
 {
     $files = glob(PLUGIN_DIR . '/*/plugin.php') ?: [];
     sort($files);
-    $state = [];
-    foreach ($files as $file) if (is_file($file)) $state[$file] = hash_file('sha256', $file) ?: '';
-    return $state;
-}
-function plugin_registry_manifest(array $plugin): array
-{
-    return array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall']));
+    return array_values(array_filter($files, 'is_file'));
 }
 function plugin_registry_row(array $row): ?array
 {
     $manifest = json_decode((string)($row['manifest_json'] ?? ''), true);
-    if (!is_array($manifest)) return null;
-    $file = APP_ROOT . '/' . ltrim((string)($row['file'] ?? ''), '/');
-    $plugin = plugin_normalize(array_merge($manifest, [
+    if (!is_array($manifest) || !plugin_id_valid((string)($row['id'] ?? ''))) return null;
+    return array_merge($manifest, [
         'id' => (string)$row['id'],
         'name' => (string)$row['name'],
         'version' => (string)$row['version'],
         'enabled' => (int)$row['enabled'] === 1,
-    ]), $file);
-    if (!$plugin) return null;
-    $plugin['config'] = json_decode((string)($row['config_json'] ?? '{}'), true) ?: [];
-    $plugin['entries'] = json_decode((string)($row['entries_json'] ?? '{}'), true) ?: [];
-    $plugin['status'] = (string)($row['status'] ?? '');
-    $plugin['disabled_reason'] = (string)($row['disabled_reason'] ?? '');
-    $plugin['code_hash'] = (string)($row['code_hash'] ?? '');
-    $plugin['installed_at'] = (int)($row['installed_at'] ?? 0);
-    $plugin['updated_at'] = (int)($row['updated_at'] ?? 0);
-    return $plugin;
+        'file' => APP_ROOT . '/' . ltrim((string)$row['file'], '/'),
+        'config' => json_decode((string)($row['config_json'] ?? '{}'), true) ?: [],
+        'entries' => json_decode((string)($row['entries_json'] ?? '{}'), true) ?: [],
+    ]);
 }
 function plugin_load(array $plugin): void
 {
@@ -678,7 +665,7 @@ function plugin_disable_after_exception(string $id, Throwable $e): void
     $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . cut($message, 500) : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
     try {
         q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [$reason, now(), $id]);
-        q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+        q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
         plugins(true);
         plugin_assets_mark_dirty();
     } catch (Throwable $disable_error) {
@@ -706,30 +693,18 @@ function plugin_cron_sync(array $plugin): void
         $name = (string)$name;
         $names[] = $name;
         $interval = cron_task_interval($plugin, $task);
+        $callback = (string)$task['callback'];
+        $enabled = plugin_enabled($plugin) ? 1 : 0;
         app_db_insert_ignore('app_cron_tasks', [
             'plugin_id' => $plugin_id,
             'task_name' => $name,
-            'callback' => (string)$task['callback'],
+            'callback' => $callback,
             'interval_seconds' => $interval,
-            'enabled' => plugin_enabled($plugin) ? 1 : 0,
-            'next_run_at' => 0,
-            'available_at' => 0,
-            'lease_token' => '',
-            'lease_until' => 0,
-            'last_started_at' => 0,
-            'last_finished_at' => 0,
-            'last_success_at' => 0,
-            'status' => '',
-            'attempts' => 0,
-            'failure_count' => 0,
-            'retry_limit' => 3,
-            'pause_seconds' => 1800,
-            'pause_until' => 0,
+            'enabled' => $enabled,
             'last_error' => '',
-            'updated_at' => now(),
         ], ['plugin_id', 'task_name']);
-        q("UPDATE app_cron_tasks SET callback=?,interval_seconds=?,enabled=?,updated_at=? WHERE plugin_id=? AND task_name=?", [
-            (string)$task['callback'], $interval, plugin_enabled($plugin) ? 1 : 0, now(), $plugin_id, $name,
+        q("UPDATE app_cron_tasks SET callback=?,interval_seconds=?,enabled=? WHERE plugin_id=? AND task_name=?", [
+            $callback, $interval, $enabled, $plugin_id, $name,
         ]);
     }
     if (!$names) {
@@ -745,35 +720,29 @@ function plugin_registry_sync(): array
     foreach (q("SELECT * FROM app_plugins")->fetchAll() as $row) $existing[(string)$row['id']] = $row;
     $settings = settings_cache();
     $synced = [];
-    foreach (plugin_files_state() as $file => $code_hash) {
+    $disable = function (string $id, string $reason) use (&$existing, &$synced): void {
+        if (!isset($existing[$id])) return;
+        q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [$reason, now(), $id]);
+        q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
+        $synced[$id] = true;
+    };
+    foreach (plugin_files() as $file) {
         $id = basename(dirname($file));
         try {
             if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
             $raw = include $file;
         } catch (Throwable $e) {
-            if (isset($existing[$id])) {
-                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [cut($e->getMessage(), 500), now(), $id]);
-                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
-                $synced[$id] = true;
-            }
+            $disable($id, cut($e->getMessage(), 500));
             continue;
         }
         $GLOBALS['__plugin_raw'][$file] = $raw;
         if (!is_array($raw)) {
-            if (isset($existing[$id])) {
-                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason='插件定义格式无效',updated_at=? WHERE id=?", [now(), $id]);
-                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
-                $synced[$id] = true;
-            }
+            $disable($id, '插件定义格式无效');
             continue;
         }
         $plugin = plugin_normalize($raw, $file);
         if (!$plugin) {
-            if (isset($existing[$id])) {
-                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason='插件定义校验失败',updated_at=? WHERE id=?", [now(), $id]);
-                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
-                $synced[$id] = true;
-            }
+            $disable($id, '插件定义校验失败');
             continue;
         }
         $id = (string)$plugin['id'];
@@ -790,8 +759,8 @@ function plugin_registry_sync(): array
             'name' => (string)$plugin['name'],
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
-            'code_hash' => $code_hash,
-            'manifest_json' => json_encode(plugin_registry_manifest($plugin), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'code_hash' => hash_file('sha256', $file) ?: '',
+            'manifest_json' => json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall'])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'config_json' => $config_json,
             'entries_json' => $entries_json,
             'enabled' => $enabled,
@@ -818,7 +787,6 @@ function plugin_registry_sync(): array
         q("DELETE FROM app_settings WHERE name IN ($marks)", $legacy_names);
         if (is_array($GLOBALS['__settings_cache'] ?? null)) foreach ($legacy_names as $name) unset($GLOBALS['__settings_cache'][$name]);
     }
-    plugin_assets_mark_dirty();
     return $plugins;
 }
 function plugins(bool $refresh = false): array
@@ -826,7 +794,7 @@ function plugins(bool $refresh = false): array
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
     $plugins = [];
-    foreach (q("SELECT * FROM app_plugins ORDER BY updated_at DESC,id")->fetchAll() as $row) {
+    foreach (q("SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled FROM app_plugins ORDER BY id")->fetchAll() as $row) {
         $plugin = plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
@@ -845,8 +813,8 @@ function plugin_opcache_refresh(): int
 {
     if (!function_exists('opcache_invalidate')) return 0;
     $count = 0;
-    foreach (array_keys(plugin_files_state()) as $file) {
-        if (is_file($file) && @opcache_invalidate($file, true)) $count++;
+    foreach (plugin_files() as $file) {
+        if (@opcache_invalidate($file, true)) $count++;
     }
     return $count;
 }
@@ -965,7 +933,7 @@ function plugin_set_enabled(string $id, bool $enabled): void
         });
     }
     q("UPDATE app_plugins SET enabled=?,status=?,disabled_reason='',updated_at=? WHERE id=?", [$enabled ? 1 : 0, $enabled ? 'enabled' : 'disabled', now(), $id]);
-    q("UPDATE app_cron_tasks SET enabled=?,updated_at=? WHERE plugin_id=?", [$enabled ? 1 : 0, now(), $id]);
+    q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$enabled ? 1 : 0, $id]);
     plugins(true);
     plugin_assets_mark_dirty();
 }
@@ -1132,7 +1100,7 @@ function plugin_market_install(string $id): void
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
     q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='',updated_at=? WHERE id=?", [now(), $id]);
-    q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+    q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)),
         'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0),
@@ -1231,21 +1199,21 @@ function cron_task_claim(int $now): ?array
 {
     for ($attempt = 0; $attempt < 3; $attempt++) {
         $claimed = tx(function () use ($now): ?array {
-            $task = one("SELECT * FROM app_cron_tasks WHERE enabled=1 AND available_at<=? ORDER BY available_at,plugin_id,task_name LIMIT 1", [$now]);
+            $task = one("SELECT plugin_id,task_name,callback,interval_seconds,last_success_at,status,failure_count,retry_limit,pause_seconds,pause_until FROM app_cron_tasks WHERE enabled=1 AND available_at<=? ORDER BY available_at,plugin_id,task_name LIMIT 1", [$now]);
             if (!$task) return null;
             $token = bin2hex(random_bytes(16));
             $lease_until = $now + CRON_LEASE_SECONDS;
             $resuming = (int)$task['pause_until'] > 0 && (int)$task['pause_until'] <= $now;
-            $updated = q("UPDATE app_cron_tasks SET lease_token=?,lease_until=?,available_at=?,last_started_at=?,status='running',attempts=attempts+1,failure_count=?,pause_until=0,updated_at=? WHERE plugin_id=? AND task_name=? AND enabled=1 AND available_at<=?", [
-                $token, $lease_until, $lease_until, $now, $resuming ? 0 : (int)$task['failure_count'], $now, (string)$task['plugin_id'], (string)$task['task_name'], $now,
+            $updated = q("UPDATE app_cron_tasks SET lease_token=?,lease_until=?,available_at=?,last_started_at=?,status='running',attempts=attempts+1,failure_count=?,pause_until=0 WHERE plugin_id=? AND task_name=? AND enabled=1 AND available_at<=?", [
+                $token, $lease_until, $lease_until, $now, $resuming ? 0 : (int)$task['failure_count'], (string)$task['plugin_id'], (string)$task['task_name'], $now,
             ])->rowCount();
             if ($updated !== 1) return [];
             if ((string)$task['status'] === 'running') {
                 q("UPDATE app_cron_logs SET status='failed',message='任务租约超时',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, (string)$task['plugin_id'], (string)$task['task_name']]);
             }
             $task['lease_token'] = $token;
-            $task['lease_until'] = $lease_until;
             $task['last_started_at'] = $now;
+            $task['touched_at'] = $now;
             if ($resuming) {
                 $task['failure_count'] = 0;
                 $task['pause_until'] = 0;
@@ -1262,12 +1230,12 @@ function cron_lease_touch(): void
     $lease = $GLOBALS['__cron_active_lease'] ?? null;
     if (!is_array($lease)) return;
     $now = time();
-    if ($now - (int)($GLOBALS['__cron_lease_touched_at'] ?? 0) < 60) return;
+    if ($now - (int)($lease['touched_at'] ?? 0) < 60) return;
     $until = $now + CRON_LEASE_SECONDS;
-    $updated = q("UPDATE app_cron_tasks SET lease_until=?,available_at=?,updated_at=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
-        $until, $until, $now, (string)$lease['plugin_id'], (string)$lease['task_name'], (string)$lease['lease_token'],
+    $updated = q("UPDATE app_cron_tasks SET lease_until=?,available_at=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
+        $until, $until, (string)$lease['plugin_id'], (string)$lease['task_name'], (string)$lease['lease_token'],
     ])->rowCount();
-    if ($updated === 1) $GLOBALS['__cron_lease_touched_at'] = $now;
+    if ($updated === 1) $GLOBALS['__cron_active_lease']['touched_at'] = $now;
 }
 function cron_task_finish(array $task, string $status, string $error, int $finished_at): bool
 {
@@ -1276,17 +1244,16 @@ function cron_task_finish(array $task, string $status, string $error, int $finis
     $pause_until = 0;
     if ($status === 'success') {
         $failure_count = 0;
-        $next_run_at = $finished_at + $interval;
+        $available_at = $finished_at + $interval;
     } else {
         $failure_count++;
-        $next_run_at = $finished_at + min(300, $interval);
+        $available_at = $finished_at + min(300, $interval);
         if ($failure_count >= max(1, (int)$task['retry_limit'])) {
             $pause_until = $finished_at + max(60, (int)$task['pause_seconds']);
+            $available_at = $pause_until;
         }
     }
-    $available_at = max($next_run_at, $pause_until);
-    return q("UPDATE app_cron_tasks SET next_run_at=?,available_at=?,lease_token='',lease_until=0,last_finished_at=?,last_success_at=?,status=?,failure_count=?,pause_until=?,last_error=?,updated_at=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
-        $next_run_at,
+    return q("UPDATE app_cron_tasks SET available_at=?,lease_token='',lease_until=0,last_finished_at=?,last_success_at=?,status=?,failure_count=?,pause_until=?,last_error=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
         $available_at,
         $finished_at,
         $status === 'success' ? $finished_at : (int)$task['last_success_at'],
@@ -1294,7 +1261,6 @@ function cron_task_finish(array $task, string $status, string $error, int $finis
         $failure_count,
         $pause_until,
         $status === 'failed' ? cut($error, 500) : '',
-        $finished_at,
         (string)$task['plugin_id'],
         (string)$task['task_name'],
         (string)$task['lease_token'],
@@ -1317,7 +1283,6 @@ function cron_run(): array
             $log_id = 0;
             $result['due']++;
             $GLOBALS['__cron_active_lease'] = $task;
-            $GLOBALS['__cron_lease_touched_at'] = (int)$task['last_started_at'];
             try { $log_id = cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
             catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
             try {
@@ -1350,11 +1315,11 @@ function cron_run(): array
                 $result['tasks'][$key] = $status;
                 try { cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, $finished_at); }
                 catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
-                unset($GLOBALS['__cron_active_lease'], $GLOBALS['__cron_lease_touched_at']);
+                unset($GLOBALS['__cron_active_lease']);
             }
         }
         return $result;
-    } finally { unset($GLOBALS['__cron_active_lease'], $GLOBALS['__cron_lease_touched_at']); }
+    } finally { unset($GLOBALS['__cron_active_lease']); }
 }
 function cron_route(): void
 {
@@ -4634,6 +4599,9 @@ function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $la
 function admin_plugins_page_html(): string
 {
     $plugins = plugins();
+    $metadata = array_column(q("SELECT id,disabled_reason,updated_at FROM app_plugins")->fetchAll(), null, 'id');
+    foreach ($plugins as $id => &$plugin) $plugin += $metadata[$id] ?? [];
+    unset($plugin);
     uasort($plugins, function (array $a, array $b): int {
         $a_time = (int)($a['updated_at'] ?? 0);
         $b_time = (int)($b['updated_at'] ?? 0);

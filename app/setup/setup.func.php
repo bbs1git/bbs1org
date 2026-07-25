@@ -54,7 +54,7 @@ function app_db_schema(string $driver): array
         'app_ip_logs' => "CREATE TABLE app_ip_logs(ip " . ($driver === 'mysql' ? 'VARCHAR(64)' : 'TEXT') . " PRIMARY KEY,register_count $uint NOT NULL DEFAULT 0,register_at $uint NOT NULL DEFAULT 0,login_fail_count $uint NOT NULL DEFAULT 0,login_fail_at $uint NOT NULL DEFAULT 0,reset_fail_count $uint NOT NULL DEFAULT 0,reset_fail_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL,updated_at $uint NOT NULL)",
         'app_cron_logs' => "CREATE TABLE app_cron_logs(id $id,plugin_id $short NOT NULL,task_name $short NOT NULL,status $short NOT NULL,message $long NOT NULL,started_at $uint NOT NULL,finished_at $uint NOT NULL DEFAULT 0)",
         'app_plugins' => "CREATE TABLE app_plugins(id $key PRIMARY KEY,name $short NOT NULL,version $short NOT NULL DEFAULT '',file $short NOT NULL,code_hash $short NOT NULL,manifest_json $long NOT NULL,config_json $long NOT NULL,entries_json $long NOT NULL,enabled $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',disabled_reason $long NOT NULL,installed_at $uint NOT NULL,updated_at $uint NOT NULL)",
-        'app_cron_tasks' => "CREATE TABLE app_cron_tasks(plugin_id $key NOT NULL,task_name $key NOT NULL,callback $short NOT NULL,interval_seconds $uint NOT NULL,enabled $uint NOT NULL DEFAULT 1,next_run_at $uint NOT NULL DEFAULT 0,available_at $uint NOT NULL DEFAULT 0,lease_token $short NOT NULL DEFAULT '',lease_until $uint NOT NULL DEFAULT 0,last_started_at $uint NOT NULL DEFAULT 0,last_finished_at $uint NOT NULL DEFAULT 0,last_success_at $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',attempts $uint NOT NULL DEFAULT 0,failure_count $uint NOT NULL DEFAULT 0,retry_limit $uint NOT NULL DEFAULT 3,pause_seconds $uint NOT NULL DEFAULT 1800,pause_until $uint NOT NULL DEFAULT 0,last_error $long NOT NULL,updated_at $uint NOT NULL DEFAULT 0,PRIMARY KEY(plugin_id,task_name))",
+        'app_cron_tasks' => "CREATE TABLE app_cron_tasks(plugin_id $key NOT NULL,task_name $key NOT NULL,callback $short NOT NULL,interval_seconds $uint NOT NULL,enabled $uint NOT NULL DEFAULT 1,available_at $uint NOT NULL DEFAULT 0,lease_token $short NOT NULL DEFAULT '',lease_until $uint NOT NULL DEFAULT 0,last_started_at $uint NOT NULL DEFAULT 0,last_finished_at $uint NOT NULL DEFAULT 0,last_success_at $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',attempts $uint NOT NULL DEFAULT 0,failure_count $uint NOT NULL DEFAULT 0,retry_limit $uint NOT NULL DEFAULT 3,pause_seconds $uint NOT NULL DEFAULT 1800,pause_until $uint NOT NULL DEFAULT 0,last_error $long NOT NULL,PRIMARY KEY(plugin_id,task_name))",
         'app_settings' => "CREATE TABLE app_settings(name $key PRIMARY KEY,value $long NOT NULL)",
     ];
     if ($driver === 'mysql') {
@@ -771,6 +771,13 @@ function us_sync_schema(): array
         if (isset($topic_columns['updated_at'])) {
             $db->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $topics_table) . ' DROP COLUMN ' . app_db_identifier(db_driver(), 'updated_at'));
             $changes[] = '删除字段：topics.updated_at';
+        }
+        $cron_table = app_db_identifier(db_driver(), 'app_cron_tasks');
+        $cron_columns = app_db_columns($db, db_driver(), 'app_cron_tasks');
+        foreach (['next_run_at', 'updated_at'] as $column) {
+            if (!isset($cron_columns[$column])) continue;
+            $db->exec("ALTER TABLE $cron_table DROP COLUMN " . app_db_identifier(db_driver(), $column));
+            $changes[] = '删除字段：cron_tasks.' . $column;
         }
         if (!str_contains(us_column_type($db, db_driver(), $topics_table, 'reply_order'), 'int')) {
             $table = app_db_identifier(db_driver(), $topics_table);
