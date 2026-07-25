@@ -52,6 +52,7 @@ function app_db_schema(string $driver): array
         'app_favorites' => "CREATE TABLE app_favorites(user_id $uint NOT NULL,topic_id $uint NOT NULL,created_at $uint NOT NULL,PRIMARY KEY(user_id,topic_id))",
         'app_password_resets' => "CREATE TABLE app_password_resets(id $id,user_id $uint NOT NULL,token_hash $key NOT NULL UNIQUE,expires_at $uint NOT NULL,used_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_ip_logs' => "CREATE TABLE app_ip_logs(ip " . ($driver === 'mysql' ? 'VARCHAR(64)' : 'TEXT') . " PRIMARY KEY,register_count $uint NOT NULL DEFAULT 0,register_at $uint NOT NULL DEFAULT 0,login_fail_count $uint NOT NULL DEFAULT 0,login_fail_at $uint NOT NULL DEFAULT 0,reset_fail_count $uint NOT NULL DEFAULT 0,reset_fail_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL,updated_at $uint NOT NULL)",
+        'app_cron_logs' => "CREATE TABLE app_cron_logs(id $id,plugin_id $short NOT NULL,task_name $short NOT NULL,status $short NOT NULL,message $long NOT NULL,started_at $uint NOT NULL,finished_at $uint NOT NULL DEFAULT 0)",
         'app_settings' => "CREATE TABLE app_settings(name $key PRIMARY KEY,value $long NOT NULL)",
     ];
     if ($driver === 'mysql') {
@@ -66,6 +67,7 @@ function app_db_schema(string $driver): array
         'idx_notifications_recipient_unread' => 'app_notifications(recipient_id,read_at)',
         'idx_notifications_recipient_time' => 'app_notifications(recipient_id,created_at DESC,id DESC)',
         'idx_password_resets_user' => 'app_password_resets(user_id,created_at DESC)', 'idx_ip_logs_updated' => 'app_ip_logs(updated_at DESC)',
+        'idx_cron_logs_plugin_time' => 'app_cron_logs(plugin_id,started_at DESC,id DESC)',
         'idx_topics_created' => 'app_topics(created_at DESC,id DESC)', 'idx_topics_last_reply' => 'app_topics(last_reply_at DESC,id DESC)',
         'idx_topics_user_created' => 'app_topics(user_id,created_at DESC,id DESC)', 'idx_topics_forum_created' => 'app_topics(forum_id,created_at DESC,id DESC)',
         'idx_topics_forum_last_reply' => 'app_topics(forum_id,last_reply_at DESC,id DESC)',

@@ -1139,6 +1139,19 @@ function cron_task_interval(array $plugin, array $task): int
     }
     return min(31536000, max(60, (int)$interval));
 }
+function cron_log_start(string $plugin_id, string $task_name, int $started_at): int
+{
+    q("INSERT INTO app_cron_logs(plugin_id,task_name,status,message,started_at,finished_at) VALUES(?,?,?,?,?,0)", [$plugin_id, $task_name, 'running', '', $started_at]);
+    return app_db_last_insert_id('app_cron_logs');
+}
+function cron_log_finish(int $id, string $plugin_id, string $status, string $message, int $finished_at): void
+{
+    if ($id <= 0) return;
+    q("UPDATE app_cron_logs SET status=?,message=?,finished_at=? WHERE id=?", [$status, $message, $finished_at, $id]);
+    if ($id % 100 !== 0) return;
+    $cutoff = val("SELECT id FROM app_cron_logs WHERE plugin_id=? ORDER BY id DESC LIMIT 1 OFFSET 500", [$plugin_id]);
+    if ($cutoff !== false) q("DELETE FROM app_cron_logs WHERE plugin_id=? AND id<?", [$plugin_id, (int)$cutoff]);
+}
 function cron_run(): array
 {
     if (!is_dir(CACHE_DIR) && !mkdir(CACHE_DIR, 0755, true) && !is_dir(CACHE_DIR)) throw new RuntimeException('无法创建缓存目录');
@@ -1157,6 +1170,8 @@ function cron_run(): array
                 $key = (string)$plugin['id'] . ':' . (string)$name;
                 $started = false;
                 $error = '';
+                $message = '';
+                $log_id = 0;
                 try {
                     $interval = cron_task_interval($plugin, $task);
                     $previous = is_array($state['tasks'][$key] ?? null) ? $state['tasks'][$key] : [];
@@ -1170,12 +1185,18 @@ function cron_run(): array
                         'attempts' => (int)($previous['attempts'] ?? 0) + 1, 'last_error' => '',
                     ]);
                     cache_write_php(CRON_STATE_FILE, $state);
+                    try {
+                        $log_id = cron_log_start((string)$plugin['id'], (string)$name, (int)$state['tasks'][$key]['last_started_at']);
+                    } catch (Throwable $e) {
+                        debug_log_write('[cron] ' . $key . ' log failed', $e);
+                    }
                     plugin_load($plugin);
                     $callback = (string)$task['callback'];
                     if (!function_exists($callback)) throw new RuntimeException('计划任务函数不存在');
                     $message = $callback($plugin, $task);
                     $status = 'success';
-                    if (is_scalar($message) && trim((string)$message) !== '') debug_log_write('[cron] ' . $key . ': ' . trim((string)$message));
+                    $message = is_scalar($message) ? trim((string)$message) : '';
+                    if ($message !== '') debug_log_write('[cron] ' . $key . ': ' . $message);
                 } catch (Throwable $e) {
                     $status = 'failed';
                     $error = trim($e->getMessage());
@@ -1193,6 +1214,11 @@ function cron_run(): array
                             $result['tasks'][$key] = 'success';
                         }
                         cache_write_php(CRON_STATE_FILE, $state);
+                        try {
+                            cron_log_finish($log_id, (string)$plugin['id'], $status, $status === 'failed' ? cut($error, 500) : $message, (int)$state['tasks'][$key]['last_finished_at']);
+                        } catch (Throwable $e) {
+                            debug_log_write('[cron] ' . $key . ' log failed', $e);
+                        }
                     }
                 }
             }
@@ -4555,7 +4581,31 @@ function admin_plugins_tabs_html(string $active): string
     return tab_bar_html([
         'local' => ['label' => '本地插件', 'href' => admin_url(['tab' => 'plugins'])],
         'market' => ['label' => '插件市场', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
+        'cron' => ['label' => '计划任务日志', 'href' => admin_url(['tab' => 'plugins', 'view' => 'cron'])],
     ], $active, 'plugin-tabs');
+}
+function admin_plugins_cron_logs_page_html(): string
+{
+    $names = [];
+    foreach (plugins() as $plugin) {
+        if (is_array($plugin)) $names[(string)$plugin['id']] = (string)($plugin['name'] ?? $plugin['id']);
+    }
+    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT 100")->fetchAll();
+    $labels = ['success' => '成功', 'failed' => '失败', 'running' => '运行中'];
+    $html = admin_plugins_tabs_html('cron') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head('<div class="admin-plugin-summary"><strong>计划任务日志</strong><span>最近 100 次运行</span></div>', '') . '<ul class="admin-manage-list">';
+    foreach ($rows as $row) {
+        $status = (string)$row['status'];
+        $class = $status === 'success' ? ' on' : ($status === 'failed' ? ' danger' : '');
+        $started_at = (int)$row['started_at'];
+        $finished_at = (int)$row['finished_at'];
+        $duration = $finished_at > 0 ? max(0, $finished_at - $started_at) . ' 秒' : '进行中';
+        $message = trim((string)$row['message']);
+        $plugin_id = (string)$row['plugin_id'];
+        $plugin_name = $names[$plugin_id] ?? $plugin_id;
+        $html .= '<li class="admin-list-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h($plugin_name) . '</strong><span class="admin-flag' . $class . '">' . h($labels[$status] ?? $status) . '</span></div><div class="admin-row-meta"><span class="plugin-id">' . h($plugin_id) . ' / ' . h((string)$row['task_name']) . '</span><span>' . date('Y-m-d H:i:s', $started_at) . '</span><span>' . h($duration) . '</span>' . ($message !== '' ? '<span title="' . h($message) . '">' . h(cut($message, 160)) . '</span>' : '') . '</div></div></li>';
+    }
+    if (!$rows) $html .= '<li class="empty-state">暂无计划任务运行记录</li>';
+    return $html . '</ul></div>';
 }
 function plugin_market_search_form(string $query): string
 {
@@ -4683,7 +4733,8 @@ function admin_page(): void
             plugin_market_install($plugin_id);
             set_flash('插件已安装或更新，已自动停用，请启用后使用。');
         } else err('参数错误');
-        go(admin_url(['tab' => 'plugins', 'view' => (string)($_GET['view'] ?? '') === 'market' ? 'market' : null]));
+        $view = (string)($_GET['view'] ?? '');
+        go(admin_url(['tab' => 'plugins', 'view' => in_array($view, ['market', 'cron'], true) ? $view : null]));
     }
     if ($tab === 'settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((string)($_POST['debug_log_action'] ?? '') === 'clear') {
@@ -4805,7 +4856,8 @@ function admin_page(): void
         $phtml = paginate($total, $admin_page, $admin_size, $url);
         $html .= $phtml === '' ? '' : '<div class="pagination-bar">' . $phtml . '</div>';
     } elseif ($tab === 'plugins') {
-        $html .= (string)($_GET['view'] ?? '') === 'market' ? admin_plugins_market_page_html() : admin_plugins_page_html();
+        $view = (string)($_GET['view'] ?? '');
+        $html .= $view === 'market' ? admin_plugins_market_page_html() : ($view === 'cron' ? admin_plugins_cron_logs_page_html() : admin_plugins_page_html());
     } else {
         $plugin_html = admin_plugin_tab_html((string)$tab);
         if ($plugin_html === null) err('你访问的页面不存在', 404);
