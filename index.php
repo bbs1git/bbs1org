@@ -616,6 +616,8 @@ function plugin_registry_row(array $row): ?array
         'name' => (string)$row['name'],
         'version' => (string)$row['version'],
         'enabled' => (int)$row['enabled'] === 1,
+        'disabled_reason' => (string)($row['disabled_reason'] ?? ''),
+        'updated_at' => (int)($row['updated_at'] ?? 0),
         'file' => APP_ROOT . '/' . ltrim((string)$row['file'], '/'),
         'config' => json_decode((string)($row['config_json'] ?? '{}'), true) ?: [],
         'entries' => json_decode((string)($row['entries_json'] ?? '{}'), true) ?: [],
@@ -771,7 +773,7 @@ function plugins(bool $refresh = false): array
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
     $plugins = [];
-    foreach (q("SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled FROM app_plugins ORDER BY id")->fetchAll() as $row) {
+    foreach (q("SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins ORDER BY id")->fetchAll() as $row) {
         $plugin = plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
@@ -4526,9 +4528,6 @@ function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $la
 function admin_plugins_page_html(): string
 {
     $plugins = plugins();
-    $metadata = array_column(q("SELECT id,disabled_reason,updated_at FROM app_plugins")->fetchAll(), null, 'id');
-    foreach ($plugins as $id => &$plugin) $plugin += $metadata[$id] ?? [];
-    unset($plugin);
     uasort($plugins, function (array $a, array $b): int {
         $a_time = (int)($a['updated_at'] ?? 0);
         $b_time = (int)($b['updated_at'] ?? 0);
