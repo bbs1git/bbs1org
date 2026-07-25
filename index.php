@@ -5,7 +5,7 @@ define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 define('APP_VERSION', 'v6.5');
-define('SQL_DEBUG_MODE', false);
+define('SQL_DEBUG_MODE', true);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
@@ -2059,18 +2059,25 @@ function stats_cache(): array
 {
     if (is_array($GLOBALS['__home_stats_cache'] ?? null)) return $GLOBALS['__home_stats_cache'];
     $settings = settings_cache();
+    $latest_users = json_decode((string)($settings['stats_latest_users'] ?? ''), true);
+    if (!is_array($latest_users)) {
+        $latest_users = q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll();
+        save_settings_values(['stats_latest_users' => json_encode($latest_users, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+    }
     return $GLOBALS['__home_stats_cache'] = [
         'topics' => (int)($settings['stats_topics'] ?? 0),
         'replies' => (int)($settings['stats_replies'] ?? 0),
         'users' => (int)($settings['stats_users'] ?? 0),
-        'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(),
+        'latest_users' => $latest_users,
     ];
 }
 function home_stats_record_insert(string $type, int $id): void
 {
     $key = ['replies' => 'stats_replies', 'users' => 'stats_users'][$type] ?? '';
     if ($key === '') throw new InvalidArgumentException('无效的首页统计类型。');
-    save_settings_values([$key => (string)$id]);
+    $values = [$key => (string)$id];
+    if ($type === 'users') $values['stats_latest_users'] = json_encode(q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    save_settings_values($values);
     unset($GLOBALS['__home_stats_cache']);
 }
 function home_stats_refresh_topics(): void
