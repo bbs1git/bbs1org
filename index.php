@@ -332,15 +332,13 @@ function auth_cookie_secure(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
 }
+function app_cookie(string $name, string $value, int $expires, bool $httponly = true, bool $secure = true): void
+{
+    setcookie($name, $value, ['expires' => $expires, 'path' => '/', 'secure' => $secure && auth_cookie_secure(), 'httponly' => $httponly, 'samesite' => 'Lax']);
+}
 function auth_cookie_clear(): void
 {
-    setcookie(AUTH_COOKIE_NAME, '', [
-        'expires' => time() - 3600,
-        'path' => '/',
-        'secure' => auth_cookie_secure(),
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
+    app_cookie(AUTH_COOKIE_NAME, '', time() - 3600);
     unset($_COOKIE[AUTH_COOKIE_NAME]);
 }
 function auth_cookie_set(array $user): void
@@ -349,13 +347,7 @@ function auth_cookie_set(array $user): void
     $expire = time() + AUTH_COOKIE_TTL;
     $payload = $id . '|' . $expire;
     $signature = hash_hmac('sha256', $payload, (string)($user['password'] ?? ''));
-    setcookie(AUTH_COOKIE_NAME, $id . '.' . $expire . '.' . $signature, [
-        'expires' => $expire,
-        'path' => '/',
-        'secure' => auth_cookie_secure(),
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
+    app_cookie(AUTH_COOKIE_NAME, $id . '.' . $expire . '.' . $signature, $expire);
 }
 function auth_cookie_parts(): ?array
 {
@@ -372,13 +364,7 @@ function csrf_token(): string
     $token = (string)($_COOKIE[CSRF_COOKIE_NAME] ?? '');
     if (!preg_match('/^[a-f0-9]{64}$/D', $token)) {
         $token = bin2hex(random_bytes(32));
-        setcookie(CSRF_COOKIE_NAME, $token, [
-            'expires' => time() + COOKIE_TTL,
-            'path' => '/',
-            'secure' => auth_cookie_secure(),
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
+        app_cookie(CSRF_COOKIE_NAME, $token, time() + COOKIE_TTL);
         $_COOKIE[CSRF_COOKIE_NAME] = $token;
     }
     return $token;
@@ -1879,7 +1865,7 @@ function remember_forum(int $fid): void
     $ids = array_values(array_diff(array_filter($raw), [$fid]));
     array_unshift($ids, $fid);
     $value = implode('.', array_slice($ids, 0, 10));
-    setcookie('__recent_forums', $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    app_cookie('__recent_forums', $value, time() + COOKIE_TTL, false);
     $_COOKIE['__recent_forums'] = $value;
 }
 function recent_forums(): array
@@ -1897,7 +1883,7 @@ function mark_viewed(int $tid): bool
     if (in_array($tid, $seen, true)) return false;
     $seen[] = $tid;
     $value = implode('.', array_slice($seen, -64));
-    setcookie('__viewed_topics', $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    app_cookie('__viewed_topics', $value, time() + COOKIE_TTL, false);
     $_COOKIE['__viewed_topics'] = $value;
     return true;
 }
@@ -2161,7 +2147,7 @@ function can_speak(): bool
 function consume_auth_return_url(): string
 {
     $url = trim((string)($_COOKIE['__auth_return_url'] ?? ''));
-    setcookie('__auth_return_url', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    app_cookie('__auth_return_url', '', time() - 3600);
     if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')) return route_url('home');
     if (preg_match('/[\x00-\x1F\x7F]/', $url) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $url)) return route_url('home');
     return $url;
@@ -2225,12 +2211,7 @@ function ajax_request(): bool
 }
 function set_flash(string $message): void
 {
-    setcookie('__flash', $message, [
-        'expires' => time() + 30,
-        'path' => '/',
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
+    app_cookie('__flash', $message, time() + 30, true, false);
 }
 function form_error_redirect(string $message): never
 {
@@ -2238,7 +2219,7 @@ function form_error_redirect(string $message): never
         'message' => $message,
         'created_at' => time(),
     ], JSON_UNESCAPED_UNICODE));
-    setcookie('__form_error', $value, ['expires' => time() + 30, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    app_cookie('__form_error', $value, time() + 30);
     go(route_url('form_error'));
 }
 function ajax_error(string $m, bool $log = true): never
@@ -2668,12 +2649,12 @@ function attachment_upload_count(): int
 function attachment_upload_count_increment(): void
 {
     $count = attachment_upload_count() + 1;
-    setcookie('__attachment_upload_count', (string)$count, ['expires' => time() + 7200, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    app_cookie('__attachment_upload_count', (string)$count, time() + 7200, false);
     $_COOKIE['__attachment_upload_count'] = (string)$count;
 }
 function attachment_upload_count_reset(): void
 {
-    setcookie('__attachment_upload_count', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+    app_cookie('__attachment_upload_count', '', time() - 3600, false);
     unset($_COOKIE['__attachment_upload_count']);
 }
 class AttachmentUploadException extends RuntimeException {}
@@ -3124,7 +3105,7 @@ function favorite_topic_states(array $topic_ids): array
 }
 function favorite_topics_cookie_clear(): void
 {
-    setcookie(FAVORITE_COOKIE_NAME, '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    app_cookie(FAVORITE_COOKIE_NAME, '', time() - 3600);
     unset($_COOKIE[FAVORITE_COOKIE_NAME]);
 }
 function favorite_topics_cookie(): array|false|null
@@ -3145,7 +3126,7 @@ function favorite_topics_cookie_write(array|false $ids): void
         sort($ids, SORT_NUMERIC);
         $value = $ids ? implode('.', $ids) : '0';
     }
-    setcookie(FAVORITE_COOKIE_NAME, $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    app_cookie(FAVORITE_COOKIE_NAME, $value, time() + COOKIE_TTL);
     $_COOKIE[FAVORITE_COOKIE_NAME] = $value;
 }
 function favorite_topics_cookie_load(): array|false
@@ -3430,7 +3411,7 @@ function page(string $title, string $body, array $seo = []): void
     if (!empty($seo['canonical'])) $meta .= '<link rel="canonical" href="' . h((string)$seo['canonical']) . '">';
     $head_extra = (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title, 'seo' => $seo]);
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
-    if ($flash !== '' && !headers_sent()) setcookie('__flash', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+    if ($flash !== '' && !headers_sent()) app_cookie('__flash', '', time() - 3600, true, false);
     $header_html = (string)($settings['header_html'] ?? '') . (string)hook('page.header', '', ['title' => $title]);
     echo page_head_html($page_title, $meta, $head_extra) . page_nav_html($site_name) . $header_html . '<main class="wrap">' . $body . '</main>' . page_footer_html($settings, $title, $flash);
 }
@@ -4169,7 +4150,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $sort = 'post';
     } elseif (array_key_exists('sort', $_GET)) {
         $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
-        setcookie('__topic_index_sort', $sort, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => false, 'samesite' => 'Lax']);
+        app_cookie('__topic_index_sort', $sort, time() + COOKIE_TTL, false);
         $_COOKIE['__topic_index_sort'] = $sort;
     } else {
         $sort = (($_COOKIE['__topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
@@ -4937,7 +4918,7 @@ function form_error_route(): void
 {
     $raw = base64_decode((string)($_COOKIE['__form_error'] ?? ''), true);
     $data = is_string($raw) ? json_decode($raw, true) : [];
-    setcookie('__form_error', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    app_cookie('__form_error', '', time() - 3600);
     error_page('操作失败', trim((string)(is_array($data) ? ($data['message'] ?? '') : '') ?: '操作失败'));
 }
 function logout_route(): void
