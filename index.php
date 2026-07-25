@@ -788,15 +788,6 @@ function plugin_assets_mark_dirty(): void
 {
     save_settings_values(['plugin_assets_dirty' => '1']);
 }
-function plugin_opcache_refresh(): int
-{
-    if (!function_exists('opcache_invalidate')) return 0;
-    $count = 0;
-    foreach (plugin_files() as $file) {
-        if (@opcache_invalidate($file, true)) $count++;
-    }
-    return $count;
-}
 function plugin_asset_write(string $file, string $content): void
 {
     $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
@@ -4536,7 +4527,7 @@ function admin_plugins_page_html(): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '同步插件', ['plugin_action' => 'sync']) . post_action_form(admin_url(['tab' => 'plugins']), '重建资源', ['plugin_action' => 'assets_rebuild']);
+    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '同步插件', ['plugin_action' => 'sync']);
     $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
@@ -4712,13 +4703,9 @@ function admin_page(): void
     if ($tab === 'plugins' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $plugin_action = (string)($_POST['plugin_action'] ?? '');
         $plugin_id = (string)($_POST['plugin_id'] ?? '');
-        if ($plugin_action === 'assets_rebuild') {
-            $opcache_count = plugin_opcache_refresh();
-            plugin_assets_rebuild();
-            set_flash('插件资源已重建' . ($opcache_count > 0 ? '，OPcache 已刷新 ' . $opcache_count . ' 个文件' : ''));
-        } elseif ($plugin_action === 'sync') {
+        if ($plugin_action === 'sync') {
             save_settings_values(['plugin_sync_pending' => '1']);
-            set_flash('插件目录将在下一个请求同步');
+            set_flash('插件及资源将在下一个请求同步');
         } elseif ($plugin_action === 'enable') {
             plugin_set_enabled($plugin_id, true);
             set_flash('插件已启用');
