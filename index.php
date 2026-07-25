@@ -27,6 +27,7 @@ define('PLUGIN_CSS_FILE', ASSET_DIR . '/plugins.css');
 define('PLUGIN_JS_FILE', ASSET_DIR . '/plugins.js');
 define('CRON_STATE_FILE', CACHE_DIR . '/cron.php');
 define('CRON_LOCK_FILE', CACHE_DIR . '/cron.lock');
+define('CRON_LOG_RETENTION_SECONDS', 604800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('INSTALL_DATA_DIR', DATA_DIR);
@@ -1144,13 +1145,14 @@ function cron_log_start(string $plugin_id, string $task_name, int $started_at): 
     q("INSERT INTO app_cron_logs(plugin_id,task_name,status,message,started_at,finished_at) VALUES(?,?,?,?,?,0)", [$plugin_id, $task_name, 'running', '', $started_at]);
     return app_db_last_insert_id('app_cron_logs');
 }
-function cron_log_finish(int $id, string $plugin_id, string $status, string $message, int $finished_at): void
+function cron_log_finish(int $id, string $status, string $message, int $finished_at): void
 {
     if ($id <= 0) return;
     q("UPDATE app_cron_logs SET status=?,message=?,finished_at=? WHERE id=?", [$status, $message, $finished_at, $id]);
-    if ($id % 100 !== 0) return;
-    $cutoff = val("SELECT id FROM app_cron_logs WHERE plugin_id=? ORDER BY id DESC LIMIT 1 OFFSET 500", [$plugin_id]);
-    if ($cutoff !== false) q("DELETE FROM app_cron_logs WHERE plugin_id=? AND id<?", [$plugin_id, (int)$cutoff]);
+}
+function cron_log_prune(): void
+{
+    q("DELETE FROM app_cron_logs WHERE started_at<?", [time() - CRON_LOG_RETENTION_SECONDS]);
 }
 function cron_run(): array
 {
@@ -1164,6 +1166,11 @@ function cron_run(): array
     }
     $state = cron_state();
     try {
+        try {
+            cron_log_prune();
+        } catch (Throwable $e) {
+            debug_log_write('[cron] log prune failed', $e);
+        }
         foreach (plugins_refresh_if_changed() as $plugin) {
             if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
             foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
@@ -1215,7 +1222,7 @@ function cron_run(): array
                         }
                         cache_write_php(CRON_STATE_FILE, $state);
                         try {
-                            cron_log_finish($log_id, (string)$plugin['id'], $status, $status === 'failed' ? cut($error, 500) : $message, (int)$state['tasks'][$key]['last_finished_at']);
+                            cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, (int)$state['tasks'][$key]['last_finished_at']);
                         } catch (Throwable $e) {
                             debug_log_write('[cron] ' . $key . ' log failed', $e);
                         }
@@ -4586,13 +4593,18 @@ function admin_plugins_tabs_html(string $active): string
 }
 function admin_plugins_cron_logs_page_html(): string
 {
+    $size = 50;
+    $total = (int)val("SELECT COUNT(*) FROM app_cron_logs");
+    $pages = max(1, (int)ceil($total / $size));
+    $page = min($pages, max(1, (int)($_GET['p'] ?? 1)));
+    $offset = ($page - 1) * $size;
     $names = [];
     foreach (plugins() as $plugin) {
         if (is_array($plugin)) $names[(string)$plugin['id']] = (string)($plugin['name'] ?? $plugin['id']);
     }
-    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT 100")->fetchAll();
+    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT $size OFFSET $offset")->fetchAll();
     $labels = ['success' => '成功', 'failed' => '失败', 'running' => '运行中'];
-    $html = admin_plugins_tabs_html('cron') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head('<div class="admin-plugin-summary"><strong>计划任务日志</strong><span>最近 100 次运行</span></div>', '') . '<ul class="admin-manage-list">';
+    $html = admin_plugins_tabs_html('cron') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head('<div class="admin-plugin-summary"><strong>计划任务日志</strong><span>共 ' . $total . ' 条</span></div>', '') . '<ul class="admin-manage-list">';
     foreach ($rows as $row) {
         $status = (string)$row['status'];
         $class = $status === 'success' ? ' on' : ($status === 'failed' ? ' danger' : '');
@@ -4605,7 +4617,9 @@ function admin_plugins_cron_logs_page_html(): string
         $html .= '<li class="admin-list-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h($plugin_name) . '</strong><span class="admin-flag' . $class . '">' . h($labels[$status] ?? $status) . '</span></div><div class="admin-row-meta"><span class="plugin-id">' . h($plugin_id) . ' / ' . h((string)$row['task_name']) . '</span><span>' . date('Y-m-d H:i:s', $started_at) . '</span><span>' . h($duration) . '</span>' . ($message !== '' ? '<span title="' . h($message) . '">' . h(cut($message, 160)) . '</span>' : '') . '</div></div></li>';
     }
     if (!$rows) $html .= '<li class="empty-state">暂无计划任务运行记录</li>';
-    return $html . '</ul></div>';
+    $html .= '</ul></div>';
+    $pagination = paginate($total, $page, $size, admin_url(['tab' => 'plugins', 'view' => 'cron']));
+    return $html . ($pagination === '' ? '' : '<div class="pagination-bar">' . $pagination . '</div>');
 }
 function plugin_market_search_form(string $query): string
 {

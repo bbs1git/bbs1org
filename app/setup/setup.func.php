@@ -68,6 +68,7 @@ function app_db_schema(string $driver): array
         'idx_notifications_recipient_time' => 'app_notifications(recipient_id,created_at DESC,id DESC)',
         'idx_password_resets_user' => 'app_password_resets(user_id,created_at DESC)', 'idx_ip_logs_updated' => 'app_ip_logs(updated_at DESC)',
         'idx_cron_logs_plugin_time' => 'app_cron_logs(plugin_id,started_at DESC,id DESC)',
+        'idx_cron_logs_started' => 'app_cron_logs(started_at)',
         'idx_topics_created' => 'app_topics(created_at DESC,id DESC)', 'idx_topics_last_reply' => 'app_topics(last_reply_at DESC,id DESC)',
         'idx_topics_user_created' => 'app_topics(user_id,created_at DESC,id DESC)', 'idx_topics_forum_created' => 'app_topics(forum_id,created_at DESC,id DESC)',
         'idx_topics_forum_last_reply' => 'app_topics(forum_id,last_reply_at DESC,id DESC)',
