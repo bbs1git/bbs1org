@@ -15,17 +15,11 @@ define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
 define('CACHE_DIR', APP_DIR . '/cache');
 define('AVATAR_DIR', APP_DIR . '/avatars');
 define('UPLOAD_DIR', APP_DIR . '/upload');
-define('HOME_STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
-define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
-define('PLUGIN_ASSET_CACHE_FILE', CACHE_DIR . '/plugin-assets.php');
-define('PLUGIN_ASSET_DIRTY_FILE', CACHE_DIR . '/plugin-assets.dirty');
-define('PLUGIN_ASSET_LOCK_FILE', CACHE_DIR . '/plugin-assets.lock');
 define('PLUGIN_CSS_FILE', ASSET_DIR . '/plugins.css');
 define('PLUGIN_JS_FILE', ASSET_DIR . '/plugins.js');
-define('CRON_STATE_FILE', CACHE_DIR . '/cron.php');
-define('CRON_LOCK_FILE', CACHE_DIR . '/cron.lock');
 define('CRON_LOG_RETENTION_SECONDS', 604800);
+define('CRON_LEASE_SECONDS', 1800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('INSTALL_DATA_DIR', DATA_DIR);
@@ -336,21 +330,6 @@ function cache_write_php(string $file, mixed $value): void
     clearstatcache(true, $file);
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
 }
-function load_array_cache(string $file, bool $refresh, callable $reload, ?array $fallback = null, ?callable $validate = null): array
-{
-    static $memory = [];
-    if (!$refresh && isset($memory[$file])) return $memory[$file];
-    if (!$refresh && is_file($file)) {
-        $cached = include $file;
-        if (is_array($cached) && (!$validate || $validate($cached))) return $memory[$file] = array_merge($fallback ?? [], $cached);
-    }
-    $memory[$file] = $fallback;
-    try {
-        $memory[$file] = array_merge($fallback ?? [], $reload());
-        cache_write_php($file, $memory[$file]);
-    } catch (Throwable $e) { if ($fallback === null) throw $e; }
-    return $memory[$file] ?? [];
-}
 function tx(callable $fn)
 {
     $db = db();
@@ -482,6 +461,16 @@ function default_settings(): array
         'post_interval_seconds' => '5',
         'attachment_max_count' => '10',
         'attachment_max_mb' => '20',
+        'stats_topics' => '0',
+        'stats_replies' => '0',
+        'stats_users' => '0',
+        'plugin_sync_pending' => '0',
+        'plugin_assets_dirty' => '1',
+        'plugin_assets_css_hash' => '',
+        'plugin_assets_css_size' => '0',
+        'plugin_assets_js_hash' => '',
+        'plugin_assets_js_size' => '0',
+        'cron_logs_pruned_at' => '0',
     ];
 }
 function settings_cache(): array
@@ -640,8 +629,33 @@ function plugin_files_state(): array
     $files = glob(PLUGIN_DIR . '/*/plugin.php') ?: [];
     sort($files);
     $state = [];
-    foreach ($files as $file) if (is_file($file)) $state[$file] = (int)filemtime($file);
+    foreach ($files as $file) if (is_file($file)) $state[$file] = hash_file('sha256', $file) ?: '';
     return $state;
+}
+function plugin_registry_manifest(array $plugin): array
+{
+    return array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall']));
+}
+function plugin_registry_row(array $row): ?array
+{
+    $manifest = json_decode((string)($row['manifest_json'] ?? ''), true);
+    if (!is_array($manifest)) return null;
+    $file = APP_ROOT . '/' . ltrim((string)($row['file'] ?? ''), '/');
+    $plugin = plugin_normalize(array_merge($manifest, [
+        'id' => (string)$row['id'],
+        'name' => (string)$row['name'],
+        'version' => (string)$row['version'],
+        'enabled' => (int)$row['enabled'] === 1,
+    ]), $file);
+    if (!$plugin) return null;
+    $plugin['config'] = json_decode((string)($row['config_json'] ?? '{}'), true) ?: [];
+    $plugin['entries'] = json_decode((string)($row['entries_json'] ?? '{}'), true) ?: [];
+    $plugin['status'] = (string)($row['status'] ?? '');
+    $plugin['disabled_reason'] = (string)($row['disabled_reason'] ?? '');
+    $plugin['code_hash'] = (string)($row['code_hash'] ?? '');
+    $plugin['installed_at'] = (int)($row['installed_at'] ?? 0);
+    $plugin['updated_at'] = (int)($row['updated_at'] ?? 0);
+    return $plugin;
 }
 function plugin_load(array $plugin): void
 {
@@ -663,10 +677,9 @@ function plugin_disable_after_exception(string $id, Throwable $e): void
     if (str_starts_with($file, $root)) $file = substr($file, strlen($root));
     $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . cut($message, 500) : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
     try {
-        save_settings_values([
-            'plugin_' . $id . '_enabled' => '0',
-            'plugin_' . $id . '_disabled_reason' => $reason,
-        ]);
+        q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [$reason, now(), $id]);
+        q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+        plugins(true);
         plugin_assets_mark_dirty();
     } catch (Throwable $disable_error) {
         debug_log_write('插件 ' . $id . ' 自动停用失败', $disable_error);
@@ -685,34 +698,126 @@ function plugin_call(array $plugin, callable $callback): mixed
         throw $e;
     }
 }
-function plugins_rebuild_cache(): array
+function plugin_cron_sync(array $plugin): void
 {
-    $files_state = plugin_files_state();
-    $plugins = [];
-    $previous_by_file = [];
-    if (is_file(PLUGIN_CACHE_FILE)) {
-        $cached = include PLUGIN_CACHE_FILE;
-        foreach ((array)($cached['plugins'] ?? []) as $cached_plugin) {
-            if (is_array($cached_plugin) && (string)($cached_plugin['file'] ?? '') !== '') $previous_by_file[(string)$cached_plugin['file']] = $cached_plugin;
-        }
+    $plugin_id = (string)$plugin['id'];
+    $names = [];
+    foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
+        $name = (string)$name;
+        $names[] = $name;
+        $interval = cron_task_interval($plugin, $task);
+        app_db_insert_ignore('app_cron_tasks', [
+            'plugin_id' => $plugin_id,
+            'task_name' => $name,
+            'callback' => (string)$task['callback'],
+            'interval_seconds' => $interval,
+            'enabled' => plugin_enabled($plugin) ? 1 : 0,
+            'next_run_at' => 0,
+            'available_at' => 0,
+            'lease_token' => '',
+            'lease_until' => 0,
+            'last_started_at' => 0,
+            'last_finished_at' => 0,
+            'last_success_at' => 0,
+            'status' => '',
+            'attempts' => 0,
+            'failure_count' => 0,
+            'retry_limit' => 3,
+            'pause_seconds' => 1800,
+            'pause_until' => 0,
+            'last_error' => '',
+            'updated_at' => now(),
+        ], ['plugin_id', 'task_name']);
+        q("UPDATE app_cron_tasks SET callback=?,interval_seconds=?,enabled=?,updated_at=? WHERE plugin_id=? AND task_name=?", [
+            (string)$task['callback'], $interval, plugin_enabled($plugin) ? 1 : 0, now(), $plugin_id, $name,
+        ]);
     }
-    foreach (array_keys($files_state) as $file) {
+    if (!$names) {
+        q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$plugin_id]);
+        return;
+    }
+    $marks = sql_marks(count($names));
+    q("DELETE FROM app_cron_tasks WHERE plugin_id=? AND task_name NOT IN ($marks)", array_merge([$plugin_id], $names));
+}
+function plugin_registry_sync(): array
+{
+    $existing = [];
+    foreach (q("SELECT * FROM app_plugins")->fetchAll() as $row) $existing[(string)$row['id']] = $row;
+    $settings = settings_cache();
+    $synced = [];
+    foreach (plugin_files_state() as $file => $code_hash) {
+        $id = basename(dirname($file));
         try {
-            $raw = array_key_exists($file, $GLOBALS['__plugin_raw'] ?? []) ? $GLOBALS['__plugin_raw'][$file] : include $file;
+            if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+            $raw = include $file;
         } catch (Throwable $e) {
-            $plugin = $previous_by_file[$file] ?? null;
-            $id = is_array($plugin) ? (string)($plugin['id'] ?? '') : basename(dirname($file));
-            plugin_disable_after_exception($id, $e);
-            $plugin ??= plugin_normalize(['id' => $id, 'name' => $id, 'description' => '插件文件加载失败'], $file);
-            if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
+            if (isset($existing[$id])) {
+                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [cut($e->getMessage(), 500), now(), $id]);
+                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+                $synced[$id] = true;
+            }
             continue;
         }
         $GLOBALS['__plugin_raw'][$file] = $raw;
-        if (!is_array($raw)) continue;
+        if (!is_array($raw)) {
+            if (isset($existing[$id])) {
+                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason='插件定义格式无效',updated_at=? WHERE id=?", [now(), $id]);
+                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+                $synced[$id] = true;
+            }
+            continue;
+        }
         $plugin = plugin_normalize($raw, $file);
-        if ($plugin) $plugins[$plugin['id']] = $plugin;
+        if (!$plugin) {
+            if (isset($existing[$id])) {
+                q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason='插件定义校验失败',updated_at=? WHERE id=?", [now(), $id]);
+                q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
+                $synced[$id] = true;
+            }
+            continue;
+        }
+        $id = (string)$plugin['id'];
+        $old = $existing[$id] ?? [];
+        $installed_at = (int)($old['installed_at'] ?? 0) ?: now();
+        $config_json = (string)($old['config_json'] ?? ($settings['plugin_' . $id . '_config'] ?? '{}'));
+        $entries_json = (string)($old['entries_json'] ?? json_encode([
+            'feature_links' => (string)($settings['plugin_' . $id . '_entry_feature_links'] ?? '1') === '1',
+            'sidebar_cards' => (string)($settings['plugin_' . $id . '_entry_sidebar_cards'] ?? '1') === '1',
+        ], JSON_UNESCAPED_UNICODE));
+        $enabled = isset($old['enabled']) ? (int)$old['enabled'] : ((string)($settings['plugin_' . $id . '_enabled'] ?? '0') === '1' ? 1 : 0);
+        app_db_upsert('app_plugins', [
+            'id' => $id,
+            'name' => (string)$plugin['name'],
+            'version' => (string)$plugin['version'],
+            'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
+            'code_hash' => $code_hash,
+            'manifest_json' => json_encode(plugin_registry_manifest($plugin), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'config_json' => $config_json,
+            'entries_json' => $entries_json,
+            'enabled' => $enabled,
+            'status' => $enabled ? 'enabled' : 'disabled',
+            'disabled_reason' => (string)($old['disabled_reason'] ?? ($settings['plugin_' . $id . '_disabled_reason'] ?? '')),
+            'installed_at' => $installed_at,
+            'updated_at' => now(),
+        ], ['id']);
+        $synced[$id] = true;
     }
-    cache_write_php(PLUGIN_CACHE_FILE, ['files' => $files_state, 'plugins' => $plugins]);
+    foreach (array_keys($existing) as $id) {
+        if (isset($synced[$id])) continue;
+        q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
+        q("DELETE FROM app_plugins WHERE id=?", [$id]);
+    }
+    $plugins = plugins(true);
+    foreach ($plugins as $plugin) plugin_cron_sync($plugin);
+    $legacy_names = [];
+    foreach (array_keys($synced) as $id) {
+        foreach (['enabled', 'version', 'config', 'disabled_reason', 'entry_feature_links', 'entry_sidebar_cards'] as $suffix) $legacy_names[] = 'plugin_' . $id . '_' . $suffix;
+    }
+    if ($legacy_names) {
+        $marks = sql_marks(count($legacy_names));
+        q("DELETE FROM app_settings WHERE name IN ($marks)", $legacy_names);
+        if (is_array($GLOBALS['__settings_cache'] ?? null)) foreach ($legacy_names as $name) unset($GLOBALS['__settings_cache'][$name]);
+    }
     plugin_assets_mark_dirty();
     return $plugins;
 }
@@ -720,44 +825,27 @@ function plugins(bool $refresh = false): array
 {
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
-    if (!$refresh && is_file(PLUGIN_CACHE_FILE)) {
-        $cached = include PLUGIN_CACHE_FILE;
-        $prefix = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/';
-        $paths = is_array($cached['files'] ?? null) ? array_keys($cached['files']) : [];
-        if (is_array($cached) && is_array($cached['plugins'] ?? null) && is_array($cached['files'] ?? null) && !array_filter($paths, fn(string $path): bool => !str_starts_with(str_replace('\\', '/', $path), $prefix))) {
-            return $plugins = $cached['plugins'];
-        }
+    $plugins = [];
+    foreach (q("SELECT * FROM app_plugins ORDER BY updated_at DESC,id")->fetchAll() as $row) {
+        $plugin = plugin_registry_row($row);
+        if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
-    $plugins = plugins_rebuild_cache();
     plugin_runtime_cache_reset();
     return $plugins;
 }
-function plugins_refresh_if_changed(): array
-{
-    if (is_file(PLUGIN_CACHE_FILE)) {
-        $cached = include PLUGIN_CACHE_FILE;
-        if (is_array($cached) && is_array($cached['plugins'] ?? null) && ($cached['files'] ?? null) === plugin_files_state()) return plugins();
-    }
-    return plugins(true);
-}
 function plugin_enabled(array $plugin): bool
 {
-    $id = (string)($plugin['id'] ?? '');
-    if ($id === '') return false;
-    if (!is_array($GLOBALS['__plugin_enabled_cache'] ?? null)) $GLOBALS['__plugin_enabled_cache'] = [];
-    return $GLOBALS['__plugin_enabled_cache'][$id] ??= setting('plugin_' . $id . '_enabled', '0') === '1';
+    return !empty($plugin['enabled']);
 }
 function plugin_assets_mark_dirty(): void
 {
-    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
-    @file_put_contents(PLUGIN_ASSET_DIRTY_FILE, (string)time(), LOCK_EX);
+    save_settings_values(['plugin_assets_dirty' => '1']);
 }
 function plugin_opcache_refresh(): int
 {
     if (!function_exists('opcache_invalidate')) return 0;
-    $files = [...array_keys(plugin_files_state()), PLUGIN_CACHE_FILE, PLUGIN_ASSET_CACHE_FILE];
     $count = 0;
-    foreach (array_unique($files) as $file) {
+    foreach (array_keys(plugin_files_state()) as $file) {
         if (is_file($file) && @opcache_invalidate($file, true)) $count++;
     }
     return $count;
@@ -795,36 +883,29 @@ function plugin_assets_rebuild(): array
         $manifest[$key] = hash('sha256', $content);
         $manifest[$key . '_size'] = strlen($content);
     }
-    cache_write_php(PLUGIN_ASSET_CACHE_FILE, $manifest);
-    @unlink(PLUGIN_ASSET_DIRTY_FILE);
+    save_settings_values([
+        'plugin_assets_css_hash' => (string)($manifest['css'] ?? ''),
+        'plugin_assets_css_size' => (string)(int)($manifest['css_size'] ?? 0),
+        'plugin_assets_js_hash' => (string)($manifest['js'] ?? ''),
+        'plugin_assets_js_size' => (string)(int)($manifest['js_size'] ?? 0),
+        'plugin_assets_dirty' => '0',
+    ]);
     return $manifest;
 }
 function plugin_assets_manifest(): array
 {
     static $manifest;
     if (is_array($manifest)) return $manifest;
-    if (!is_file(PLUGIN_ASSET_DIRTY_FILE) && is_file(PLUGIN_ASSET_CACHE_FILE) && is_file(PLUGIN_CSS_FILE) && is_file(PLUGIN_JS_FILE)) {
-        $cached = include PLUGIN_ASSET_CACHE_FILE;
-        if (is_array($cached)) return $manifest = $cached;
+    if (setting('plugin_assets_dirty', '1') === '1' || !is_file(PLUGIN_CSS_FILE) || !is_file(PLUGIN_JS_FILE)) {
+        try { return $manifest = plugin_assets_rebuild(); }
+        catch (Throwable $e) { debug_log_write('插件资源生成失败', $e); return $manifest = []; }
     }
-    if (!is_dir(CACHE_DIR)) mkdir(CACHE_DIR, 0755, true);
-    $lock = fopen(PLUGIN_ASSET_LOCK_FILE, 'c');
-    if (!$lock) return $manifest = [];
-    flock($lock, LOCK_EX);
-    try {
-        if (!is_file(PLUGIN_ASSET_DIRTY_FILE) && is_file(PLUGIN_ASSET_CACHE_FILE) && is_file(PLUGIN_CSS_FILE) && is_file(PLUGIN_JS_FILE)) {
-            $cached = include PLUGIN_ASSET_CACHE_FILE;
-            if (is_array($cached)) return $manifest = $cached;
-        }
-        if (!is_file(PLUGIN_ASSET_CACHE_FILE)) plugins(true);
-        return $manifest = plugin_assets_rebuild();
-    } catch (Throwable $e) {
-        debug_log_write('插件资源生成失败', $e);
-        return $manifest = [];
-    } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
-    }
+    return $manifest = [
+        'css' => setting('plugin_assets_css_hash'),
+        'css_size' => (int)setting('plugin_assets_css_size'),
+        'js' => setting('plugin_assets_js_hash'),
+        'js_size' => (int)setting('plugin_assets_js_size'),
+    ];
 }
 function plugin_asset_tag(string $type): string
 {
@@ -847,26 +928,29 @@ function plugin_uses_entry(array $plugin, string $entry): bool
 function plugin_entry_enabled(array $plugin, string $entry): bool
 {
     if (!plugin_uses_entry($plugin, $entry)) return false;
-    return setting('plugin_' . (string)$plugin['id'] . '_entry_' . $entry, '1') === '1';
+    return !array_key_exists($entry, (array)($plugin['entries'] ?? [])) || !empty($plugin['entries'][$entry]);
 }
 function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): void
 {
     if (!plugin_id_valid($id) || plugin_entry_hook_name($entry) === '') err('参数错误');
     $plugin = plugins()[$id] ?? null;
     if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
-    save_settings_values(['plugin_' . $id . '_entry_' . $entry => $enabled ? '1' : '0']);
+    $entries = (array)($plugin['entries'] ?? []);
+    $entries[$entry] = $enabled;
+    q("UPDATE app_plugins SET entries_json=?,updated_at=? WHERE id=?", [json_encode($entries, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), now(), $id]);
+    plugins(true);
 }
 function plugin_config(string $id, array $defaults = []): array
 {
     if (!plugin_id_valid($id)) return $defaults;
-    $raw = setting('plugin_' . $id . '_config', '{}');
-    $config = json_decode($raw, true);
-    return array_merge($defaults, is_array($config) ? $config : []);
+    return array_merge($defaults, (array)(plugins()[$id]['config'] ?? []));
 }
 function plugin_save_config(string $id, array $config): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
-    save_settings_values(['plugin_' . $id . '_config' => json_encode($config, JSON_UNESCAPED_UNICODE)]);
+    q("UPDATE app_plugins SET config_json=?,updated_at=? WHERE id=?", [json_encode($config, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), now(), $id]);
+    $plugin = plugins(true)[$id] ?? null;
+    if ($plugin) plugin_cron_sync($plugin);
 }
 function plugin_set_enabled(string $id, bool $enabled): void
 {
@@ -880,13 +964,9 @@ function plugin_set_enabled(string $id, bool $enabled): void
             }
         });
     }
-    save_settings_values([
-        'plugin_' . $id . '_enabled' => $enabled ? '1' : '0',
-        'plugin_' . $id . '_version' => (string)($plugin['version'] ?? ''),
-        'plugin_' . $id . '_disabled_reason' => '',
-    ]);
-    $file = (string)($plugin['file'] ?? '');
-    if ($enabled && $file !== '' && is_file($file)) @touch($file);
+    q("UPDATE app_plugins SET enabled=?,status=?,disabled_reason='',updated_at=? WHERE id=?", [$enabled ? 1 : 0, $enabled ? 'enabled' : 'disabled', now(), $id]);
+    q("UPDATE app_cron_tasks SET enabled=?,updated_at=? WHERE plugin_id=?", [$enabled ? 1 : 0, now(), $id]);
+    plugins(true);
     plugin_assets_mark_dirty();
 }
 function plugin_uninstall(string $id, bool $keep_data = true): void
@@ -901,9 +981,9 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
             if (function_exists($fn)) call_user_func($fn, $plugin);
         });
     }
-    $setting_names = ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config', 'plugin_' . $id . '_disabled_reason'];
-    q("DELETE FROM app_settings WHERE name IN (?,?,?,?)", $setting_names);
-    if (is_array($GLOBALS['__settings_cache'] ?? null)) foreach ($setting_names as $name) unset($GLOBALS['__settings_cache'][$name]);
+    q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
+    q("DELETE FROM app_plugins WHERE id=?", [$id]);
+    plugins(true);
     plugin_runtime_cache_reset();
     plugin_assets_mark_dirty();
 }
@@ -1051,13 +1131,12 @@ function plugin_market_install(string $id): void
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-    @unlink(PLUGIN_CACHE_FILE);
-    if (function_exists('opcache_invalidate')) @opcache_invalidate(PLUGIN_CACHE_FILE, true);
+    q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='',updated_at=? WHERE id=?", [now(), $id]);
+    q("UPDATE app_cron_tasks SET enabled=0,updated_at=? WHERE plugin_id=?", [now(), $id]);
     save_settings_values([
-        'plugin_' . $id . '_enabled' => '0',
-        'plugin_' . $id . '_disabled_reason' => '',
         'plugin_' . $id . '_market_sha256' => (string)($item['sha256'] ?? hash('sha256', $code)),
         'plugin_' . $id . '_market_topic_id' => (string)(int)($item['topic_id'] ?? 0),
+        'plugin_sync_pending' => '1',
     ]);
     plugin_assets_mark_dirty();
 }
@@ -1122,11 +1201,6 @@ function plugin_route(string $action): bool
     }
     return false;
 }
-function cron_state(): array
-{
-    $state = is_file(CRON_STATE_FILE) ? include CRON_STATE_FILE : [];
-    return is_array($state) && is_array($state['tasks'] ?? null) ? $state : ['tasks' => []];
-}
 function cron_task_interval(array $plugin, array $task): int
 {
     $interval = $task['interval'] ?? 0;
@@ -1148,89 +1222,139 @@ function cron_log_finish(int $id, string $status, string $message, int $finished
 }
 function cron_log_prune(): void
 {
+    $now = time();
+    if ($now - (int)setting('cron_logs_pruned_at', '0') < 86400) return;
     q("DELETE FROM app_cron_logs WHERE started_at<?", [time() - CRON_LOG_RETENTION_SECONDS]);
+    save_settings_values(['cron_logs_pruned_at' => (string)$now]);
+}
+function cron_task_claim(int $now): ?array
+{
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $claimed = tx(function () use ($now): ?array {
+            $task = one("SELECT * FROM app_cron_tasks WHERE enabled=1 AND available_at<=? ORDER BY available_at,plugin_id,task_name LIMIT 1", [$now]);
+            if (!$task) return null;
+            $token = bin2hex(random_bytes(16));
+            $lease_until = $now + CRON_LEASE_SECONDS;
+            $resuming = (int)$task['pause_until'] > 0 && (int)$task['pause_until'] <= $now;
+            $updated = q("UPDATE app_cron_tasks SET lease_token=?,lease_until=?,available_at=?,last_started_at=?,status='running',attempts=attempts+1,failure_count=?,pause_until=0,updated_at=? WHERE plugin_id=? AND task_name=? AND enabled=1 AND available_at<=?", [
+                $token, $lease_until, $lease_until, $now, $resuming ? 0 : (int)$task['failure_count'], $now, (string)$task['plugin_id'], (string)$task['task_name'], $now,
+            ])->rowCount();
+            if ($updated !== 1) return [];
+            if ((string)$task['status'] === 'running') {
+                q("UPDATE app_cron_logs SET status='failed',message='任务租约超时',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, (string)$task['plugin_id'], (string)$task['task_name']]);
+            }
+            $task['lease_token'] = $token;
+            $task['lease_until'] = $lease_until;
+            $task['last_started_at'] = $now;
+            if ($resuming) {
+                $task['failure_count'] = 0;
+                $task['pause_until'] = 0;
+            }
+            return $task;
+        });
+        if ($claimed === null) return null;
+        if ($claimed) return $claimed;
+    }
+    return null;
+}
+function cron_lease_touch(): void
+{
+    $lease = $GLOBALS['__cron_active_lease'] ?? null;
+    if (!is_array($lease)) return;
+    $now = time();
+    if ($now - (int)($GLOBALS['__cron_lease_touched_at'] ?? 0) < 60) return;
+    $until = $now + CRON_LEASE_SECONDS;
+    $updated = q("UPDATE app_cron_tasks SET lease_until=?,available_at=?,updated_at=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
+        $until, $until, $now, (string)$lease['plugin_id'], (string)$lease['task_name'], (string)$lease['lease_token'],
+    ])->rowCount();
+    if ($updated === 1) $GLOBALS['__cron_lease_touched_at'] = $now;
+}
+function cron_task_finish(array $task, string $status, string $error, int $finished_at): bool
+{
+    $interval = max(60, (int)$task['interval_seconds']);
+    $failure_count = (int)$task['failure_count'];
+    $pause_until = 0;
+    if ($status === 'success') {
+        $failure_count = 0;
+        $next_run_at = $finished_at + $interval;
+    } else {
+        $failure_count++;
+        $next_run_at = $finished_at + min(300, $interval);
+        if ($failure_count >= max(1, (int)$task['retry_limit'])) {
+            $pause_until = $finished_at + max(60, (int)$task['pause_seconds']);
+        }
+    }
+    $available_at = max($next_run_at, $pause_until);
+    return q("UPDATE app_cron_tasks SET next_run_at=?,available_at=?,lease_token='',lease_until=0,last_finished_at=?,last_success_at=?,status=?,failure_count=?,pause_until=?,last_error=?,updated_at=? WHERE plugin_id=? AND task_name=? AND lease_token=?", [
+        $next_run_at,
+        $available_at,
+        $finished_at,
+        $status === 'success' ? $finished_at : (int)$task['last_success_at'],
+        $status,
+        $failure_count,
+        $pause_until,
+        $status === 'failed' ? cut($error, 500) : '',
+        $finished_at,
+        (string)$task['plugin_id'],
+        (string)$task['task_name'],
+        (string)$task['lease_token'],
+    ])->rowCount() === 1;
 }
 function cron_run(): array
 {
-    if (!is_dir(CACHE_DIR) && !mkdir(CACHE_DIR, 0755, true) && !is_dir(CACHE_DIR)) throw new RuntimeException('无法创建缓存目录');
-    $lock = fopen(CRON_LOCK_FILE, 'c');
-    $result = ['locked' => false, 'due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
-    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
-        if (is_resource($lock)) fclose($lock);
-        $result['locked'] = true;
-        return $result;
-    }
-    $state = cron_state();
+    $result = ['due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
     try {
-        try {
-            cron_log_prune();
-        } catch (Throwable $e) {
-            debug_log_write('[cron] log prune failed', $e);
-        }
-        foreach (plugins_refresh_if_changed() as $plugin) {
-            if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
-            foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
-                $key = (string)$plugin['id'] . ':' . (string)$name;
-                $started = false;
-                $error = '';
-                $message = '';
-                $log_id = 0;
+        try { cron_log_prune(); } catch (Throwable $e) { debug_log_write('[cron] log prune failed', $e); }
+        $plugins = plugins();
+        while ($task = cron_task_claim(time())) {
+            $plugin_id = (string)$task['plugin_id'];
+            $task_name = (string)$task['task_name'];
+            $key = $plugin_id . ':' . $task_name;
+            $plugin = $plugins[$plugin_id] ?? null;
+            $status = 'failed';
+            $error = '';
+            $message = '';
+            $log_id = 0;
+            $result['due']++;
+            $GLOBALS['__cron_active_lease'] = $task;
+            $GLOBALS['__cron_lease_touched_at'] = (int)$task['last_started_at'];
+            try { $log_id = cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
+            catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
+            try {
+                if (!$plugin || !plugin_enabled($plugin)) throw new RuntimeException('插件未启用或不存在');
+                plugin_load($plugin);
+                $callback = (string)$task['callback'];
+                if (!function_exists($callback)) throw new RuntimeException('计划任务函数不存在');
+                $definition = (array)($plugin['cron'][$task_name] ?? []);
+                $definition['interval'] = (int)$task['interval_seconds'];
+                $value = $callback($plugin, $definition);
+                $message = is_scalar($value) ? trim((string)$value) : '';
+                $status = 'success';
+                if ($message !== '') debug_log_write('[cron] ' . $key . ': ' . $message);
+            } catch (Throwable $e) {
+                $error = trim($e->getMessage());
+                debug_log_write('[cron] ' . $key . ' failed', $e);
+            } finally {
+                $finished_at = time();
                 try {
-                    $interval = cron_task_interval($plugin, $task);
-                    $previous = is_array($state['tasks'][$key] ?? null) ? $state['tasks'][$key] : [];
-                    if ((int)($previous['last_started_at'] ?? 0) + $interval > time()) continue;
-                    $started = true;
-                    $result['due']++;
-                    $task['interval'] = $interval;
-                    $state['tasks'][$key] = array_merge($previous, [
-                        'plugin' => (string)$plugin['id'], 'task' => (string)$name, 'interval' => $interval,
-                        'last_started_at' => time(), 'last_finished_at' => 0, 'status' => 'running',
-                        'attempts' => (int)($previous['attempts'] ?? 0) + 1, 'last_error' => '',
-                    ]);
-                    cache_write_php(CRON_STATE_FILE, $state);
-                    try {
-                        $log_id = cron_log_start((string)$plugin['id'], (string)$name, (int)$state['tasks'][$key]['last_started_at']);
-                    } catch (Throwable $e) {
-                        debug_log_write('[cron] ' . $key . ' log failed', $e);
+                    if (!cron_task_finish($task, $status, $error, $finished_at)) {
+                        $status = 'failed';
+                        $error = '任务租约已失效，运行结果未写入';
                     }
-                    plugin_load($plugin);
-                    $callback = (string)$task['callback'];
-                    if (!function_exists($callback)) throw new RuntimeException('计划任务函数不存在');
-                    $message = $callback($plugin, $task);
-                    $status = 'success';
-                    $message = is_scalar($message) ? trim((string)$message) : '';
-                    if ($message !== '') debug_log_write('[cron] ' . $key . ': ' . $message);
                 } catch (Throwable $e) {
                     $status = 'failed';
-                    $error = trim($e->getMessage());
-                    $result['failed']++;
-                    $result['tasks'][$key] = 'failed';
-                    debug_log_write('[cron] ' . $key . ' failed', $e);
-                } finally {
-                    if ($started) {
-                        $state['tasks'][$key]['status'] = $status;
-                        $state['tasks'][$key]['last_finished_at'] = time();
-                        $state['tasks'][$key]['last_error'] = $status === 'failed' ? cut($error, 500) : '';
-                        if ($status === 'success') {
-                            $state['tasks'][$key]['last_success_at'] = time();
-                            $result['success']++;
-                            $result['tasks'][$key] = 'success';
-                        }
-                        cache_write_php(CRON_STATE_FILE, $state);
-                        try {
-                            cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, (int)$state['tasks'][$key]['last_finished_at']);
-                        } catch (Throwable $e) {
-                            debug_log_write('[cron] ' . $key . ' log failed', $e);
-                        }
-                    }
+                    $error = '任务状态写入失败：' . $e->getMessage();
+                    debug_log_write('[cron] ' . $key . ' state failed', $e);
                 }
+                $result[$status === 'success' ? 'success' : 'failed']++;
+                $result['tasks'][$key] = $status;
+                try { cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, $finished_at); }
+                catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
+                unset($GLOBALS['__cron_active_lease'], $GLOBALS['__cron_lease_touched_at']);
             }
         }
         return $result;
-    } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
-    }
+    } finally { unset($GLOBALS['__cron_active_lease'], $GLOBALS['__cron_lease_touched_at']); }
 }
 function cron_route(): void
 {
@@ -1239,10 +1363,6 @@ function cron_route(): void
     header('Content-Type: text/plain; charset=utf-8');
     header('Cache-Control: no-store');
     $result = cron_run();
-    if ($result['locked']) {
-        echo "cron locked\n";
-        return;
-    }
     echo 'cron finished: due ' . (int)$result['due'] . ', success ' . (int)$result['success'] . ', failed ' . (int)$result['failed'] . "\n";
     foreach ($result['tasks'] as $task => $status) echo $task . ': ' . $status . "\n";
 }
@@ -2022,46 +2142,32 @@ function form_shell(string $body, ?array $m = null): string
 {
     return shell_html($body, sidebar_stack_html([sidebar_user_card_html($m)]));
 }
-function home_stats_default(): array
-{
-    return [
-        'topics' => 0,
-        'replies' => 0,
-        'users' => 0,
-        'latest_users' => [],
-    ];
-}
 function stats_cache(): array
 {
     if (is_array($GLOBALS['__home_stats_cache'] ?? null)) return $GLOBALS['__home_stats_cache'];
-    if (!is_file(HOME_STATS_CACHE_FILE)) return $GLOBALS['__home_stats_cache'] = home_stats_default();
-    $cached = include HOME_STATS_CACHE_FILE;
-    if (!is_array($cached)) return $GLOBALS['__home_stats_cache'] = home_stats_default();
-    return $GLOBALS['__home_stats_cache'] = array_merge(home_stats_default(), $cached);
+    $settings = settings_cache();
+    return $GLOBALS['__home_stats_cache'] = [
+        'topics' => (int)($settings['stats_topics'] ?? 0),
+        'replies' => (int)($settings['stats_replies'] ?? 0),
+        'users' => (int)($settings['stats_users'] ?? 0),
+        'latest_users' => q("SELECT id,username,avatar_style,avatar_seed FROM app_users ORDER BY id DESC LIMIT 8")->fetchAll(),
+    ];
 }
-function home_stats_record_insert(string $type, int $id, array $user = []): array
+function home_stats_record_insert(string $type, int $id): void
 {
-    $stats = stats_cache();
-    if ($type === 'replies') {
-        $stats['replies'] = $id;
-    } elseif ($type === 'users') {
-        $stats['users'] = $id;
-        $user = ['id' => $id, 'username' => (string)($user['username'] ?? ''), 'avatar_style' => (string)($user['avatar_style'] ?? ''), 'avatar_seed' => (string)($user['avatar_seed'] ?? '')];
-        $latest_users = array_values(array_filter((array)$stats['latest_users'], fn($item): bool => (int)($item['id'] ?? 0) !== $id));
-        array_unshift($latest_users, $user);
-        $stats['latest_users'] = array_slice($latest_users, 0, 8);
-    } else {
-        throw new InvalidArgumentException('无效的首页统计类型。');
-    }
-    cache_write_php(HOME_STATS_CACHE_FILE, $stats);
-    return $GLOBALS['__home_stats_cache'] = $stats;
+    $key = ['replies' => 'stats_replies', 'users' => 'stats_users'][$type] ?? '';
+    if ($key === '') throw new InvalidArgumentException('无效的首页统计类型。');
+    save_settings_values([$key => (string)$id]);
+    unset($GLOBALS['__home_stats_cache']);
 }
-function home_stats_refresh_topics(): array
+function home_stats_refresh_topics(): void
 {
-    $stats = stats_cache();
-    $stats['topics'] = (int)val('SELECT COUNT(*) FROM app_topics');
-    cache_write_php(HOME_STATS_CACHE_FILE, $stats);
-    return $GLOBALS['__home_stats_cache'] = $stats;
+    save_settings_values(['stats_topics' => (string)(int)val('SELECT COUNT(*) FROM app_topics')]);
+    unset($GLOBALS['__home_stats_cache']);
+}
+function home_stats_refresh_replies(): void
+{
+    home_stats_record_insert('replies', (int)val('SELECT COALESCE(MAX(id),0) FROM app_replies'));
 }
 function now(): int
 {
@@ -3650,7 +3756,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         if (!$admin && !id()) rate_hit_bucket($ip, 'register');
         fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
     }
-    if (!$user_id && !$admin) home_stats_record_insert('users', (int)$new_user_id, ['username' => $username, 'avatar_style' => $avatar_style, 'avatar_seed' => $avatar_seed]);
+    if (!$user_id && !$admin) home_stats_record_insert('users', (int)$new_user_id);
 }
 function puppet_username_from_body(string $body): string
 {
@@ -4529,14 +4635,14 @@ function admin_plugins_page_html(): string
 {
     $plugins = plugins();
     uasort($plugins, function (array $a, array $b): int {
-        $a_time = is_file((string)($a['file'] ?? '')) ? (int)filemtime((string)$a['file']) : 0;
-        $b_time = is_file((string)($b['file'] ?? '')) ? (int)filemtime((string)$b['file']) : 0;
+        $a_time = (int)($a['updated_at'] ?? 0);
+        $b_time = (int)($b['updated_at'] ?? 0);
         return ($b_time <=> $a_time) ?: strcmp((string)($a['id'] ?? ''), (string)($b['id'] ?? ''));
     });
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '重建资源', ['plugin_action' => 'assets_rebuild']);
+    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '同步插件', ['plugin_action' => 'sync']) . post_action_form(admin_url(['tab' => 'plugins']), '重建资源', ['plugin_action' => 'assets_rebuild']);
     $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
@@ -4567,14 +4673,14 @@ function admin_plugins_page_html(): string
         if (!empty($plugin['routes'])) $features[] = count($plugin['routes']) . ' 个路由';
         if (!empty($plugin['admin_tabs'])) $features[] = count($plugin['admin_tabs']) . ' 个后台页';
         $file = str_replace(__DIR__ . '/', '', (string)($plugin['file'] ?? ''));
-        $disabled_reason = !$enabled ? trim(setting('plugin_' . $id . '_disabled_reason', '')) : '';
+        $disabled_reason = !$enabled ? trim((string)($plugin['disabled_reason'] ?? '')) : '';
         $reason_line = $disabled_reason !== '' ? '<div class="plugin-disabled-reason"><strong>自动停用原因</strong><span>' . h($disabled_reason) . '</span></div>' : '';
         $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
         $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
         $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
         $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '<span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div>' . $reason_line . '<div class="plugin-file">' . h($file) . '</div></div>' . $entry_line . '<div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
-    if (!$plugins) $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后重新打开本页即可显示。</li>';
+    if (!$plugins) $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
     return $html . '</ul></div>';
 }
 function admin_plugins_tabs_html(string $active): string
@@ -4588,17 +4694,17 @@ function admin_plugins_tabs_html(string $active): string
 function admin_plugins_cron_logs_page_html(): string
 {
     $size = 50;
-    $total = (int)val("SELECT COUNT(*) FROM app_cron_logs");
-    $pages = max(1, (int)ceil($total / $size));
-    $page = min($pages, max(1, (int)($_GET['p'] ?? 1)));
+    $page = max(1, (int)($_GET['p'] ?? 1));
     $offset = ($page - 1) * $size;
     $names = [];
     foreach (plugins() as $plugin) {
         if (is_array($plugin)) $names[(string)$plugin['id']] = (string)($plugin['name'] ?? $plugin['id']);
     }
-    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT $size OFFSET $offset")->fetchAll();
+    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT " . ($size + 1) . " OFFSET $offset")->fetchAll();
+    $has_next = count($rows) > $size;
+    if ($has_next) array_pop($rows);
     $labels = ['success' => '成功', 'failed' => '失败', 'running' => '运行中'];
-    $html = admin_plugins_tabs_html('cron') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head('<div class="admin-plugin-summary"><strong>计划任务日志</strong><span>共 ' . $total . ' 条</span></div>', '') . '<ul class="admin-manage-list">';
+    $html = admin_plugins_tabs_html('cron') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head('<div class="admin-plugin-summary"><strong>计划任务日志</strong><span>最新运行记录</span></div>', '') . '<ul class="admin-manage-list">';
     foreach ($rows as $row) {
         $status = (string)$row['status'];
         $class = $status === 'success' ? ' on' : ($status === 'failed' ? ' danger' : '');
@@ -4612,7 +4718,7 @@ function admin_plugins_cron_logs_page_html(): string
     }
     if (!$rows) $html .= '<li class="empty-state">暂无计划任务运行记录</li>';
     $html .= '</ul></div>';
-    $pagination = paginate($total, $page, $size, admin_url(['tab' => 'plugins', 'view' => 'cron']));
+    $pagination = simple_paginate($page > 1, $has_next, $page, admin_url(['tab' => 'plugins', 'view' => 'cron']));
     return $html . ($pagination === '' ? '' : '<div class="pagination-bar">' . $pagination . '</div>');
 }
 function plugin_market_search_form(string $query): string
@@ -4716,6 +4822,9 @@ function admin_page(): void
             $opcache_count = plugin_opcache_refresh();
             plugin_assets_rebuild();
             set_flash('插件资源已重建' . ($opcache_count > 0 ? '，OPcache 已刷新 ' . $opcache_count . ' 个文件' : ''));
+        } elseif ($plugin_action === 'sync') {
+            save_settings_values(['plugin_sync_pending' => '1']);
+            set_flash('插件目录将在下一个请求同步');
         } elseif ($plugin_action === 'enable') {
             plugin_set_enabled($plugin_id, true);
             set_flash('插件已启用');
@@ -5026,9 +5135,13 @@ if ($setup_action === 'update') {
     setup_update_run();
 }
 if (!db_schema_ready()) simple_error_page('欢迎使用，请先进行数据初始化安装', index_url(['a' => 'install']));
+if (setting('plugin_sync_pending', '0') === '1') {
+    plugin_registry_sync();
+    plugin_assets_rebuild();
+    save_settings_values(['plugin_sync_pending' => '0']);
+}
 check();
 need_site_access();
-if ((string)($_GET['a'] ?? '') === 'admin' && (string)($_GET['tab'] ?? 'settings') === 'plugins' && can_access_admin()) plugins_refresh_if_changed();
 fire('app.boot');
 try {
     if (($_GET['__route_not_found'] ?? '') === '1') {

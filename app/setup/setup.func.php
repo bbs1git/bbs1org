@@ -53,6 +53,8 @@ function app_db_schema(string $driver): array
         'app_password_resets' => "CREATE TABLE app_password_resets(id $id,user_id $uint NOT NULL,token_hash $key NOT NULL UNIQUE,expires_at $uint NOT NULL,used_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_ip_logs' => "CREATE TABLE app_ip_logs(ip " . ($driver === 'mysql' ? 'VARCHAR(64)' : 'TEXT') . " PRIMARY KEY,register_count $uint NOT NULL DEFAULT 0,register_at $uint NOT NULL DEFAULT 0,login_fail_count $uint NOT NULL DEFAULT 0,login_fail_at $uint NOT NULL DEFAULT 0,reset_fail_count $uint NOT NULL DEFAULT 0,reset_fail_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL,updated_at $uint NOT NULL)",
         'app_cron_logs' => "CREATE TABLE app_cron_logs(id $id,plugin_id $short NOT NULL,task_name $short NOT NULL,status $short NOT NULL,message $long NOT NULL,started_at $uint NOT NULL,finished_at $uint NOT NULL DEFAULT 0)",
+        'app_plugins' => "CREATE TABLE app_plugins(id $key PRIMARY KEY,name $short NOT NULL,version $short NOT NULL DEFAULT '',file $short NOT NULL,code_hash $short NOT NULL,manifest_json $long NOT NULL,config_json $long NOT NULL,entries_json $long NOT NULL,enabled $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',disabled_reason $long NOT NULL,installed_at $uint NOT NULL,updated_at $uint NOT NULL)",
+        'app_cron_tasks' => "CREATE TABLE app_cron_tasks(plugin_id $key NOT NULL,task_name $key NOT NULL,callback $short NOT NULL,interval_seconds $uint NOT NULL,enabled $uint NOT NULL DEFAULT 1,next_run_at $uint NOT NULL DEFAULT 0,available_at $uint NOT NULL DEFAULT 0,lease_token $short NOT NULL DEFAULT '',lease_until $uint NOT NULL DEFAULT 0,last_started_at $uint NOT NULL DEFAULT 0,last_finished_at $uint NOT NULL DEFAULT 0,last_success_at $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',attempts $uint NOT NULL DEFAULT 0,failure_count $uint NOT NULL DEFAULT 0,retry_limit $uint NOT NULL DEFAULT 3,pause_seconds $uint NOT NULL DEFAULT 1800,pause_until $uint NOT NULL DEFAULT 0,last_error $long NOT NULL,updated_at $uint NOT NULL DEFAULT 0,PRIMARY KEY(plugin_id,task_name))",
         'app_settings' => "CREATE TABLE app_settings(name $key PRIMARY KEY,value $long NOT NULL)",
     ];
     if ($driver === 'mysql') {
@@ -68,7 +70,8 @@ function app_db_schema(string $driver): array
         'idx_notifications_recipient_time' => 'app_notifications(recipient_id,created_at DESC,id DESC)',
         'idx_password_resets_user' => 'app_password_resets(user_id,created_at DESC)', 'idx_ip_logs_updated' => 'app_ip_logs(updated_at DESC)',
         'idx_cron_logs_plugin_time' => 'app_cron_logs(plugin_id,started_at DESC,id DESC)',
-        'idx_cron_logs_started' => 'app_cron_logs(started_at)',
+        'idx_cron_logs_time' => 'app_cron_logs(started_at DESC,id DESC)',
+        'idx_cron_tasks_due' => 'app_cron_tasks(enabled,available_at,plugin_id,task_name)',
         'idx_topics_created' => 'app_topics(created_at DESC,id DESC)', 'idx_topics_last_reply' => 'app_topics(last_reply_at DESC,id DESC)',
         'idx_topics_user_created' => 'app_topics(user_id,created_at DESC,id DESC)', 'idx_topics_forum_created' => 'app_topics(forum_id,created_at DESC,id DESC)',
         'idx_topics_forum_last_reply' => 'app_topics(forum_id,last_reply_at DESC,id DESC)',
@@ -233,8 +236,9 @@ function setup_install_run(): never
     $db->prepare("INSERT INTO app_users(username,password,email,bio,avatar_style,avatar_seed,group_id,last_post_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, $welcome_ts, $welcome_ts]);
     forums_cache(true);
     groups_cache(true);
-    home_stats_record_insert('users', 1, ['username' => $admin_username]);
-    settings_cache(true);
+    home_stats_record_insert('users', 1);
+    plugin_registry_sync();
+    plugin_assets_rebuild();
     file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX);
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
     i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
@@ -757,7 +761,7 @@ function us_sync_schema(): array
             $db->exec('INSERT INTO app_replies_fts(rowid,body) SELECT id,body FROM app_replies');
             $changes[] = '初始化回帖搜索索引';
         }
-        foreach (['idx_attachments_hash'=>'app_attachments', 'idx_topics_user'=>'app_topics', 'idx_topics_user_updated'=>'app_topics', 'idx_topics_forum_updated'=>'app_topics', 'idx_users_created'=>'app_users', 'idx_replies_user'=>'app_replies', 'idx_replies_user_topic_time'=>'app_replies', 'idx_notifications_recipient_read'=>'app_notifications', 'idx_notifications_sender'=>'app_notifications'] as $index => $table) {
+        foreach (['idx_attachments_hash'=>'app_attachments', 'idx_topics_user'=>'app_topics', 'idx_topics_user_updated'=>'app_topics', 'idx_topics_forum_updated'=>'app_topics', 'idx_users_created'=>'app_users', 'idx_replies_user'=>'app_replies', 'idx_replies_user_topic_time'=>'app_replies', 'idx_notifications_recipient_read'=>'app_notifications', 'idx_notifications_sender'=>'app_notifications', 'idx_cron_logs_started'=>'app_cron_logs'] as $index => $table) {
             if (!app_db_index_exists($db, db_driver(), $index, $table)) continue;
             app_db_drop_index($index, $table);
             $changes[] = '删除索引：' . $index;
@@ -786,6 +790,9 @@ function us_sync_schema(): array
             }
         }
         if ($transactional) $db->commit();
+        $plugin_count = count(plugin_registry_sync());
+        plugin_assets_rebuild();
+        $changes[] = '同步插件注册表：' . $plugin_count . ' 个';
         return $changes;
     } catch (Throwable $e) {
         if ($transactional && $db->inTransaction()) $db->rollBack();
@@ -1155,6 +1162,8 @@ function migrate_core_table_map(): array
         'password_resets' => 'app_password_resets',
         'ip_logs' => 'app_ip_logs',
         'settings' => 'app_settings',
+        'plugins' => 'app_plugins',
+        'cron_tasks' => 'app_cron_tasks',
         'topics_fts' => 'app_topics_fts',
         'replies_fts' => 'app_replies_fts',
     ];
@@ -1276,10 +1285,10 @@ function migrate_run(PDO $source, array $source_config): array
 
 function migrate_refresh_caches(): void
 {
-    settings_cache(true);
+    unset($GLOBALS['__settings_cache'], $GLOBALS['__home_stats_cache']);
     forums_cache(true);
     groups_cache(true);
-    plugin_assets_mark_dirty();
+    save_settings_values(['plugin_sync_pending' => '1']);
 }
 
 function migrate_page(): void
