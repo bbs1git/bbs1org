@@ -4,6 +4,20 @@ declare(strict_types=1);
 
 if (!defined('APP_ROOT')) exit;
 
+define('INSTALL_DATA_DIR', DATA_DIR);
+define('INSTALL_DB_CONFIG_FILE', DB_CONFIG_FILE);
+define('INSTALL_DEFAULT_DB_FILE', DATA_DIR . '/forum.sqlite');
+define('UPDATE_DATA_DIR', DATA_DIR);
+define('UPDATE_DB_CONFIG_FILE', DB_CONFIG_FILE);
+define('UPDATE_INSTALL_LOCK_FILE', INSTALL_LOCK_FILE);
+define('UPDATE_RUN_LOCK_FILE', DATA_DIR . '/update.lock');
+define('UPDATE_REPOSITORY', 'bbs1org/bbs1org');
+define('UPDATE_BRANCH', 'main');
+define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
+define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
+define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
+define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/setup/setup.func.php']);
+
 function setup_html(string $title, string $body): never
 {
     $meta = '<meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8">';
