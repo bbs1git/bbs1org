@@ -129,7 +129,7 @@ function i_db_name(): string
 function i_save_db_config(array $config): void
 {
     if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
-    file_put_contents(INSTALL_DB_CONFIG_FILE, app_db_config_source($config), LOCK_EX);
+    if (file_put_contents(INSTALL_DB_CONFIG_FILE, app_db_config_source($config), LOCK_EX) === false) i_install_error('安装失败', '数据库配置文件写入失败。');
 }
 
 function i_require_writable_dirs(): void
@@ -169,6 +169,20 @@ function i_db(array $config): PDO
     } catch (Throwable $e) {
         i_install_error('数据库初始化失败', '数据库连接失败：' . $e->getMessage());
     }
+}
+function i_database_install_state(PDO $db, string $driver): string
+{
+    if (!app_db_table_exists($db, $driver, 'app_users') || $db->query('SELECT id FROM app_users ORDER BY id LIMIT 1')->fetchColumn() === false) return 'empty';
+    foreach (['app_settings', 'app_groups', 'app_forums', 'app_topics', 'app_replies'] as $table) if (!app_db_table_exists($db, $driver, $table)) return 'partial';
+    $site = $db->query("SELECT value FROM app_settings WHERE name='site_name' LIMIT 1")->fetchColumn();
+    return $site === false ? 'partial' : 'installed';
+}
+function i_restore_existing_install(array $config): never
+{
+    i_save_db_config($config);
+    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) i_install_error('安装失败', '安装锁文件写入失败。');
+    header('Location: index.php?a=login', true, 303);
+    exit;
 }
 function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $database): void
 {
@@ -224,6 +238,9 @@ function setup_install_run(): never
     if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $form_values);
     if (is_file(INSTALL_LOCK_FILE)) i_locked();
     $db = i_db($config);
+    $install_state = i_database_install_state($db, $driver);
+    if ($install_state === 'installed') i_restore_existing_install($config);
+    if ($install_state === 'partial') i_install_error('检测到已有数据', '数据库中已有用户数据，但安装记录不完整。请恢复原程序文件或使用空数据库安装。');
     i_save_db_config($config);
     [$tables, $indexes] = app_db_schema($driver);
     foreach ($tables as $table => $sql) if (!app_db_table_exists($db, $driver, $table)) $db->exec($sql);
@@ -253,7 +270,7 @@ function setup_install_run(): never
     home_stats_record_insert('users', 1);
     plugin_registry_sync();
     plugin_assets_rebuild();
-    file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX);
+    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) i_install_error('安装失败', '安装锁文件写入失败。');
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
     i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
 }
