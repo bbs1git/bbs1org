@@ -277,10 +277,6 @@ function sql_query_count(bool $increment = false): int
     if ($increment) $count++;
     return $count;
 }
-function sql_debug_mode_enabled(): bool
-{
-    return SQL_DEBUG_MODE;
-}
 function db_row_cache_clear(): void
 {
     $GLOBALS['__db_row_cache'] = [];
@@ -303,7 +299,7 @@ function q(string $sql, array $p = []): PDOStatement
     sql_query_count(true);
     $s = db()->prepare($sql);
     $s->execute($p);
-    if (sql_debug_mode_enabled()) $GLOBALS['__sql_queries'][] = [$sql, $p];
+    if (SQL_DEBUG_MODE) $GLOBALS['__sql_queries'][] = [$sql, $p];
     return $s;
 }
 function one(string $sql, array $p = []): ?array
@@ -1363,21 +1359,9 @@ function ip_addr(): string
     }
     return '0.0.0.0';
 }
-function rate_setting(string $key, string $default): int
-{
-    return max(1, (int)setting($key, $default));
-}
-function rate_log_row(string $ip): array
-{
-    $row = one("SELECT * FROM app_ip_logs WHERE ip=?", [$ip]);
-    if ($row) return $row;
-    $ts = time();
-    q("INSERT INTO app_ip_logs(ip,created_at,updated_at) VALUES(?,?,?)", [$ip, $ts, $ts]);
-    return one("SELECT * FROM app_ip_logs WHERE ip=?", [$ip]) ?: ['ip' => $ip];
-}
 function rate_bucket_config(string $bucket): array
 {
-    $configs = [
+    static $configs = [
         'register' => ['count' => 'register_count', 'time' => 'register_at', 'setting' => 'register_per_hour', 'default' => '1', 'window' => 3600],
         'login_fail' => ['count' => 'login_fail_count', 'time' => 'login_fail_at', 'setting' => 'login_fail_per_hour', 'default' => '5', 'window' => 3600],
         'reset_fail' => ['count' => 'reset_fail_count', 'time' => 'reset_fail_at', 'setting' => 'reset_fail_per_hour', 'default' => '5', 'window' => 3600],
@@ -1385,30 +1369,29 @@ function rate_bucket_config(string $bucket): array
     if (!isset($configs[$bucket])) err('参数错误');
     return $configs[$bucket];
 }
-function rate_reset_bucket(array $row, array $bucket): array
-{
-    $now = time();
-    $time_field = (string)$bucket['time'];
-    if ((int)($row[$time_field] ?? 0) < $now - (int)$bucket['window']) {
-        $row[(string)$bucket['count']] = 0;
-    }
-    return $row;
-}
 function rate_allow_bucket(string $ip, string $bucket): bool
 {
     $config = rate_bucket_config($bucket);
-    $row = rate_reset_bucket(rate_log_row($ip), $config);
-    return (int)($row[(string)$config['count']] ?? 0) < rate_setting((string)$config['setting'], (string)$config['default']);
+    $count = (string)$config['count'];
+    $time = (string)$config['time'];
+    $row = one("SELECT $count count_value,$time time_value FROM app_ip_logs WHERE ip=?", [$ip]);
+    $hits = $row && (int)$row['time_value'] >= time() - (int)$config['window'] ? (int)$row['count_value'] : 0;
+    return $hits < max(1, (int)setting((string)$config['setting'], (string)$config['default']));
 }
 function rate_hit_bucket(string $ip, string $bucket): void
 {
     $config = rate_bucket_config($bucket);
-    $row = rate_reset_bucket(rate_log_row($ip), $config);
     $count_field = (string)$config['count'];
     $time_field = (string)$config['time'];
-    $count = (int)($row[$count_field] ?? 0) + 1;
     $ts = time();
-    q("UPDATE app_ip_logs SET {$count_field}=?,{$time_field}=?,updated_at=? WHERE ip=?", [$count, $ts, $ts, $ip]);
+    $expired = $ts - (int)$config['window'];
+    $sql = "INSERT INTO app_ip_logs(ip,$count_field,$time_field,created_at,updated_at) VALUES(?,1,?,?,?)";
+    if (db_driver() === 'mysql') {
+        $sql .= " AS new ON DUPLICATE KEY UPDATE $count_field=IF($time_field<?,1,$count_field+1),$time_field=new.$time_field,updated_at=new.updated_at";
+    } else {
+        $sql .= " ON CONFLICT(ip) DO UPDATE SET $count_field=CASE WHEN $time_field<? THEN 1 ELSE app_ip_logs.$count_field+1 END,$time_field=excluded.$time_field,updated_at=excluded.updated_at";
+    }
+    q($sql, [$ip, $ts, $ts, $ts, $expired]);
 }
 function post_interval_seconds(): int
 {
@@ -1672,10 +1655,6 @@ function notification_row_html(array $n): string
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
     $sender_title = $sender_id > 0 ? '<a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a>' : '<span class="post-title">' . h($sender_name) . '</span>';
     return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
-}
-function admin_user_form_data(int $id): array
-{
-    return $id ? (user_by_id($id) ?: err('用户不存在')) : ['id' => 0, 'username' => '', 'email' => '', 'bio' => '', 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => (int)setting('default_group_id', '2'), 'points' => 0];
 }
 function admin_search_like(string $q): string
 {
@@ -1980,10 +1959,6 @@ function sidebar_feature_links_html(array $ctx = []): string
     }
     return $count > 0 ? $html . '</ul></div></div>' : '';
 }
-function mobile_menu_link_html(string $url, string $text): string
-{
-    return '<a class="mobile-menu-link" href="' . h($url) . '">' . h($text) . '</a>';
-}
 function mobile_menu_section_html(string $title, array $links): string
 {
     $html = '<section class="mobile-menu-section"><h3>' . h($title) . '</h3><nav class="mobile-menu-links">';
@@ -1991,7 +1966,7 @@ function mobile_menu_section_html(string $title, array $links): string
         $url = (string)($link['url'] ?? '');
         $text = trim((string)($link['text'] ?? ''));
         if ($url === '' || $text === '') continue;
-        $html .= mobile_menu_link_html($url, $text);
+        $html .= '<a class="mobile-menu-link" href="' . h($url) . '">' . h($text) . '</a>';
     }
     return $html . '</nav></section>';
 }
@@ -2687,10 +2662,6 @@ function attachment_max_mb(): int
 {
     return max(0, (int)setting('attachment_max_mb', '20'));
 }
-function attachment_max_bytes(): int
-{
-    return attachment_max_mb() * 1024 * 1024;
-}
 function attachment_quota_bytes(?array $user = null): int
 {
     $user = $user ?: me();
@@ -2770,7 +2741,8 @@ function attachment_summary_html(int $total, int $used_bytes, int $quota_bytes):
 }
 function upload_attachment_markdown(array $file): string
 {
-    if (attachment_max_count() <= 0 || attachment_max_mb() <= 0) err('附件上传已关闭');
+    $max_mb = attachment_max_mb();
+    if (attachment_max_count() <= 0 || $max_mb <= 0) err('附件上传已关闭');
     $user_id = uid();
     if ($user_id <= 0) err('请先登录');
     $allowed = hook('attachment.before_upload', true, ['user_id' => $user_id]);
@@ -2781,7 +2753,7 @@ function upload_attachment_markdown(array $file): string
     require_writable_dir(UPLOAD_DIR, '附件目录不可写，请检查 app/upload/ 目录权限');
     $size = (int)($file['size'] ?? 0);
     if ($size <= 0) err('附件不能为空');
-    if ($size > attachment_max_bytes()) err('单个附件不能超过' . attachment_max_mb() . 'MB');
+    if ($size > $max_mb * 1024 * 1024) err('单个附件不能超过' . $max_mb . 'MB');
     $original = trim(preg_replace('/[\r\n]+/', ' ', basename((string)($file['name'] ?? ''))) ?? '');
     $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
     if ($ext === '' || !upload_allowed_ext($ext)) err('附件格式不允许');
@@ -3163,10 +3135,6 @@ function favorite_topic_states(array $topic_ids): array
     foreach ($topic_ids as $topic_id) $states[$topic_id] = !empty($items[$topic_id]['favorite']);
     return $states;
 }
-function favorite_topics_cookie_name(): string
-{
-    return FAVORITE_COOKIE_NAME;
-}
 function favorite_topics_cookie_clear(): void
 {
     setcookie(FAVORITE_COOKIE_NAME, '', ['expires' => time() - 3600, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
@@ -3174,7 +3142,7 @@ function favorite_topics_cookie_clear(): void
 }
 function favorite_topics_cookie(): array|false|null
 {
-    $raw = $_COOKIE[favorite_topics_cookie_name()] ?? null;
+    $raw = $_COOKIE[FAVORITE_COOKIE_NAME] ?? null;
     if (!is_string($raw)) return null;
     if ($raw === '-1') return false;
     if ($raw === '0') return [];
@@ -3190,9 +3158,8 @@ function favorite_topics_cookie_write(array|false $ids): void
         sort($ids, SORT_NUMERIC);
         $value = $ids ? implode('.', $ids) : '0';
     }
-    $name = favorite_topics_cookie_name();
-    setcookie($name, $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
-    $_COOKIE[$name] = $value;
+    setcookie(FAVORITE_COOKIE_NAME, $value, ['expires' => time() + COOKIE_TTL, 'path' => '/', 'secure' => auth_cookie_secure(), 'httponly' => true, 'samesite' => 'Lax']);
+    $_COOKIE[FAVORITE_COOKIE_NAME] = $value;
 }
 function favorite_topics_cookie_load(): array|false
 {
@@ -3235,18 +3202,12 @@ function reply_fts_create(): void
 {
     if (db_driver() === 'sqlite') q("CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')");
 }
-function search_char_len(string $query): int
-{
-    preg_match_all('/./us', trim($query), $m);
-    return count($m[0] ?? []);
-}
-function search_min_chars_message(): string
-{
-    return '请至少输入' . SEARCH_MIN_CHARS . '个字符再搜索';
-}
 function require_search_min_chars(string $query): void
 {
-    if (trim($query) !== '' && search_char_len($query) < SEARCH_MIN_CHARS) err(search_min_chars_message());
+    $query = trim($query);
+    if ($query === '') return;
+    preg_match_all('/./us', $query, $chars);
+    if (count($chars[0] ?? []) < SEARCH_MIN_CHARS) err('请至少输入' . SEARCH_MIN_CHARS . '个字符再搜索');
 }
 function topic_search_field(string $field): string
 {
@@ -3457,7 +3418,7 @@ function page_footer_html(array $settings, string $title, string $flash): string
 }
 function sql_debug_html(): string
 {
-    if (!sql_debug_mode_enabled() || uid() !== 1) return '';
+    if (!SQL_DEBUG_MODE || uid() !== 1) return '';
     $queries = (array)($GLOBALS['__sql_queries'] ?? []);
     $html = '';
     foreach ($queries as $i => [$sql, $params]) {
@@ -3801,17 +3762,11 @@ function absolute_url(string $url): string
     if (preg_match('/^https?:\/\//i', $url)) return $url;
     return rtrim(base_url(), '/') . '/' . ltrim($url, '/');
 }
-function seo_text(string $text, int $max = 160): string
-{
-    $text = strip_tags(markdown_html($text));
-    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
-    return cut($text, $max);
-}
 function page_seo(string $route, array $params = [], string $description = ''): array
 {
     $seo = ['canonical' => absolute_url(route_url($route, $params))];
-    $description = seo_text($description);
+    $description = html_entity_decode(strip_tags(markdown_html($description)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $description = cut(trim(preg_replace('/\s+/u', ' ', $description) ?? ''), 160);
     if ($description !== '') $seo['description'] = $description;
     return $seo;
 }
@@ -3828,10 +3783,6 @@ function send_mail_text(string $to, string $subject, string $body): bool
         'From: ' . $encoded_site . ' <' . $from . '>',
     ];
     return mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $body, implode("\r\n", $headers));
-}
-function mail_virtual_enabled(): bool
-{
-    return setting('mail_virtual', '0') === '1';
 }
 function virtual_mail_page(string $title, string $to, string $subject, string $body): void
 {
@@ -3871,7 +3822,7 @@ function forgot_password_page(): void
         $link = base_url() . route_url('reset_password', ['token' => $token]);
         $subject = '重置密码 - ' . (trim(setting('site_name')) ?: 'FORUM');
         $body = "你好，" . $u['username'] . "\n\n请打开以下链接重置密码：\n" . $link . "\n\n链接有效期为 1 小时。如果不是你本人操作，请忽略本邮件。";
-        if (mail_virtual_enabled()) {
+        if (setting('mail_virtual', '0') === '1') {
             virtual_mail_page('重置密码', (string)$u['email'], $subject, $body);
             return;
         }
@@ -4330,7 +4281,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
                 foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
                 $ordered = [];
                 foreach ($pinned_ids as $pid) if (isset($by_id[$pid])) $ordered[] = $by_id[$pid];
-                $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !in_array((int)$r['id'], $pinned_ids, true))));
+                $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !isset($by_id[(int)$r['id']]))));
             }
             $rows = attach_topic_list_users($rows);
             $rows = topic_list_rows($rows);
@@ -4907,9 +4858,10 @@ function admin_page(): void
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (forums_cache() as $f) {
             $perm = [];
-            $perm[] = '浏览:' . (forum_group_ids($f, 'allow_view_groups') ? count(forum_group_ids($f, 'allow_view_groups')) . '组' : '不限');
-            $perm[] = '发帖:' . (forum_group_ids($f, 'allow_post_groups') ? count(forum_group_ids($f, 'allow_post_groups')) . '组' : '不限');
-            $perm[] = '回帖:' . (forum_group_ids($f, 'allow_reply_groups') ? count(forum_group_ids($f, 'allow_reply_groups')) . '组' : '不限');
+            foreach (['allow_view_groups' => '浏览', 'allow_post_groups' => '发帖', 'allow_reply_groups' => '回帖'] as $field => $label) {
+                $count = count(forum_group_ids($f, $field));
+                $perm[] = $label . ':' . ($count ? $count . '组' : '不限');
+            }
             $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
         }
         $html .= '</table>';
@@ -4963,7 +4915,7 @@ function admin_edit_page(): void
         go(admin_url(['tab' => $type === 'user' ? 'users' : $type . 's']));
     }
     if ($type === 'user') {
-        $u = admin_user_form_data(id());
+        $u = id() ? (user_by_id(id()) ?: err('用户不存在')) : ['id' => 0, 'username' => '', 'email' => '', 'bio' => '', 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => (int)setting('default_group_id', '2'), 'points' => 0];
         $tab = 'users';
         $is_new = id() === 0;
         $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . number_input('积分', 'points', (int)($u['points'] ?? 0)) . checkbox('禁止访问', 'is_banned', (bool)(int)($u['is_banned'] ?? 0)) . checkbox('禁止发言', 'is_muted', (bool)(int)($u['is_muted'] ?? 0)) . textarea('简介', 'bio', $u['bio']);
@@ -5049,22 +5001,22 @@ function admin_route(): void
     }
     $tab = $_POST['tab'] ?? ''; $action = (string)($_POST['batch_action'] ?? 'delete');
     if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
-    $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
+    $ids = array_values(array_unique(array_filter(array_map('intval', $_POST['ids'] ?? []))));
     if ($tab === 'trash' && $action === 'restore') {
         $topics_changed = false;
         foreach ($ids as $trash_id) if (trash_restore_row($trash_id) === 'topics') $topics_changed = true;
         if ($topics_changed) home_stats_refresh_topics();
     } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
         $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted'; $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
-        foreach ($ids as $uid) if ($uid !== 1 && $uid !== uid()) q("UPDATE app_users SET $field=? WHERE id=?", [$value, $uid]);
+        $ids = array_values(array_diff($ids, [1, uid()]));
+        if ($ids) q("UPDATE app_users SET $field=? WHERE id IN (" . sql_marks(count($ids)) . ')', array_merge([$value], $ids));
     } elseif ($tab === 'topics' && $action === 'move') {
         $forum_id = max(1, (int)($_POST['forum_id'] ?? 0)); if (!forum_by_id($forum_id)) err('版块不存在');
-        foreach ($ids as $tid) {
-            $row = row('app_topics', 'id', $tid);
-            if (!$row) continue;
-            q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id=?", [$forum_id, now(), $tid]);
-            refresh_forum_last_topic((int)$row['forum_id']);
-            refresh_forum_last_topic($forum_id);
+        if ($ids) {
+            $marks = sql_marks(count($ids));
+            $forum_ids = array_map('intval', array_column(q("SELECT DISTINCT forum_id FROM app_topics WHERE id IN ($marks)", $ids)->fetchAll(), 'forum_id'));
+            q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id IN ($marks)", array_merge([$forum_id, now()], $ids));
+            foreach (array_unique(array_merge($forum_ids, [$forum_id])) as $fid) refresh_forum_last_topic($fid);
         }
         forums_cache(true);
     } elseif ($action === 'delete') {
