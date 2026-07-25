@@ -34,7 +34,14 @@ cp .env.example .env
 docker compose up -d
 ```
 
-启动前编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。访问 `http://服务器地址/index.php?a=install` 完成安装。完整配置、更新、备份和维护说明见 [bbs1org_docker](https://github.com/bbs1org/bbs1org_docker)。
+启动前编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。访问 `http://服务器地址/index.php?a=install` 完成安装。Compose 会自动启动 `cron` 容器，每分钟以 CLI 方式执行 `php index.php cron`；无需配置宿主机 crontab 或第三方 URL 定时服务。查看计划任务日志：
+
+```bash
+cd /opt/docker
+docker compose logs -f cron
+```
+
+完整配置、更新、备份和维护说明见 [bbs1org_docker](https://github.com/bbs1org/bbs1org_docker)。
 
 ## 手动部署
 
@@ -48,6 +55,22 @@ chown -R www-data:www-data .
 2. 配置不存在文件回退到 `/index.php?$query_string`，禁止公网访问 `app/data/`、`app/cache/`、`app/plugins/`、点文件及 `app/upload/` 中的脚本文件；Nginx 可参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)，并将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
 3. 确保项目根目录和 `app/` 可写
 4. MySQL/PostgreSQL 需提前创建空数据库；然后访问 `http://服务器地址/index.php?a=install`，选择已安装 PDO 驱动对应的数据库并完成安装
+
+完成安装后，为运行 PHP 的系统用户配置每分钟一次的 CLI 计划任务：
+
+```cron
+* * * * * cd /var/www/bbs1org && /usr/bin/php index.php cron >> app/data/cron.log 2>&1
+```
+
+可通过 `crontab -e` 添加；`/usr/bin/php` 请按服务器上的 `command -v php` 结果调整。计划任务会按各插件管理页设置的间隔执行，日志写入 `app/data/cron.log`。
+
+若主机不支持 CLI 计划任务，可使用云监控、cron-job.org 等定时 URL 服务每分钟访问：
+
+```text
+https://你的域名/index.php?a=cron
+```
+
+URL 模式与 CLI 使用同一套调度和互斥锁；任务执行时间较长时，优先使用 CLI，或将定时服务的请求超时时间设为足够长。
 
 ## 升级
 
@@ -141,6 +164,41 @@ return [
 - 资源不得依赖当前用户、当前页面、CSRF 或每次请求才确定的数据。动态值应输出到插件 HTML 的 `data-*` 属性，再由合并后的 JavaScript 读取。
 
 启用、停用、卸载、市场安装或更新插件后，系统会自动重新生成资源。后台也提供“重建资源”按钮用于手动强制生成。
+
+### 插件计划任务
+
+服务器定期访问 `index.php?a=cron`，或直接执行 `php index.php cron`，即可统一执行所有已启用插件中到期的计划任务。建议每分钟调用一次；每项任务仍只会按照插件声明的间隔执行。系统使用全局互斥锁防止多个 cron 请求并发，并在 `app/cache/cron.php` 保存任务状态。
+
+插件通过 manifest 的 `cron` 注册一个或多个任务，任务名在插件内唯一，最短间隔为 60 秒：
+
+```php
+function hello_collect(array $plugin, array $task): string
+{
+    // 执行可重复运行的任务，并自行对业务写入加锁、去重。
+    return 'done';
+}
+
+function hello_cron_interval(): int
+{
+    $config = plugin_config('hello', ['cron_interval_minutes' => 60]);
+    return max(1, (int)$config['cron_interval_minutes']) * 60;
+}
+
+return [
+    // ...
+    'cron' => [
+        'collect' => [
+            'callback' => 'hello_collect',
+            'interval' => 'hello_cron_interval',
+        ],
+    ],
+];
+```
+
+- `callback` 必须是插件中已定义的函数名；回调可不声明参数，也可接收插件 manifest 和当前任务配置。
+- `interval` 可以直接填写 60 至 31536000 的秒数，也可以填写返回秒数的插件函数名；使用函数即可让间隔由插件管理页配置。
+- 只有启用的插件会进入调度。任务在开始执行时即记录本次时间，失败任务要等到下一个间隔才会重试。
+- 回调应保证可重复执行，并为采集、队列处理等耗时写入使用插件自己的互斥锁和唯一来源键。
 
 ### 插件数据库
 

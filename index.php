@@ -4,7 +4,7 @@ declare(strict_types=1);
 define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v6.2');
+define('APP_VERSION', 'v6.3');
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
@@ -25,6 +25,8 @@ define('PLUGIN_ASSET_DIRTY_FILE', CACHE_DIR . '/plugin-assets.dirty');
 define('PLUGIN_ASSET_LOCK_FILE', CACHE_DIR . '/plugin-assets.lock');
 define('PLUGIN_CSS_FILE', ASSET_DIR . '/plugins.css');
 define('PLUGIN_JS_FILE', ASSET_DIR . '/plugins.js');
+define('CRON_STATE_FILE', CACHE_DIR . '/cron.php');
+define('CRON_LOCK_FILE', CACHE_DIR . '/cron.lock');
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('INSTALL_DATA_DIR', DATA_DIR);
@@ -602,6 +604,7 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
         'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
+        'cron' => is_array($plugin['cron'] ?? null) ? $plugin['cron'] : [],
         'install' => (string)($plugin['install'] ?? ''),
         'uninstall' => (string)($plugin['uninstall'] ?? ''),
         'file' => $file,
@@ -617,6 +620,22 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
         if (is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $assets[$type] = $fn;
     }
     $base['assets'] = $assets;
+    $cron = [];
+    foreach ($base['cron'] as $name => $task) {
+        if (!is_string($name) || preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $name) !== 1 || !is_array($task)) continue;
+        $callback = (string)($task['callback'] ?? '');
+        $interval = $task['interval'] ?? 0;
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $callback) !== 1) continue;
+        if (is_string($interval) && !is_numeric($interval)) {
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $interval) !== 1) continue;
+        } else {
+            $interval = (int)$interval;
+            if ($interval < 60) continue;
+            $interval = min(31536000, $interval);
+        }
+        $cron[$name] = ['callback' => $callback, 'interval' => $interval];
+    }
+    $base['cron'] = $cron;
     foreach (['install', 'uninstall'] as $key) if ($base[$key] !== '' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $base[$key]) !== 1) $base[$key] = '';
     return $base;
 }
@@ -1105,6 +1124,98 @@ function plugin_route(string $action): bool
         }
     }
     return false;
+}
+function cron_state(): array
+{
+    $state = is_file(CRON_STATE_FILE) ? include CRON_STATE_FILE : [];
+    return is_array($state) && is_array($state['tasks'] ?? null) ? $state : ['tasks' => []];
+}
+function cron_task_interval(array $plugin, array $task): int
+{
+    $interval = $task['interval'] ?? 0;
+    if (is_string($interval) && !is_numeric($interval)) {
+        plugin_load($plugin);
+        $interval = function_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
+    }
+    return min(31536000, max(60, (int)$interval));
+}
+function cron_run(): array
+{
+    if (!is_dir(CACHE_DIR) && !mkdir(CACHE_DIR, 0755, true) && !is_dir(CACHE_DIR)) throw new RuntimeException('无法创建缓存目录');
+    $lock = fopen(CRON_LOCK_FILE, 'c');
+    $result = ['locked' => false, 'due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        if (is_resource($lock)) fclose($lock);
+        $result['locked'] = true;
+        return $result;
+    }
+    $state = cron_state();
+    try {
+        foreach (plugins_refresh_if_changed() as $plugin) {
+            if (!is_array($plugin) || !plugin_enabled($plugin)) continue;
+            foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
+                $key = (string)$plugin['id'] . ':' . (string)$name;
+                $started = false;
+                $error = '';
+                try {
+                    $interval = cron_task_interval($plugin, $task);
+                    $previous = is_array($state['tasks'][$key] ?? null) ? $state['tasks'][$key] : [];
+                    if ((int)($previous['last_started_at'] ?? 0) + $interval > time()) continue;
+                    $started = true;
+                    $result['due']++;
+                    $task['interval'] = $interval;
+                    $state['tasks'][$key] = array_merge($previous, [
+                        'plugin' => (string)$plugin['id'], 'task' => (string)$name, 'interval' => $interval,
+                        'last_started_at' => time(), 'last_finished_at' => 0, 'status' => 'running',
+                        'attempts' => (int)($previous['attempts'] ?? 0) + 1, 'last_error' => '',
+                    ]);
+                    cache_write_php(CRON_STATE_FILE, $state);
+                    plugin_load($plugin);
+                    $callback = (string)$task['callback'];
+                    if (!function_exists($callback)) throw new RuntimeException('计划任务函数不存在');
+                    $message = $callback($plugin, $task);
+                    $status = 'success';
+                    if (is_scalar($message) && trim((string)$message) !== '') debug_log_write('[cron] ' . $key . ': ' . trim((string)$message));
+                } catch (Throwable $e) {
+                    $status = 'failed';
+                    $error = trim($e->getMessage());
+                    $result['failed']++;
+                    $result['tasks'][$key] = 'failed';
+                    debug_log_write('[cron] ' . $key . ' failed', $e);
+                } finally {
+                    if ($started) {
+                        $state['tasks'][$key]['status'] = $status;
+                        $state['tasks'][$key]['last_finished_at'] = time();
+                        $state['tasks'][$key]['last_error'] = $status === 'failed' ? cut($error, 500) : '';
+                        if ($status === 'success') {
+                            $state['tasks'][$key]['last_success_at'] = time();
+                            $result['success']++;
+                            $result['tasks'][$key] = 'success';
+                        }
+                        cache_write_php(CRON_STATE_FILE, $state);
+                    }
+                }
+            }
+        }
+        return $result;
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+function cron_route(): void
+{
+    set_time_limit(0);
+    ignore_user_abort(true);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-store');
+    $result = cron_run();
+    if ($result['locked']) {
+        echo "cron locked\n";
+        return;
+    }
+    echo 'cron finished: due ' . (int)$result['due'] . ', success ' . (int)$result['success'] . ', failed ' . (int)$result['failed'] . "\n";
+    foreach ($result['tasks'] as $task => $status) echo $task . ': ' . $status . "\n";
 }
 function pinned_topic_ids(): array
 {
@@ -2036,7 +2147,7 @@ function need_site_access(): void
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin()) {
-        $core_allowed = in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'robots.txt', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
+        $core_allowed = in_array($a, ['login', 'logout', 'forgot_password', 'reset_password', 'form_error', 'cron', 'robots.txt', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
         if (!$core_allowed && hook('site.closed_allow', false, ['action' => $a]) !== true) err('网站已关闭');
     }
 }
@@ -4837,10 +4948,14 @@ function core_routes(): array
         'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'forgot_password'=>'forgot_password_page', 'reset_password'=>'reset_password_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
         'topic_edit'=>'topic_edit_page', 'reply_edit'=>'reply_edit_page', 'delete'=>'delete_route',
         'attachment'=>'attachment_page', 'attachment_upload'=>'attachment_upload_page', 'avatar_mirror'=>'avatar_mirror_page',
-        'migrate'=>'migration_route', 'admin'=>'admin_route',
+        'migrate'=>'migration_route', 'admin'=>'admin_route', 'cron'=>'cron_route',
     ];
 }
 
+if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {
+    $_GET['a'] = 'cron';
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+}
 parse_path_route();
 $setup_action = (string)($_GET['a'] ?? '');
 if ($setup_action === 'install') {
