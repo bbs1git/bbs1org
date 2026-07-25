@@ -3762,11 +3762,15 @@ function absolute_url(string $url): string
     if (preg_match('/^https?:\/\//i', $url)) return $url;
     return rtrim(base_url(), '/') . '/' . ltrim($url, '/');
 }
+function seo_text(string $text, int $max = 160): string
+{
+    $text = html_entity_decode(strip_tags(markdown_html($text)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return cut(trim(preg_replace('/\s+/u', ' ', $text) ?? ''), $max);
+}
 function page_seo(string $route, array $params = [], string $description = ''): array
 {
     $seo = ['canonical' => absolute_url(route_url($route, $params))];
-    $description = html_entity_decode(strip_tags(markdown_html($description)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $description = cut(trim(preg_replace('/\s+/u', ' ', $description) ?? ''), 160);
+    $description = seo_text($description);
     if ($description !== '') $seo['description'] = $description;
     return $seo;
 }
