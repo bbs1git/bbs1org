@@ -1559,7 +1559,7 @@ function user_points_set(int $user_id, int $points, string $reason = '系统调�
     $old = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
     return user_points_change($user_id, $points - $old, $reason);
 }
-function create_reply_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
+function create_mention_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
 {
     $topic = row('app_topics', 'id', $topic_id);
     if (!$topic) return;
@@ -1575,6 +1575,14 @@ function create_reply_notifications(int $topic_id, int $reply_id, string $body, 
     foreach (array_keys($targets) as $uid) {
         create_notification((int)$uid, $sender_id, 'mention', '在主题《' . (string)$topic['title'] . '》中提到你：' . $excerpt, $topic_id, $reply_id);
     }
+}
+function create_topic_notifications(int $topic_id, string $body, int $sender_id): void
+{
+    create_mention_notifications($topic_id, 0, $body, $sender_id);
+}
+function create_reply_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
+{
+    create_mention_notifications($topic_id, $reply_id, $body, $sender_id);
 }
 function notifications_list(int $uid, int $limit, int $offset = 0): array
 {
@@ -3942,6 +3950,7 @@ function save_topic(): int
         $tid = app_db_last_insert_id('app_topics');
         topic_fts_sync($tid, $title, $body);
         q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
+        create_topic_notifications($tid, $body, (int)$author['user_id']);
         return $tid;
     });
     home_stats_refresh_topics();
