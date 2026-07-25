@@ -3649,8 +3649,8 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $GLOBALS['__last_saved_user_id'] = $new_user_id;
         if (!$admin && !id()) rate_hit_bucket($ip, 'register');
         fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
+        if (!$admin) home_stats_record_insert('users', $new_user_id);
     }
-    if (!$user_id && !$admin) home_stats_record_insert('users', (int)$new_user_id);
 }
 function puppet_username_from_body(string $body): string
 {
