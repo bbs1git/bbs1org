@@ -1,15 +1,15 @@
 # bbs1org
 
-一个极简 PHP 论坛。同时支持 SQLite、MySQL 和 PostgreSQL数据库。单页面仅3～4个查询，负载能力强。核心代码文件一个，仅200多KB；原生无依赖，适合所有社区站点和AI二次开发。
+一个极简 PHP 论坛。核心代码不足 300 KB，纯原生、无框架、无依赖；支持 SQLite、MySQL 和 PostgreSQL；适合社区站点、低成本部署和 AI 二次开发。
 
 ## 特点
 
-- 纯原生 PHP，单核心代码文件，仅200多KB，无依赖，核心逻辑集中，部署简单，适合AI二次开发
-- 支持 SQLite、MySQL 和 PostgreSQL数据库，单页面仅3～4个查询数，负载能力强
+- 纯原生 PHP，单核心代码文件，无框架和 Composer 依赖，部署与维护简单
+- 支持 SQLite、MySQL 和 PostgreSQL，数据库结构和搜索能力保持跨引擎兼容
 - 包含首页、版块、主题、回帖、收藏、个人主页和后台管理等完整论坛功能
 - 支持用户组、版块权限、站点设置、注册控制、发帖限制和附件管理
-- 插件机制支持 Hook、路由、前后台，在线安装更新，实现邀请、审核、签到、投票、皮肤等各种个性需求
-- 使用缓存减少版块、用户组、站点设置和统计信息的重复查询
+- 插件机制支持 Hook、路由、后台页面、资源合并、在线安装更新和统一计划任务
+- 站点设置、版块和用户组按需懒加载，数据库结构简单，负载能力强
 - 支持 AJAX 交互和响应式布局，兼顾 PC 与移动端使用体验
 
 ## 环境
@@ -31,16 +31,17 @@ git clone https://github.com/bbs1org/bbs1org.git bbs1org
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
 cd /opt/docker
 cp .env.example .env
-docker compose up -d
+nano .env
 ```
-
-启动前编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。访问 `http://服务器地址/index.php?a=install` 完成安装。Compose 会自动启动 `cron` 容器，每分钟以 CLI 方式执行 `php index.php cron`；无需配置宿主机 crontab 或第三方 URL 定时服务。查看计划任务日志：
+编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。
 
 ```bash
-cd /opt/docker
+docker compose up -d
 docker compose logs -f cron
 ```
 
+访问 `http://服务器地址/index.php?a=install` 完成安装。
+Compose 会自动启动 `cron` 容器，每分钟以 CLI 方式执行 `php index.php cron`；无需配置宿主机 crontab 或第三方 URL 定时服务。
 完整配置、更新、备份和维护说明见 [bbs1org_docker](https://github.com/bbs1org/bbs1org_docker)。
 
 ## 手动部署
@@ -62,23 +63,21 @@ chown -R www-data:www-data .
 * * * * * cd /var/www/bbs1org && /usr/bin/php index.php cron >> app/data/cron.log 2>&1
 ```
 
-可通过 `crontab -e` 添加；`/usr/bin/php` 请按服务器上的 `command -v php` 结果调整。计划任务会按各插件管理页设置的间隔执行，日志写入 `app/data/cron.log`。
-
+可通过 `crontab -e` 添加；`/usr/bin/php` 请按服务器上的 `command -v php` 结果调整。
 若主机不支持 CLI 计划任务，可使用云监控、cron-job.org 等定时 URL 服务每分钟访问：
 
 ```text
 https://你的域名/index.php?a=cron
 ```
 
-URL 模式与 CLI 使用同一套数据库调度和任务租约；任务执行时间较长时，优先使用 CLI，或将定时服务的请求超时时间设为足够长。
-
 ## 升级
 
-在后台设置底部升级入口点击“升级”，检测更新后，勾选文件后点击“在线升级”，由系统从 GitHub 下载代码并同步数据库结构。
+在后台设置底部点击“升级”，检测更新后选择文件并执行“在线升级”。升级前请先备份数据库、附件、头像和插件目录。
 
 ## 数据库迁移
 
 先在新数据库完成安装并登录管理员账号，再从升级页进入“数据迁入”，或访问 `index.php?a=migrate`。选择旧数据库类型并填写连接信息，程序会迁入旧库的全部普通数据表；当前库没有的表会自动复制字段、主键和索引后再导入数据，同名表则清空后替换，并保留原 ID。
+
 插件数据表会一并迁入。附件、头像和插件程序文件不在数据库中，需要另外复制 `app/upload/`、`app/avatars/` 和 `app/plugins/`。迁移前请备份新旧数据库。
 
 ## 文件目录权限
@@ -91,12 +90,13 @@ app/assets/                     静态资源
 app/avatars/                    头像镜像，需持久存储
 app/upload/                     附件，需持久存储
 ```
+
 ### 公网禁止访问
 
 ```text
 app/data/                       数据文件，需持久存储
 app/plugins/                    插件，需持久存储
-app/cache/                      缓存
+app/cache/                      插件及临时缓存
 app/setup/                      安装升级与数据迁入
 ```
 
@@ -106,7 +106,7 @@ app/setup/                      安装升级与数据迁入
 
 使用 AI 新建、修改或审查插件前，应先让 AI 完整读取项目根目录的 [`.ai-rules.md`](.ai-rules.md)。该文件将本节开发规范提炼为短句强约束，重点覆盖插件结构、跨数据库兼容、Schema、查询性能、Hook、资源、安全、外部采集和交付检查，用于减少 AI 在长文档中遗漏关键规则。入口位于项目根目录 `.ai-rules.md`，可在提示词中直接写“先读取并遵守 `.ai-rules.md`，再开发插件”。
 
-插件放在 `app/plugins/插件ID/plugin.php`，后台“插件”页会自动扫描。新插件默认停用，启用后才会执行。从插件市场更新或重新安装插件后，该插件会自动停用；再次启用时会执行新版插件的 `install`。插件 ID 建议使用小写字母、数字、下划线或短横线。
+插件放在 `app/plugins/插件ID/plugin.php`，然后在后台“插件”页点击“同步插件”。注册信息保存到 `app_plugins`，普通请求不扫描插件目录。新插件默认停用，启用后才会执行；从插件市场更新或重新安装后也会自动停用，再次启用时执行新版插件的 `install`。插件 ID 必须使用小写字母、数字、下划线或短横线。
 
 插件读写目录应使用 `DATA_DIR`、`CACHE_DIR`、`PLUGIN_DIR`、`UPLOAD_DIR` 等核心常量，附件公开地址使用 `upload_url()`，不要硬编码目录。
 
@@ -167,8 +167,6 @@ return [
 
 ### 插件计划任务
 
-服务器定期访问 `index.php?a=cron`，或直接执行 `php index.php cron`，即可统一执行所有已启用插件中到期的计划任务。建议每分钟调用一次；每项任务仍只会按照插件声明的间隔执行。插件注册信息保存在 `app_plugins`，任务状态保存在 `app_cron_tasks`；到期任务通过条件更新领取和租约避免并发重复执行，不依赖 PHP 文件缓存。
-
 插件通过 manifest 的 `cron` 注册一个或多个任务，任务名在插件内唯一，最短间隔为 60 秒：
 
 ```php
@@ -197,7 +195,7 @@ return [
 
 - `callback` 必须是插件中已定义的函数名；回调可不声明参数，也可接收插件 manifest 和当前任务配置。
 - `interval` 可以直接填写 60 至 31536000 的秒数，也可以填写返回秒数的插件函数名；使用函数即可让间隔由插件管理页配置。
-- 只有启用的插件会进入调度。任务在开始执行时即记录本次时间，失败任务要等到下一个间隔才会重试。
+- 只有启用的插件会进入调度。失败任务会短间隔重试；连续失败达到默认 3 次后暂停 30 分钟，暂停结束时自动清零失败次数并恢复调度。
 - 回调应保证可重复执行，并为采集、队列处理等耗时写入使用插件自己的互斥锁和唯一来源键。
 
 ### 插件数据库
@@ -209,7 +207,7 @@ return [
 function hello_schema(): void
 {
     $t = app_db_types();
-    app_db_create_table('plugin_hello_items', "id {$t['id']},item_key {$t['key']} NOT NULL UNIQUE,title {$t['string']} NOT NULL,body {$t['text']} NOT NULL,created_at INTEGER NOT NULL");
+    app_db_create_table('plugin_hello_items', "id {$t['id']},item_key {$t['key']} NOT NULL UNIQUE,title {$t['string']} NOT NULL,body {$t['text']} NOT NULL,created_at {$t['uint']} NOT NULL");
     app_db_create_index('idx_plugin_hello_created', 'plugin_hello_items(created_at DESC)');
 }
 
@@ -227,7 +225,7 @@ app_db_upsert('plugin_hello_items', [
 - 插件应尽量减少数据库查询：优先复用 Hook 上下文和已有查询结果；需要读取多条关联数据时，先合并 ID 再使用一次 `IN` 查询；不要在主题、回帖等列表循环中逐条查询。
 - 插件应尽量使用缓存提高数据库效率：同一请求内重复读取的数据必须使用请求级缓存；允许短暂延迟的统计数字可以使用短期 Session 缓存；新增、更新或删除相关数据后必须主动失效对应缓存。不要为了读取或验证缓存额外查询数据库。
 - 插件需要识别自己处理的主题或回帖时，可以在内容中加入插件专属的特征标识；渲染时先检查内容是否包含该标识，命中后再查询插件数据并替换标识，避免为每条内容查询插件表。
-- 如果插件运行时因表或字段未升级而发生结构错误，系统会统一提示到后台“插件”页面重新安装该插件。
+- 插件运行异常时会被自动停用，并在后台插件卡片显示原因；涉及数据库结构变更时，应重新安装或再次启用插件以执行新版 `install`。
 - `app_db_upsert()` 用于按唯一键新增或更新；只需防止重复时使用 `app_db_insert_ignore()`。
 - 新增记录后使用 `app_db_last_insert_id('表名')`，不要直接调用 `db()->lastInsertId()`。
 - 需要计算多个时间值的最大值时使用 `app_db_greatest('表达式1', '表达式2')`，不要直接写 SQLite 专用的 `MAX(a,b)`。
