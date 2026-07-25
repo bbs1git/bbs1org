@@ -773,7 +773,7 @@ function plugins(bool $refresh = false): array
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
     $plugins = [];
-    foreach (q("SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins ORDER BY id")->fetchAll() as $row) {
+    foreach (settings_rows_cache('cache_plugins', "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins ORDER BY id", $refresh) as $row) {
         $plugin = plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
