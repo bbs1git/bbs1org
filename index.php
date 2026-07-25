@@ -5,6 +5,7 @@ define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 define('APP_VERSION', 'v6.3');
+define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
@@ -14,9 +15,6 @@ define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
 define('CACHE_DIR', APP_DIR . '/cache');
 define('AVATAR_DIR', APP_DIR . '/avatars');
 define('UPLOAD_DIR', APP_DIR . '/upload');
-define('FORUM_CACHE_FILE', CACHE_DIR . '/forums.php');
-define('GROUP_CACHE_FILE', CACHE_DIR . '/groups.php');
-define('SETTING_CACHE_FILE', CACHE_DIR . '/settings.php');
 define('HOME_STATS_CACHE_FILE', CACHE_DIR . '/stats.php');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
 define('PLUGIN_CACHE_FILE', CACHE_DIR . '/plugins.php');
@@ -287,11 +285,7 @@ function sql_query_count(bool $increment = false): int
 }
 function sql_debug_mode_enabled(): bool
 {
-    static $enabled = null;
-    if ($enabled !== null) return $enabled;
-    if (!is_file(SETTING_CACHE_FILE)) return $enabled = false;
-    $settings = include SETTING_CACHE_FILE;
-    return $enabled = is_array($settings) && (string)($settings['sql_debug_mode'] ?? '0') === '1';
+    return SQL_DEBUG_MODE;
 }
 function db_row_cache_clear(): void
 {
@@ -488,12 +482,11 @@ function default_settings(): array
         'post_interval_seconds' => '5',
         'attachment_max_count' => '10',
         'attachment_max_mb' => '20',
-        'sql_debug_mode' => '0',
     ];
 }
-function settings_cache(bool $refresh = false): array
+function settings_cache(): array
 {
-    return load_array_cache(SETTING_CACHE_FILE, $refresh, fn(): array => array_column(q("SELECT name,value FROM app_settings")->fetchAll(), 'value', 'name'), default_settings());
+    return $GLOBALS['__settings_cache'] ??= array_merge(default_settings(), array_column(q("SELECT name,value FROM app_settings")->fetchAll(), 'value', 'name'));
 }
 function setting(string $key, string $default = ''): string
 {
@@ -505,7 +498,9 @@ function save_settings_values(array $values): void
     $stmt = db()->prepare(app_db_upsert_sql(db_driver(), 'app_settings', ['name', 'value'], ['name']));
     foreach ($values as $name => $value) $stmt->execute([$name, $value]);
     db_row_cache_clear();
-    settings_cache(true);
+    if (is_array($GLOBALS['__settings_cache'] ?? null)) {
+        foreach ($values as $name => $value) $GLOBALS['__settings_cache'][(string)$name] = (string)$value;
+    }
     foreach (array_keys($values) as $name) {
         if (str_starts_with((string)$name, 'plugin_')) {
             plugin_runtime_cache_reset();
@@ -906,8 +901,9 @@ function plugin_uninstall(string $id, bool $keep_data = true): void
             if (function_exists($fn)) call_user_func($fn, $plugin);
         });
     }
-    q("DELETE FROM app_settings WHERE name IN (?,?,?,?)", ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config', 'plugin_' . $id . '_disabled_reason']);
-    settings_cache(true);
+    $setting_names = ['plugin_' . $id . '_enabled', 'plugin_' . $id . '_version', 'plugin_' . $id . '_config', 'plugin_' . $id . '_disabled_reason'];
+    q("DELETE FROM app_settings WHERE name IN (?,?,?,?)", $setting_names);
+    if (is_array($GLOBALS['__settings_cache'] ?? null)) foreach ($setting_names as $name) unset($GLOBALS['__settings_cache'][$name]);
     plugin_runtime_cache_reset();
     plugin_assets_mark_dirty();
 }
@@ -1374,7 +1370,7 @@ function save_settings(): void
         'default_group_id' => (string)$gid,
     ];
     foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
-    foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'sql_debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
+    foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
     foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_count' => [0, PHP_INT_MAX, 10], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
@@ -1382,9 +1378,8 @@ function save_settings(): void
 }
 function forums_cache(bool $refresh = false): array
 {
-    $forums = load_array_cache(FORUM_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM app_forums ORDER BY sort,id")->fetchAll());
-    if ($refresh) unset($GLOBALS['__forum_by_id_map']);
-    return $forums;
+    if ($refresh) unset($GLOBALS['__forums_cache'], $GLOBALS['__forum_by_id_map']);
+    return $GLOBALS['__forums_cache'] ??= q("SELECT id,name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups,last_topic_id,last_topic_title FROM app_forums ORDER BY sort,id")->fetchAll();
 }
 function forum_by_id(int $id): ?array
 {
@@ -1424,10 +1419,8 @@ function forum_group_allowed(?array $forum, string $field): bool
 }
 function groups_cache(bool $refresh = false): array
 {
-    $groups = load_array_cache(GROUP_CACHE_FILE, $refresh, fn(): array => q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id")->fetchAll(),
-        null, fn(array $cached): bool => !$cached || array_key_exists('upload_quota_mb', (array)reset($cached)));
-    if ($refresh) unset($GLOBALS['__group_by_id_map']);
-    return $groups;
+    if ($refresh) unset($GLOBALS['__groups_cache'], $GLOBALS['__group_by_id_map']);
+    return $GLOBALS['__groups_cache'] ??= q("SELECT id,name,allow_manage,allow_admin,upload_quota_mb FROM app_groups ORDER BY id")->fetchAll();
 }
 function group_by_id(int $id): ?array
 {
@@ -4795,7 +4788,6 @@ function admin_page(): void
             'avatar_mirror' => ['html' => $avatar_mirror_field],
             'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
             'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
-            'sql_debug_mode' => ['label' => 'SQL Debug 模式', 'type' => 'checkbox', 'help' => '仅对 UID=1 显示页面 SQL 查询。'],
             'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
             'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
             'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
