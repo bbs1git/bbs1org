@@ -37,7 +37,6 @@ nano .env
 
 ```bash
 docker compose up -d
-docker compose logs -f cron
 ```
 
 访问 `http://服务器地址/index.php?a=install` 完成安装。
