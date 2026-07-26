@@ -68,21 +68,12 @@ const finishConfirm = (ok) => {
     if (modalBody) modalBody.innerHTML = "";
     if (resolve) resolve(ok);
 };
-const openConfirm = (message, title = "确认操作") => new Promise(resolve => {
-    if (!modal || !modalBody) {
-        resolve(false);
-        return;
-    }
+const _openModalBox = (title, fallback, builderFn) => new Promise(resolve => {
+    if (!modal || !modalBody) { resolve(fallback); return; }
     confirmResolve = resolve;
     if (modalTitle) modalTitle.textContent = title;
     modalBody.innerHTML = "";
     const box = document.createElement("div");
-    box.className = "confirm-box";
-    const text = document.createElement("p");
-    text.className = "confirm-message";
-    text.textContent = message;
-    const actions = document.createElement("div");
-    actions.className = "confirm-actions";
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "btn alt";
@@ -90,24 +81,28 @@ const openConfirm = (message, title = "确认操作") => new Promise(resolve => 
     const ok = document.createElement("button");
     ok.type = "button";
     ok.className = "danger";
-    ok.textContent = "确定";
+    const focusEl = builderFn(box, cancel, ok);
+    modalBody.appendChild(box);
+    modal.hidden = false;
+    focusEl.focus();
+    if (focusEl === ok || focusEl === cancel) return;
+    if (focusEl.select) focusEl.select();
+});
+const openConfirm = (message, title = "确认操作") => _openModalBox(title, false, (box, cancel, ok) => {
+    box.className = "confirm-box";
+    const text = document.createElement("p");
+    text.className = "confirm-message";
+    text.textContent = message;
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
     cancel.addEventListener("click", () => finishConfirm(false));
+    ok.textContent = "确定";
     ok.addEventListener("click", () => finishConfirm(true));
     actions.append(cancel, ok);
     box.append(text, actions);
-    modalBody.appendChild(box);
-    modal.hidden = false;
-    cancel.focus();
+    return cancel;
 });
-const openPluginUninstallConfirm = (message, title = "卸载插件") => new Promise(resolve => {
-    if (!modal || !modalBody) {
-        resolve(false);
-        return;
-    }
-    confirmResolve = resolve;
-    if (modalTitle) modalTitle.textContent = title;
-    modalBody.innerHTML = "";
-    const box = document.createElement("div");
+const openPluginUninstallConfirm = (message, title = "卸载插件") => _openModalBox(title, false, (box, cancel, ok) => {
     box.className = "confirm-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -122,31 +117,14 @@ const openPluginUninstallConfirm = (message, title = "卸载插件") => new Prom
     option.append(checkbox, labelText);
     const actions = document.createElement("div");
     actions.className = "confirm-actions";
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn alt";
-    cancel.textContent = "取消";
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.className = "danger";
-    ok.textContent = "卸载";
     cancel.addEventListener("click", () => finishConfirm(false));
+    ok.textContent = "卸载";
     ok.addEventListener("click", () => finishConfirm({keepData: checkbox.checked}));
     actions.append(cancel, ok);
     box.append(text, option, actions);
-    modalBody.appendChild(box);
-    modal.hidden = false;
-    checkbox.focus();
+    return checkbox;
 });
-const openPrompt = (message, title = "请输入", value = "1") => new Promise(resolve => {
-    if (!modal || !modalBody) {
-        resolve(null);
-        return;
-    }
-    confirmResolve = resolve;
-    if (modalTitle) modalTitle.textContent = title;
-    modalBody.innerHTML = "";
-    const box = document.createElement("div");
+const openPrompt = (message, title = "请输入", value = "1") => _openModalBox(title, null, (box, cancel, ok) => {
     box.className = "confirm-box prompt-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -159,32 +137,14 @@ const openPrompt = (message, title = "请输入", value = "1") => new Promise(re
     input.value = String(value || "1");
     const actions = document.createElement("div");
     actions.className = "confirm-actions";
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn alt";
-    cancel.textContent = "取消";
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.className = "danger";
-    ok.textContent = "确定";
-    const done = () => {
-        const n = Math.max(1, parseInt(input.value || "1", 10) || 1);
-        finishConfirm(String(n));
-    };
+    const done = () => { finishConfirm(String(Math.max(1, parseInt(input.value || "1", 10) || 1))); };
     cancel.addEventListener("click", () => finishConfirm(null));
+    ok.textContent = "确定";
     ok.addEventListener("click", done);
-    input.addEventListener("keydown", e => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            done();
-        }
-    });
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); done(); } });
     actions.append(cancel, ok);
     box.append(text, input, actions);
-    modalBody.appendChild(box);
-    modal.hidden = false;
-    input.focus();
-    input.select();
+    return input;
 });
 window.openNotify = async function (url) {
     try {

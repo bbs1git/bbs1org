@@ -19,7 +19,7 @@
 html{min-height:100%;background:var(--bg)}
 body{margin:0;background:var(--bg);color:#333;font:13px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
-a:hover{color:var(--brand);text-decoration:none}
+a:hover{color:var(--brand)}
 h2,h3,p{margin:0}
 h2{margin-bottom:10px;font-size:16px;line-height:1.35;color:#111}
 h3{margin-bottom:8px;font-size:14px;color:var(--text)}

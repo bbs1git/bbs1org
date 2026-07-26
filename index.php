@@ -1539,16 +1539,15 @@ function create_notification(int $recipient_id, int $sender_id, string $kind, st
 function user_points_change(int $user_id, int $delta, string $reason = '系统调整'): int
 {
     if ($user_id <= 0 || $delta === 0) return 0;
-    $actual = tx(function () use ($user_id, $delta) {
+    [$actual, $now_points] = tx(function () use ($user_id, $delta): array {
         $old = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
         $new = $old + $delta;
         $actual = $new - $old;
         if ($actual !== 0) q("UPDATE app_users SET points=? WHERE id=?", [$new, $user_id]);
-        return $actual;
+        return [$actual, $new];
     });
     if ($actual === 0) return 0;
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
-    $now_points = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
     $verb = $actual > 0 ? '增加' : '减少';
     create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
     return $actual;
@@ -2293,7 +2292,9 @@ function err(string $m, int $status = 200): never
 }
 function cut(string $v, int $max): string
 {
-    return function_exists('mb_substr') ? mb_substr($v, 0, $max, 'UTF-8') : substr($v, 0, $max);
+    static $has_mb = null;
+    $has_mb ??= function_exists('mb_substr');
+    return $has_mb ? mb_substr($v, 0, $max, 'UTF-8') : substr($v, 0, $max);
 }
 function human_time(int $ts): string
 {
@@ -4596,7 +4597,7 @@ function admin_plugins_cron_logs_page_html(): string
     foreach (plugins() as $plugin) {
         if (is_array($plugin)) $names[(string)$plugin['id']] = (string)($plugin['name'] ?? $plugin['id']);
     }
-    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT " . ($size + 1) . " OFFSET $offset")->fetchAll();
+    $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT ? OFFSET ?", [$size + 1, $offset])->fetchAll();
     $has_next = count($rows) > $size;
     if ($has_next) array_pop($rows);
     $labels = ['success' => '成功', 'failed' => '失败', 'running' => '运行中'];
