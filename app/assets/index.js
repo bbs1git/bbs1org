@@ -41,6 +41,17 @@ const openMobileMenu = () => {
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
+document.addEventListener("click", e => {
+    const button = e.target instanceof Element ? e.target.closest("[data-profile-toggle]") : null;
+    if (!button) return;
+    const disclosure = button.closest("[data-profile-disclosure]");
+    const detail = disclosure?.querySelector("[data-profile-edit]");
+    if (!detail) return;
+    const open = detail.classList.contains("is-hidden");
+    detail.classList.toggle("is-hidden", !open);
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) detail.querySelector("input, select, textarea")?.focus();
+});
 const forumMoreToggle = document.querySelector("[data-forum-more-toggle]");
 const forumMoreRegion = document.getElementById("forum-more-region");
 if (forumMoreToggle && forumMoreRegion) {

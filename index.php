@@ -3045,13 +3045,13 @@ function avatar_picker_html(array $u): string
         if ($seed === '') $seed = avatar_seed($style ?: 'dylan', (string)$uid, $uid);
     }
     $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
-    $html = '<div class="grid avatar-field"><span>头像设置</span><div class="avatar-picker" data-seed="' . $uid . '" data-avatar-base="' . h(asset_url('app/avatars/')) . '" data-avatar-mirror-styles="' . h(setting('avatar_mirror_styles', '')) . '" data-avatar-local-only="' . ($local_only ? '1' : '0') . '"><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style">';
+    $html = '<div class="grid avatar-field"><span>头像</span><div class="avatar-picker profile-disclosure" data-profile-disclosure data-seed="' . $uid . '" data-avatar-base="' . h(asset_url('app/avatars/')) . '" data-avatar-mirror-styles="' . h(setting('avatar_mirror_styles', '')) . '" data-avatar-local-only="' . ($local_only ? '1' : '0') . '"><div class="profile-disclosure-summary"><span class="profile-avatar-summary">' . avatar_tag($uid, $name, $style, '', $seed) . '</span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style">';
     if (!$local_only) $html .= '<option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
     foreach ($styles as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
     $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options">';
     if (!$local_only) $html .= '<button class="avatar-option' . ($seed === '' ? ' active' : '') . '" type="button" data-seed="">' . avatar_tag($uid, $name, $style, '', '') . '</button>';
     foreach ($seeds as $s) $html .= '<button class="avatar-option' . ($s === $seed ? ' active' : '') . '" type="button" data-seed="' . h($s) . '">' . avatar_tag($uid, $name, $style, '', $s) . '</button>';
-    return $html . '</div></div></div>';
+    return $html . '</div></div></div></div>';
 }
 function topic_post_row(array $row, string $body, int $time, string $ops = '', string $title = '', string $stats = '', bool $highlight = false, array $ctx = []): string
 {
@@ -4106,13 +4106,15 @@ function profile_page(): void
 {
     need_login();
     $u = me();
-    $current_ip = '<label class="grid readonly-grid"><span>当前IP</span><input class="readonly-input" type="text" value="' . h(ip_addr()) . '" disabled readonly></label>';
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_user(false, uid());
+        set_flash('个人资料已保存');
         go(route_url('profile'));
     }
+    $username_field = '<div class="grid profile-disclosure" data-profile-disclosure><span>用户名</span><div><div class="profile-disclosure-summary"><strong>' . h($u['username']) . '</strong><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit><input name="username" type="text" value="' . h($u['username']) . '"></div></div></div>';
+    $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><span>密码</span><div><div class="profile-disclosure-summary"><span>未设置新密码</span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改密码</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
     $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . $current_ip . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . $username_field . avatar_picker_html($u) . input('邮箱', 'email', $u['email'], 'email') . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
 }
 function user_page(): void
 {
