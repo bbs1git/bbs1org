@@ -2039,7 +2039,8 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
     else $links .= '<a href="' . h(route_url('notify', ['id' => (int)$m['id']])) . '" onclick="openNotify(this.href);return false">' . svg_icon('notify') . '私信TA</a>';
     $user_url = route_url('user', ['id' => (int)$m['id']]);
     $rank = h($m['group_name'] ?? '用户') . ' · 积分 ' . (int)($m['points'] ?? 0);
-    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><a class="user-avatar-big" href="' . $user_url . '">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</a><div><a class="user-name" href="' . $user_url . '">' . h($m['username']) . '</a><div class="user-rank">' . $rank . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
+    $state_tags = user_state_tag_html($m);
+    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><a class="user-avatar-big" href="' . $user_url . '">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</a><div><a class="user-name" href="' . $user_url . '">' . h($m['username']) . '</a><div class="user-rank">' . $rank . $state_tags . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
     if (can_speak()) $html .= '<a class="btn-post' . ($is_self ? '' : ' notify-link') . '" href="' . h($reply_button ? '#reply' : ($is_self ? route_url('topic_edit', ['fid' => $fid ?: null]) : route_url('notify', ['id' => (int)$m['id']]))) . '"' . ($is_self || $reply_button ? '' : ' onclick="openNotify(this.href);return false"') . '>' . ($reply_button ? '回帖' : ($is_self ? '+ 发帖' : '私信TA')) . '</a>';
     return $html . '</div>';
 }
@@ -4122,7 +4123,7 @@ function user_page(): void
     if ($username === '' && uid() && id() === uid()) $user = me();
     else {
         $user = $username !== ''
-            ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points FROM app_users WHERE username=?", [$username])
+            ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points,is_banned,is_muted FROM app_users WHERE username=?", [$username])
             : row('app_users', 'id', id());
     }
     $user = $user ?: err('你访问的页面不存在', 404);
