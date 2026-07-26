@@ -727,6 +727,10 @@ function plugin_registry_sync(): array
         $id = (string)$plugin['id'];
         $old = $existing[$id] ?? [];
         $installed_at = (int)($old['installed_at'] ?? 0) ?: now();
+        $code_hash = hash_file('sha256', $file) ?: '';
+        $updated_at = isset($old['updated_at']) && (string)($old['code_hash'] ?? '') === $code_hash
+            ? (int)$old['updated_at']
+            : now();
         $config_json = (string)($old['config_json'] ?? ($settings['plugin_' . $id . '_config'] ?? '{}'));
         $entries_json = (string)($old['entries_json'] ?? json_encode([
             'feature_links' => (string)($settings['plugin_' . $id . '_entry_feature_links'] ?? '1') === '1',
@@ -738,7 +742,7 @@ function plugin_registry_sync(): array
             'name' => (string)$plugin['name'],
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
-            'code_hash' => hash_file('sha256', $file) ?: '',
+            'code_hash' => $code_hash,
             'manifest_json' => json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall'])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'config_json' => $config_json,
             'entries_json' => $entries_json,
@@ -746,7 +750,7 @@ function plugin_registry_sync(): array
             'status' => $enabled ? 'enabled' : 'disabled',
             'disabled_reason' => (string)($old['disabled_reason'] ?? ($settings['plugin_' . $id . '_disabled_reason'] ?? '')),
             'installed_at' => $installed_at,
-            'updated_at' => now(),
+            'updated_at' => $updated_at,
         ], ['id']);
         $synced[$id] = true;
     }
