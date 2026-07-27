@@ -45,7 +45,7 @@ Compose 会自动启动 `cron` 容器，每分钟以 CLI 方式执行 `php index
 
 ## 手动部署
 
-使用宝塔面板部署请参考 [宝塔部署指南](docker/README_BT.md)。
+使用宝塔面板部署请参考 [宝塔部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_BT.md)。
 
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
