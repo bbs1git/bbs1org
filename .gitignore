@@ -9,3 +9,4 @@ app/*
 /docker/
 /tmp/
 /scripts/
+.venv/
