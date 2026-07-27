@@ -2910,7 +2910,32 @@ function markdown_table_cells(string $line): array
     $line = trim($line);
     if (str_starts_with($line, '|')) $line = substr($line, 1);
     if (str_ends_with($line, '|')) $line = substr($line, 0, -1);
-    return array_map(fn($cell) => trim(str_replace('\\|', '|', $cell)), preg_split('/(?<!\\\\)\|/u', $line) ?: []);
+    $cells = [];
+    $cell = '';
+    $code = false;
+    $escaped = false;
+    for ($i = 0, $length = strlen($line); $i < $length; $i++) {
+        $char = $line[$i];
+        if ($escaped) {
+            $cell .= $char;
+            $escaped = false;
+            continue;
+        }
+        if ($char === '\\') {
+            $cell .= $char;
+            $escaped = true;
+            continue;
+        }
+        if ($char === '`') $code = !$code;
+        if ($char === '|' && !$code) {
+            $cells[] = trim(str_replace('\\|', '|', $cell));
+            $cell = '';
+            continue;
+        }
+        $cell .= $char;
+    }
+    $cells[] = trim(str_replace('\\|', '|', $cell));
+    return $cells;
 }
 function markdown_table_html(array $lines, int $topic_id = 0): string
 {
@@ -3021,6 +3046,12 @@ function markdown_html(string $text, int $quote_depth = 0, int $topic_id = 0): s
         if (preg_match('/^(#{1,6})\s+(.+)$/u', $line)) {
             if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
             $html[] = markdown_plain_block_html([$line], $topic_id);
+            $buffer = [];
+            continue;
+        }
+        if (preg_match('/^\s*-{3,}\s*$/u', $line)) {
+            if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
+            $html[] = '<hr>';
             $buffer = [];
             continue;
         }

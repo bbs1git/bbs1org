@@ -7,3 +7,5 @@ app/*
 .vscode
 .codebuddy
 /docker/
+/tmp/
+/scripts/
