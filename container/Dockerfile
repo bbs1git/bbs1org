@@ -9,6 +9,8 @@ COPY --chown=www-data:www-data container/cron.sh /usr/local/bin/bbs1-cron
 USER root
 
 RUN chmod +x /usr/local/bin/bbs1-cron \
+    && mkdir -p /usr/local/share/bbs1org-template \
+    && cp -a /var/www/html/. /usr/local/share/bbs1org-template/ \
     && chown -R www-data:www-data app \
     && chown root:www-data . \
     && chmod 775 .

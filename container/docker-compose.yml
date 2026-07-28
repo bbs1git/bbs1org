@@ -1,47 +1,51 @@
 services:
   php-init:
-    image: ghcr.io/bbs1org/bbs1org:6.5
+    image: ghcr.io/bbs1org/bbs1org:6.7
     user: "0:0"
-    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
+    command: sh -ec 'if [ ! -f index.php ]; then cp -a /usr/local/share/bbs1org-template/. .; fi; chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
     volumes:
+      - code:/var/www/html
       - data:/var/www/html/app/data
       - avatars:/var/www/html/app/avatars
       - upload:/var/www/html/app/upload
       - plugins:/var/www/html/app/plugins
 
   php:
-    image: ghcr.io/bbs1org/bbs1org:6.5
+    image: ghcr.io/bbs1org/bbs1org:6.7
     restart: unless-stopped
     depends_on:
       php-init:
         condition: service_completed_successfully
     volumes:
+      - code:/var/www/html
       - data:/var/www/html/app/data
       - avatars:/var/www/html/app/avatars
       - upload:/var/www/html/app/upload
       - plugins:/var/www/html/app/plugins
 
   cron:
-    image: ghcr.io/bbs1org/bbs1org:6.5
+    image: ghcr.io/bbs1org/bbs1org:6.7
     restart: unless-stopped
     depends_on:
       php-init:
         condition: service_completed_successfully
     command: ["sh", "/usr/local/bin/bbs1-cron"]
     volumes:
+      - code:/var/www/html
       - data:/var/www/html/app/data
       - avatars:/var/www/html/app/avatars
       - upload:/var/www/html/app/upload
       - plugins:/var/www/html/app/plugins
 
   nginx:
-    image: ghcr.io/bbs1org/bbs1org-nginx:6.5
+    image: ghcr.io/bbs1org/bbs1org-nginx:6.7
     restart: unless-stopped
     depends_on:
       - php
     ports:
       - "${HTTP_PORT:-8080}:80"
     volumes:
+      - code:/var/www/html:ro
       - avatars:/var/www/html/app/avatars:ro
       - upload:/var/www/html/app/upload:ro
 
@@ -70,6 +74,7 @@ services:
       - postgres:/var/lib/postgresql
 
 volumes:
+  code:
   data:
   avatars:
   upload:

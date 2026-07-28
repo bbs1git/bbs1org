@@ -27,7 +27,7 @@ https://bbs1.org
 
 ### GHCR 镜像部署（推荐）
 
-适合生产环境和不修改源码的部署。镜像包含固定版本的 bbs1org、Nginx、PHP 和计划任务配置，不需要在服务器上克隆源码。
+适合生产环境部署。镜像包含 bbs1org、Nginx、PHP 和计划任务配置，不需要在宿主机挂载源码。
 
 克隆项目后，使用 [container/docker-compose.yml](container/docker-compose.yml) 启动服务：
 
@@ -37,12 +37,9 @@ cd bbs1org
 docker compose -f container/docker-compose.yml up -d
 ```
 
-默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
+默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。
 
-```bash
-docker compose -f container/docker-compose.yml pull
-docker compose -f container/docker-compose.yml up -d
-```
+`6.7` 起，Compose 使用共享 `code` 卷保存整个程序目录。首次启动会从镜像初始化代码；后台在线升级会同时更新 PHP、`app/setup/` 与前端资源，Nginx 可立即读取且容器重建不会丢失。
 
 #### 使用 MySQL 或 PostgreSQL
 
