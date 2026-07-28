@@ -30,14 +30,13 @@ https://bbs1.org
 适合生产环境部署。镜像包含 bbs1org、Nginx、PHP、SQLite 或 MySQL 或 PostgreSQL
 
 ```bash
-cd /opt
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
-cd /opt/docker
+cd docker
 mv .env.example .env
-# 编辑 .env 配置文件
+# 编辑配置文件
 nano .env
 # 启动
-docker compose -f docker-compose-ghcr.yml up -d
+docker compose up -d
 ```
 
 ### 源码挂载部署
@@ -45,15 +44,14 @@ docker compose -f docker-compose-ghcr.yml up -d
 适合开发、直接修改源码。
 
 ```bash
-cd /opt
-git clone https://github.com/bbs1org/bbs1org.git bbs1org
+git clone https://github.com/bbs1org/bbs1org.git /opt/bbs1org
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
-cd /opt/docker
+cd docker
 mv .env.example .env
-# 编辑 .env 配置文件
+# 编辑配置文件
 nano .env
 # 启动
-docker compose up -d
+docker compose -f docker-compose1.yml up -d
 ```
 
 ## 手动部署
