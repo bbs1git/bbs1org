@@ -1,0 +1,7 @@
+.git
+.github
+app/data
+app/avatars
+app/upload
+app/plugins
+app/cache
