@@ -588,7 +588,6 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .avatar-picker select{min-width:0}
 .avatar-option .avatar-img{border-radius:3px}
 .user-header .avatar-img{border-radius:50%}
-::selection{background:var(--brand-soft)}
 @media(max-width:720px){
     .bar{display:flex;flex-wrap:nowrap;gap:6px;height:44px}
     .brand{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
