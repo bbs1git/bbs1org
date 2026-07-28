@@ -45,8 +45,34 @@ services:
       - avatars:/var/www/html/app/avatars:ro
       - upload:/var/www/html/app/upload:ro
 
+  mysql:
+    image: mysql:8.4
+    profiles: ["mysql"]
+    restart: unless-stopped
+    command: --ngram-token-size=2
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-forum}
+      MYSQL_USER: ${DB_USER:-forum}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-change-this-password}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-change-this-password}
+    volumes:
+      - mysql:/var/lib/mysql
+
+  postgres:
+    image: postgres:18
+    profiles: ["pgsql"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-forum}
+      POSTGRES_USER: ${DB_USER:-forum}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-password}
+    volumes:
+      - postgres:/var/lib/postgresql
+
 volumes:
   data:
   avatars:
   upload:
   plugins:
+  mysql:
+  postgres:

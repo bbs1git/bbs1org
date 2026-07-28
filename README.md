@@ -44,6 +44,22 @@ docker compose -f container/docker-compose.yml pull
 docker compose -f container/docker-compose.yml up -d
 ```
 
+#### 使用 MySQL 或 PostgreSQL
+
+`container/docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。创建项目根目录的 `.env`，填写：
+
+```dotenv
+# mysql 或 pgsql
+COMPOSE_PROFILES=mysql
+DB_NAME=forum
+DB_USER=forum
+DB_PASSWORD=请替换为高强度密码
+```
+
+启动后访问安装页。数据库类型选择 MySQL 时主机填写 `mysql`；选择 PostgreSQL 时将 `COMPOSE_PROFILES` 改为 `pgsql`，主机填写 `postgres`。数据库名、用户名和密码填写 `.env` 中的对应值。
+
+若使用现有的外部 MySQL 或 PostgreSQL，不设置 `COMPOSE_PROFILES`，按 SQLite 方式启动 PHP、Nginx 和 cron 容器；在安装页填写外部数据库的连接信息即可。
+
 ### 源码挂载部署
 
 适合开发、直接修改源码，或需要使用 `bbs1org_docker` 提供的 SQLite、MySQL、PostgreSQL Compose profile 的场景。
