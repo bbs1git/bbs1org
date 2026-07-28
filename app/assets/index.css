@@ -543,7 +543,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-plugin-summary{display:grid;gap:2px;min-width:0}
 .admin-plugin-summary strong{color:var(--text);font-size:var(--font-size-lg);line-height:1.3}
 .admin-plugin-summary span{color:var(--text-subtle);font-size:var(--font-size-sm);line-height:1.35}
-.plugin-list{display:grid;gap:10px;padding:10px;background:var(--bg)}
+.plugin-list{display:grid;gap:10px;padding:10px;}
 .plugin-item.admin-object-row{align-items:start;gap:10px;min-height:86px;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 1px 2px var(--shadow-base);transition:border-color var(--transition-normal),box-shadow var(--transition-normal)}
 .plugin-item.admin-list-item{border-bottom:1px solid var(--line)}
 .plugin-item:hover{box-shadow:0 4px 12px var(--shadow-base)}
