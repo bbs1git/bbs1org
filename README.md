@@ -37,7 +37,7 @@ cd bbs1org
 docker compose -f container/docker-compose.yml up -d
 ```
 
-默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。访问 `http://服务器地址:端口/index.php?a=install` 完成安装。默认可直接使用 SQLite；`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
+默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
 
 ```bash
 docker compose -f container/docker-compose.yml pull
