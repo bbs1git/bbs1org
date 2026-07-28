@@ -39,8 +39,6 @@ docker compose -f container/docker-compose.yml up -d
 
 默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。
 
-`6.7` 起，Compose 使用共享 `code` 卷保存整个程序目录。首次启动会从镜像初始化代码；后台在线升级会同时更新 PHP、`app/setup/` 与前端资源，Nginx 可立即读取且容器重建不会丢失。
-
 #### 使用 MySQL 或 PostgreSQL
 
 `container/docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。创建项目根目录的 `.env`，填写：
