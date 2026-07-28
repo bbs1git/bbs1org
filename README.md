@@ -33,15 +33,15 @@ https://bbs1.org
 
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git
-cd bbs1org
-docker compose -f container/docker-compose.yml up -d
+cd bbs1org/container
+docker compose up -d
 ```
 
-默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。
+默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。
 
 #### 使用 MySQL 或 PostgreSQL
 
-`container/docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。创建项目根目录的 `.env`，填写：
+`docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。创建 `container/.env`，填写：
 
 ```dotenv
 # mysql 或 pgsql
