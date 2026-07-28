@@ -1,5 +1,7 @@
 .git
 .github
+.env
+**/.env
 app/data
 app/avatars
 app/upload

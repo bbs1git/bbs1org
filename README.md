@@ -34,14 +34,16 @@ https://bbs1.org
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git
 cd bbs1org/container
+mv .env.example .env
+nano .env
 docker compose up -d
 ```
 
-默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose up -d` 修改。未创建 `.env` 时不会报错，Compose 只启动 PHP、Nginx 和 cron，安装页直接使用 SQLite。`cron` 容器会每分钟执行一次站点和插件计划任务。
+`.env.example` 已为每个设置标注用途，默认使用 SQLite 和 `8080` 端口。`ADMIN_PASSWORD` 留空时使用网页安装，填写后首次启动自动安装。`cron` 容器会每分钟执行一次站点和插件计划任务。
 
 #### 使用 MySQL 或 PostgreSQL
 
-`docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。创建 `container/.env`，填写：
+`docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。编辑重命名后的 `container/.env`：
 
 ```dotenv
 # mysql 或 pgsql
@@ -73,7 +75,7 @@ cd /opt
 git clone https://github.com/bbs1org/bbs1org.git bbs1org
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
 cd /opt/docker
-cp .env.example .env
+mv .env.example .env
 nano .env
 ```
 编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。
