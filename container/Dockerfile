@@ -1,5 +1,9 @@
 FROM serversideup/php:8.5-fpm
 
+# Keep OPcache enabled in the FPM image. The base image can otherwise disable
+# it depending on its runtime defaults.
+ENV PHP_OPCACHE_ENABLE=1
+
 WORKDIR /var/www/html
 
 COPY --chown=www-data:www-data . .

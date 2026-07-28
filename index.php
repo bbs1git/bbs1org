@@ -4,7 +4,7 @@ declare(strict_types=1);
 define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v6.8');
+define('APP_VERSION', 'v6.9');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -162,7 +162,7 @@ function app_db_upsert_sql(string $driver, string $table, array $columns, array 
     $base = 'INSERT INTO ' . app_db_identifier($driver, $table) . '(' . implode(',', $columns) . ') VALUES(' . $marks . ')';
     $updates = array_values(array_diff($columns, $keys));
     if (!$updates) return $driver === 'mysql' ? str_replace('INSERT INTO', 'INSERT IGNORE INTO', $base) : $base . ' ON CONFLICT(' . implode(',', $keys) . ') DO NOTHING';
-    if ($driver === 'mysql') return $base . ' AS new ON DUPLICATE KEY UPDATE ' . implode(',', array_map(fn($c) => $c . '=new.' . $c, $updates));
+    if ($driver === 'mysql') return $base . ' ON DUPLICATE KEY UPDATE ' . implode(',', array_map(fn($c) => $c . '=VALUES(' . $c . ')', $updates));
     return $base . ' ON CONFLICT(' . implode(',', $keys) . ') DO UPDATE SET ' . implode(',', array_map(fn($c) => $c . '=excluded.' . $c, $updates));
 }
 
@@ -1365,7 +1365,9 @@ function rate_hit_bucket(string $ip, string $bucket): void
     $expired = $ts - (int)$config['window'];
     $sql = "INSERT INTO app_ip_logs(ip,$count_field,$time_field,created_at,updated_at) VALUES(?,1,?,?,?)";
     if (db_driver() === 'mysql') {
-        $sql .= " AS new ON DUPLICATE KEY UPDATE $count_field=IF($time_field<?,1,$count_field+1),$time_field=new.$time_field,updated_at=new.updated_at";
+        $sql .= " ON DUPLICATE KEY UPDATE $count_field=IF($time_field<?,1,$count_field+1),$time_field=?,updated_at=?";
+        q($sql, [$ip, $ts, $ts, $ts, $expired, $ts, $ts]);
+        return;
     } else {
         $sql .= " ON CONFLICT(ip) DO UPDATE SET $count_field=CASE WHEN $time_field<? THEN 1 ELSE app_ip_logs.$count_field+1 END,$time_field=excluded.$time_field,updated_at=excluded.updated_at";
     }
@@ -2284,6 +2286,25 @@ function database_error(Throwable $e): bool
     } while ($e);
     return false;
 }
+function database_error_code(Throwable $e): string
+{
+    do {
+        if ($e instanceof PDOException) {
+            $sqlstate = (string)$e->getCode();
+            $error_info = is_array($e->errorInfo ?? null) ? $e->errorInfo : [];
+            $driver_code = trim((string)($error_info[1] ?? ''));
+            if ($sqlstate !== '' && $driver_code !== '') return $sqlstate . ' / ' . $driver_code;
+            if ($sqlstate !== '') return $sqlstate;
+            if ($driver_code !== '') return $driver_code;
+        }
+        $e = $e->getPrevious();
+    } while ($e);
+    return '未知';
+}
+function database_error_message(Throwable $e): string
+{
+    return '数据库出了点小问题（错误代码：' . database_error_code($e) . '）';
+}
 function err(string $m, int $status = 200): never
 {
     $status = $status > 0 ? $status : 200;
@@ -2788,7 +2809,7 @@ function attachment_upload_page(): void
     } catch (Throwable $e) {
         if (ob_get_level() > 0) ob_end_clean();
         debug_log_write('附件上传失败', $e);
-        ajax_error(database_error($e) ? '数据库出了点小问题' : ($e->getMessage() ?: '附件上传失败'));
+        ajax_error(database_error($e) ? database_error_message($e) : ($e->getMessage() ?: '附件上传失败'));
     }
 }
 function topic_upload_attachments_markdown(): string
@@ -5085,7 +5106,7 @@ try {
     if (uid() === 1) {
         $message = exception_detail($e);
     } elseif (database_error($e)) {
-        $message = '数据库出了点小问题';
+        $message = database_error_message($e);
     } else {
         $message = '操作失败';
     }
