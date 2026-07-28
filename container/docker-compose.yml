@@ -1,6 +1,6 @@
 services:
   php-init:
-    image: ghcr.io/bbs1org/bbs1org:6.8
+    image: ghcr.io/bbs1org/bbs1org:6.9
     user: "0:0"
     command: sh -ec 'if [ ! -f index.php ]; then cp -a /usr/local/share/bbs1org-template/. .; fi; chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
     volumes:
@@ -11,7 +11,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   php:
-    image: ghcr.io/bbs1org/bbs1org:6.8
+    image: ghcr.io/bbs1org/bbs1org:6.9
     restart: unless-stopped
     depends_on:
       php-init:
@@ -24,7 +24,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   cron:
-    image: ghcr.io/bbs1org/bbs1org:6.8
+    image: ghcr.io/bbs1org/bbs1org:6.9
     restart: unless-stopped
     depends_on:
       php-init:
@@ -38,7 +38,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   nginx:
-    image: ghcr.io/bbs1org/bbs1org-nginx:6.8
+    image: ghcr.io/bbs1org/bbs1org-nginx:6.9
     restart: unless-stopped
     depends_on:
       - php
