@@ -40,7 +40,9 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/bbs1org${{ matrix.image_suffix }}:${{ inputs.version || github.ref_name }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/bbs1org${{ matrix.image_suffix }}:${{ inputs.version || github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/bbs1org${{ matrix.image_suffix }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ inputs.version || github.ref_name }}
