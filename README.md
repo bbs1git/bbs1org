@@ -23,52 +23,26 @@ https://bbs1.org
 
 ## Docker 部署
 
-服务器需先安装 Docker Engine 和 Docker Compose 插件，并确保 `80` 端口未被占用。
+服务器需先安装 Docker Engine，确保要使用的端口未被占用。
 
 ### GHCR 镜像部署（推荐）
 
-适合生产环境部署。镜像包含 bbs1org、Nginx、PHP 和计划任务配置，不需要在宿主机挂载源码。
-
-克隆项目后，使用 [container/docker-compose.yml](container/docker-compose.yml) 启动服务：
+适合生产环境部署。镜像包含 bbs1org、Nginx、PHP、SQLite 或 MySQL 或 PostgreSQL
 
 ```bash
-git clone https://github.com/bbs1org/bbs1org.git
-cd bbs1org/container
+cd /opt
+git clone https://github.com/bbs1org/bbs1org_docker.git docker
+cd /opt/docker
 mv .env.example .env
+# 编辑 .env 配置文件
 nano .env
-docker compose up -d
+# 启动
+docker compose -f docker-compose-ghcr.yml up -d
 ```
-
-`.env.example` 已为每个设置标注用途，默认使用 SQLite 和 `8080` 端口。`ADMIN_PASSWORD` 留空时使用网页安装，填写后首次启动自动安装。`cron` 容器会每分钟执行一次站点和插件计划任务。
-
-#### 使用 MySQL 或 PostgreSQL
-
-`docker-compose.yml` 已包含可选的 MySQL 8.4 与 PostgreSQL 18 服务。编辑重命名后的 `container/.env`：
-
-```dotenv
-# mysql 或 pgsql
-COMPOSE_PROFILES=mysql
-DB_NAME=forum
-DB_USER=forum
-DB_PASSWORD=请替换为高强度密码
-
-# 首次启动自动安装；留空 ADMIN_PASSWORD 则保留网页安装流程
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=请替换为管理员密码
-ADMIN_EMAIL=admin@example.com
-SITE_NAME=我的论坛
-FORUM_NAME=默认版块
-```
-
-启动后访问安装页。数据库类型选择 MySQL 时主机填写 `mysql`、端口填写 `3306`；选择 PostgreSQL 时将 `COMPOSE_PROFILES` 改为 `pgsql`，主机填写 `postgres`、端口填写 `5432`。数据库名、用户名和密码填写 `.env` 中的对应值。
-
-设置 `ADMIN_PASSWORD` 后，首次启动会自动创建数据库表、默认版块、管理员账号和 `app/data/install.lock`；容器启动完成后直接访问首页，使用 `.env` 中的管理员账号和密码登录，无需再打开安装页。仅在没有安装锁时执行，重启不会重复安装。MySQL 和 PostgreSQL 容器分别使用默认端口 `3306` 和 `5432`。
-
-若使用现有的外部 MySQL 或 PostgreSQL，不设置 `COMPOSE_PROFILES`，按 SQLite 方式启动 PHP、Nginx 和 cron 容器；在安装页填写外部数据库的连接信息即可。
 
 ### 源码挂载部署
 
-适合开发、直接修改源码，或需要使用 `bbs1org_docker` 提供的 SQLite、MySQL、PostgreSQL Compose profile 的场景。
+适合开发、直接修改源码。
 
 ```bash
 cd /opt
@@ -76,21 +50,16 @@ git clone https://github.com/bbs1org/bbs1org.git bbs1org
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
 cd /opt/docker
 mv .env.example .env
+# 编辑 .env 配置文件
 nano .env
-```
-编辑 `/opt/docker/.env` 选择 SQLite、MySQL 或 PostgreSQL。
-
-```bash
+# 启动
 docker compose up -d
 ```
 
-访问 `http://服务器地址/index.php?a=install` 完成安装。
-Compose 会自动启动 `cron` 容器，每分钟以 CLI 方式执行 `php index.php cron`；无需配置宿主机 crontab 或第三方 URL 定时服务。
-完整配置、更新、备份和维护说明见 [bbs1org_docker](https://github.com/bbs1org/bbs1org_docker)。
-
 ## 手动部署
 
-使用宝塔面板部署请参考 [宝塔部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_BT.md)；使用 1Panel 请参考 [1Panel 部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_1PANEL.md)。
+使用宝塔面板部署请参考 [宝塔部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_BT.md)；
+使用 1Panel 请参考 [1Panel 部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_1PANEL.md)。
 
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
@@ -98,12 +67,11 @@ cd /var/www/bbs1org
 chown -R www-data:www-data .
 ```
 
-1. 将站点根目录指向项目目录，并将 PHP 请求交给 PHP-FPM
-2. 配置不存在文件回退到 `/index.php?$query_string`，禁止公网访问 `app/data/`、`app/cache/`、`app/plugins/`、点文件及 `app/upload/` 中的脚本文件；Nginx 可参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)，并将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
-3. 确保项目根目录和 `app/` 可写
-4. MySQL/PostgreSQL 需提前创建空数据库；MySQL 默认端口为 `3306`，PostgreSQL 默认端口为 `5432`；然后访问 `http://服务器地址/index.php?a=install`，选择已安装 PDO 驱动对应的数据库并完成安装
+Nginx 参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)
+注意将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
+MySQL 默认端口为 `3306`，PostgreSQL 默认端口为 `5432`
+访问 `http://服务器地址/index.php?a=install`，选择数据库完成安装
 
-若重新部署程序后连接到已有完整站点数据的数据库，安装器会恢复本地数据库配置和安装锁，并跳转登录页使用原账号登录，不会重复初始化数据。
 
 完成安装后，为运行 PHP 的系统用户配置每分钟一次的 CLI 计划任务：
 
