@@ -25,6 +25,84 @@ https://bbs1.org
 
 服务器需先安装 Docker Engine 和 Docker Compose 插件，并确保 `80` 端口未被占用。
 
+### GHCR 镜像部署（推荐）
+
+适合生产环境和不修改源码的部署。镜像包含固定版本的 bbs1org、Nginx、PHP 和计划任务配置，不需要在服务器上克隆源码。
+
+创建 `docker-compose.yml`：
+
+```yaml
+services:
+  php-init:
+    image: ghcr.io/bbs1org/bbs1org:6.5
+    user: "0:0"
+    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
+    volumes:
+      - data:/var/www/html/app/data
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+      - plugins:/var/www/html/app/plugins
+
+  php:
+    image: ghcr.io/bbs1org/bbs1org:6.5
+    restart: unless-stopped
+    depends_on:
+      php-init:
+        condition: service_completed_successfully
+    volumes:
+      - data:/var/www/html/app/data
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+      - plugins:/var/www/html/app/plugins
+
+  cron:
+    image: ghcr.io/bbs1org/bbs1org:6.5
+    restart: unless-stopped
+    depends_on:
+      php-init:
+        condition: service_completed_successfully
+    command: ["sh", "/usr/local/bin/bbs1-cron"]
+    volumes:
+      - data:/var/www/html/app/data
+      - avatars:/var/www/html/app/avatars
+      - upload:/var/www/html/app/upload
+      - plugins:/var/www/html/app/plugins
+
+  nginx:
+    image: ghcr.io/bbs1org/bbs1org-nginx:6.5
+    restart: unless-stopped
+    depends_on:
+      - php
+    ports:
+      - "8080:80"
+    volumes:
+      - avatars:/var/www/html/app/avatars:ro
+      - upload:/var/www/html/app/upload:ro
+
+volumes:
+  data:
+  avatars:
+  upload:
+  plugins:
+```
+
+启动服务：
+
+```bash
+docker compose up -d
+```
+
+访问 `http://服务器地址:8080/index.php?a=install` 完成安装。默认可直接使用 SQLite；`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### 源码挂载部署
+
+适合开发、直接修改源码，或需要使用 `bbs1org_docker` 提供的 SQLite、MySQL、PostgreSQL Compose profile 的场景。
+
 ```bash
 cd /opt
 git clone https://github.com/bbs1org/bbs1org.git bbs1org
