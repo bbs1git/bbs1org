@@ -29,74 +29,19 @@ https://bbs1.org
 
 适合生产环境和不修改源码的部署。镜像包含固定版本的 bbs1org、Nginx、PHP 和计划任务配置，不需要在服务器上克隆源码。
 
-创建 `docker-compose.yml`：
-
-```yaml
-services:
-  php-init:
-    image: ghcr.io/bbs1org/bbs1org:6.5
-    user: "0:0"
-    command: sh -c 'chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
-    volumes:
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-
-  php:
-    image: ghcr.io/bbs1org/bbs1org:6.5
-    restart: unless-stopped
-    depends_on:
-      php-init:
-        condition: service_completed_successfully
-    volumes:
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-
-  cron:
-    image: ghcr.io/bbs1org/bbs1org:6.5
-    restart: unless-stopped
-    depends_on:
-      php-init:
-        condition: service_completed_successfully
-    command: ["sh", "/usr/local/bin/bbs1-cron"]
-    volumes:
-      - data:/var/www/html/app/data
-      - avatars:/var/www/html/app/avatars
-      - upload:/var/www/html/app/upload
-      - plugins:/var/www/html/app/plugins
-
-  nginx:
-    image: ghcr.io/bbs1org/bbs1org-nginx:6.5
-    restart: unless-stopped
-    depends_on:
-      - php
-    ports:
-      - "8080:80"
-    volumes:
-      - avatars:/var/www/html/app/avatars:ro
-      - upload:/var/www/html/app/upload:ro
-
-volumes:
-  data:
-  avatars:
-  upload:
-  plugins:
-```
-
-启动服务：
+克隆项目后，使用 [container/docker-compose.yml](container/docker-compose.yml) 启动服务：
 
 ```bash
-docker compose up -d
+git clone https://github.com/bbs1org/bbs1org.git
+cd bbs1org
+docker compose -f container/docker-compose.yml up -d
 ```
 
-访问 `http://服务器地址:8080/index.php?a=install` 完成安装。默认可直接使用 SQLite；`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
+默认端口为 `8080`；可通过 `HTTP_PORT=80 docker compose -f container/docker-compose.yml up -d` 修改。访问 `http://服务器地址:端口/index.php?a=install` 完成安装。默认可直接使用 SQLite；`cron` 容器会每分钟执行一次站点和插件计划任务。升级时将镜像标签改为目标版本后执行：
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose -f container/docker-compose.yml pull
+docker compose -f container/docker-compose.yml up -d
 ```
 
 ### 源码挂载部署

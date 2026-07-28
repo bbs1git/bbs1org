@@ -21,9 +21,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - dockerfile: Dockerfile
+          - dockerfile: container/Dockerfile
             image_suffix: ''
-          - dockerfile: Dockerfile.nginx
+          - dockerfile: container/Dockerfile.nginx
             image_suffix: -nginx
     steps:
       - uses: actions/checkout@v4
