@@ -51,7 +51,7 @@ DB_USER=forum
 DB_PASSWORD=请替换为高强度密码
 ```
 
-启动后访问安装页。数据库类型选择 MySQL 时主机填写 `mysql`；选择 PostgreSQL 时将 `COMPOSE_PROFILES` 改为 `pgsql`，主机填写 `postgres`。数据库名、用户名和密码填写 `.env` 中的对应值。
+启动后访问安装页。数据库类型选择 MySQL 时主机填写 `mysql`、端口填写 `3306`；选择 PostgreSQL 时将 `COMPOSE_PROFILES` 改为 `pgsql`，主机填写 `postgres`、端口填写 `5432`。数据库名、用户名和密码填写 `.env` 中的对应值。
 
 若使用现有的外部 MySQL 或 PostgreSQL，不设置 `COMPOSE_PROFILES`，按 SQLite 方式启动 PHP、Nginx 和 cron 容器；在安装页填写外部数据库的连接信息即可。
 
@@ -90,7 +90,7 @@ chown -R www-data:www-data .
 1. 将站点根目录指向项目目录，并将 PHP 请求交给 PHP-FPM
 2. 配置不存在文件回退到 `/index.php?$query_string`，禁止公网访问 `app/data/`、`app/cache/`、`app/plugins/`、点文件及 `app/upload/` 中的脚本文件；Nginx 可参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)，并将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
 3. 确保项目根目录和 `app/` 可写
-4. MySQL/PostgreSQL 需提前创建空数据库；然后访问 `http://服务器地址/index.php?a=install`，选择已安装 PDO 驱动对应的数据库并完成安装
+4. MySQL/PostgreSQL 需提前创建空数据库；MySQL 默认端口为 `3306`，PostgreSQL 默认端口为 `5432`；然后访问 `http://服务器地址/index.php?a=install`，选择已安装 PDO 驱动对应的数据库并完成安装
 
 若重新部署程序后连接到已有完整站点数据的数据库，安装器会恢复本地数据库配置和安装锁，并跳转登录页使用原账号登录，不会重复初始化数据。
 
