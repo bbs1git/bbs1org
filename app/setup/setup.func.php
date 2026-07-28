@@ -164,11 +164,17 @@ function i_install_error(string $title, string $message): void
 }
 function i_db(array $config): PDO
 {
-    try {
-        return app_db_connect($config);
-    } catch (Throwable $e) {
-        i_install_error('数据库初始化失败', '数据库连接失败：' . $e->getMessage());
+    $attempts = defined('AUTO_INSTALL_RUNNING') ? 30 : 1;
+    $last_error = null;
+    for ($attempt = 0; $attempt < $attempts; $attempt++) {
+        try {
+            return app_db_connect($config);
+        } catch (Throwable $e) {
+            $last_error = $e;
+            if ($attempt + 1 < $attempts) sleep(2);
+        }
     }
+    i_install_error('数据库初始化失败', '数据库连接失败：' . ($last_error?->getMessage() ?: '未知错误'));
 }
 function i_database_install_state(PDO $db, string $driver): string
 {
@@ -273,6 +279,36 @@ function setup_install_run(): never
     if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) i_install_error('安装失败', '安装锁文件写入失败。');
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
     i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
+}
+
+function setup_auto_install_run(): never
+{
+    define('AUTO_INSTALL_RUNNING', true);
+    $driver = strtolower(trim((string)(getenv('BBS_DB_DRIVER') ?: 'sqlite')));
+    if (!in_array($driver, ['sqlite', 'mysql', 'pgsql'], true)) i_install_error('自动安装失败', 'BBS_DB_DRIVER 只能是 sqlite、mysql 或 pgsql。');
+    $default_host = $driver === 'mysql' ? 'mysql' : ($driver === 'pgsql' ? 'postgres' : '');
+    $default_port = $driver === 'mysql' ? 3306 : 5432;
+    $admin_username = trim((string)(getenv('BBS_ADMIN_USERNAME') ?: 'admin'));
+    $admin_password = (string)(getenv('BBS_ADMIN_PASSWORD') ?: '');
+    if ($admin_username === '' || $admin_password === '') i_install_error('自动安装失败', '请设置 BBS_ADMIN_USERNAME 和 BBS_ADMIN_PASSWORD。');
+    $_POST = [
+        'step' => 'install',
+        'confirm_clean' => '1',
+        'confirm_admin' => '1',
+        'db_type' => $driver,
+        'db_host' => trim((string)(getenv('BBS_DB_HOST') ?: $default_host)),
+        'db_port' => (string)max(1, (int)(getenv('BBS_DB_PORT') ?: $default_port)),
+        'db_name' => trim((string)(getenv('BBS_DB_NAME') ?: 'forum')),
+        'db_user' => (string)(getenv('BBS_DB_USER') ?: 'forum'),
+        'db_password' => (string)(getenv('BBS_DB_PASSWORD') ?: ''),
+        'site_name' => trim((string)(getenv('BBS_SITE_NAME') ?: '我的论坛')),
+        'admin_username' => $admin_username,
+        'admin_email' => trim((string)(getenv('BBS_ADMIN_EMAIL') ?: 'admin@example.com')),
+        'admin_password' => $admin_password,
+        'admin_password2' => $admin_password,
+        'forum_name' => trim((string)(getenv('BBS_FORUM_NAME') ?: '默认版块')),
+    ];
+    setup_install_run();
 }
 
 function us_unlock(): void

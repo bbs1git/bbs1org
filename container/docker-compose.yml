@@ -1,8 +1,20 @@
 services:
   php-init:
-    image: ghcr.io/bbs1org/bbs1org:6.9
+    image: ghcr.io/bbs1org/bbs1org:6.10
     user: "0:0"
-    command: sh -ec 'if [ ! -f index.php ]; then cp -a /usr/local/share/bbs1org-template/. .; fi; chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
+    command: sh -ec 'if [ ! -f index.php ]; then cp -a /usr/local/share/bbs1org-template/. .; fi; if [ ! -f app/data/install.lock ] && [ -n "$${BBS_ADMIN_PASSWORD:-}" ]; then php index.php auto-install; fi; chown -R www-data:www-data app && chown root:www-data . && chmod 775 .'
+    environment:
+      BBS_DB_DRIVER: ${COMPOSE_PROFILES:-sqlite}
+      BBS_DB_HOST: ${DB_HOST:-}
+      BBS_DB_PORT: ${DB_PORT:-}
+      BBS_DB_NAME: ${DB_NAME:-forum}
+      BBS_DB_USER: ${DB_USER:-forum}
+      BBS_DB_PASSWORD: ${DB_PASSWORD:-change-this-password}
+      BBS_ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      BBS_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BBS_ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      BBS_SITE_NAME: ${SITE_NAME:-我的论坛}
+      BBS_FORUM_NAME: ${FORUM_NAME:-默认版块}
     volumes:
       - code:/var/www/html
       - data:/var/www/html/app/data
@@ -11,7 +23,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   php:
-    image: ghcr.io/bbs1org/bbs1org:6.9
+    image: ghcr.io/bbs1org/bbs1org:6.10
     restart: unless-stopped
     depends_on:
       php-init:
@@ -24,7 +36,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   cron:
-    image: ghcr.io/bbs1org/bbs1org:6.9
+    image: ghcr.io/bbs1org/bbs1org:6.10
     restart: unless-stopped
     depends_on:
       php-init:
@@ -38,7 +50,7 @@ services:
       - plugins:/var/www/html/app/plugins
 
   nginx:
-    image: ghcr.io/bbs1org/bbs1org-nginx:6.9
+    image: ghcr.io/bbs1org/bbs1org-nginx:6.10
     restart: unless-stopped
     depends_on:
       - php

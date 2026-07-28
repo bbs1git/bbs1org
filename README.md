@@ -49,9 +49,18 @@ COMPOSE_PROFILES=mysql
 DB_NAME=forum
 DB_USER=forum
 DB_PASSWORD=请替换为高强度密码
+
+# 首次启动自动安装；留空 ADMIN_PASSWORD 则保留网页安装流程
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=请替换为管理员密码
+ADMIN_EMAIL=admin@example.com
+SITE_NAME=我的论坛
+FORUM_NAME=默认版块
 ```
 
 启动后访问安装页。数据库类型选择 MySQL 时主机填写 `mysql`、端口填写 `3306`；选择 PostgreSQL 时将 `COMPOSE_PROFILES` 改为 `pgsql`，主机填写 `postgres`、端口填写 `5432`。数据库名、用户名和密码填写 `.env` 中的对应值。
+
+设置 `ADMIN_PASSWORD` 后，首次启动会自动创建数据库表、默认版块、管理员账号和 `app/data/install.lock`；容器启动完成后直接访问首页，使用 `.env` 中的管理员账号和密码登录，无需再打开安装页。仅在没有安装锁时执行，重启不会重复安装。MySQL 和 PostgreSQL 容器分别使用默认端口 `3306` 和 `5432`。
 
 若使用现有的外部 MySQL 或 PostgreSQL，不设置 `COMPOSE_PROFILES`，按 SQLite 方式启动 PHP、Nginx 和 cron 容器；在安装页填写外部数据库的连接信息即可。
 

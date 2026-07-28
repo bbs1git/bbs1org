@@ -4,7 +4,7 @@ declare(strict_types=1);
 define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v6.9');
+define('APP_VERSION', 'v6.10');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -5073,6 +5073,10 @@ function core_routes(): array
 if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {
     $_GET['a'] = 'cron';
     $_SERVER['REQUEST_METHOD'] = 'GET';
+}
+if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'auto-install') {
+    require_once UPDATE_SETUP_FILE;
+    setup_auto_install_run();
 }
 parse_path_route();
 $setup_action = (string)($_GET['a'] ?? '');
