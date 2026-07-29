@@ -51,8 +51,6 @@ http://服务器地址:8080
 | MySQL | `mysql` | `mysql:3306` |
 | PostgreSQL | `pgsql` | `postgres:5432` |
 
-宝塔或 1Panel 使用同一套 Compose 配置：在面板的 Docker/容器编排中创建项目，路径填写 `/opt/docker`，Compose 文件填写 `/opt/docker/docker-compose.yml`，环境文件填写 `/opt/docker/.env`。需要域名和 HTTPS 时，将反向代理指向 `http://127.0.0.1:8080`。
-
 常用操作（均在 `/opt/docker` 执行）：
 
 ```bash
@@ -75,6 +73,28 @@ docker compose up -d
 `data`、`avatars`、`upload`、`plugins` 以及 MySQL/PostgreSQL 数据使用命名卷保存；
 同时备份 `/opt/docker/.env` 和 `/opt/bbs1org`。
 `docker compose down -v` 会删除数据库及其他运行数据，确认备份可恢复后才能执行。
+
+## 面板安装
+
+宝塔和 1Panel 使用同一套 Docker Compose 配置。在面板终端执行：
+
+```bash
+cd /opt
+git clone https://github.com/bbs1org/bbs1org.git bbs1org
+git clone https://github.com/bbs1org/bbs1org_docker.git docker
+cd docker
+mv .env.example .env
+```
+
+在面板的 Docker/容器编排中创建项目：
+
+| 项目 | 填写内容 |
+| --- | --- |
+| 路径 | `/opt/docker` |
+| Compose 文件 | `/opt/docker/docker-compose.yml` |
+| 环境文件 | `/opt/docker/.env` |
+
+启动后访问 `http://服务器地址:8080`。需要域名和 HTTPS 时，将反向代理指向 `http://127.0.0.1:8080`。默认管理员账号和密码均为 `admin`。
 
 ## 在线升级
 
