@@ -24,7 +24,7 @@ https://bbs1.org
 ## Docker 源码部署
 
 服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。
-以下以 `/opt` 为范例；可使用任意父目录，但 `docker` 与 `bbs1org` 必须同级。
+以下以 `/opt` 为范例。
 
 ```bash
 cd /opt
