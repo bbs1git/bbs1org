@@ -24,6 +24,7 @@ https://bbs1.org
 ## Docker 源码部署
 
 服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。
+以下以 `/opt` 为范例；可使用任意父目录，但 `docker` 与 `bbs1org` 必须同级。
 
 ```bash
 cd /opt
@@ -33,6 +34,8 @@ cd docker
 mv .env.example .env
 docker compose up -d
 ```
+
+`.env` 中的 `BBS1ORG_PATH` 默认是相对于 `docker` 目录的 `../bbs1org`。
 
 安装完成访问：
 
@@ -76,7 +79,7 @@ docker compose up -d
 
 ## 面板安装
 
-宝塔和 1Panel 使用同一套 Docker Compose 配置。在面板终端执行：
+宝塔和 1Panel 使用同一套 Docker Compose 配置。以下以 `/opt` 为范例；可替换为任意安装目录，但 `docker` 与 `bbs1org` 必须同级。在面板终端执行：
 
 ```bash
 cd /opt
