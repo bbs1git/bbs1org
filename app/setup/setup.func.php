@@ -20,6 +20,17 @@ define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/ind
 
 function setup_html(string $title, string $body): never
 {
+    if (PHP_SAPI === 'cli') {
+        $text = preg_replace('#<(?:style|script)\b[^>]*>.*?</(?:style|script)>#is', '', $body) ?? $body;
+        $text = preg_replace('#<\s*/?\s*(?:br|p|div|section|article|header|footer|h[1-6]|li|tr|ul|ol)\b[^>]*>#i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/[ \t]+\n/u', "\n", $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+        $text = trim($text);
+        $output = $text === '' || $text === $title || str_starts_with($text, $title . "\n") ? $text : $title . "\n\n" . $text;
+        fwrite(STDOUT, trim($output) . "\n");
+        exit;
+    }
     $meta = '<meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8">';
     echo '<!doctype html><html lang="zh-CN"><head>' . $meta . '<title>' . h($title) . '</title><link rel="icon" type="image/svg+xml" href="app/assets/index.svg"><style>
     :root{--bg:#eef2f7;--panel:#fff;--line:#dfe6ee;--line2:#edf1f5;--text:#1f2937;--muted:#6b7280;--brand:#2563eb;--brand2:#1d4ed8;--ok:#059669;--warn:#b45309;--danger:#dc2626;--radius:10px}
