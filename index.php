@@ -2663,7 +2663,7 @@ function upload_url(string $hash = '', string $file = ''): string
 {
     $path = 'app/upload/';
     if ($hash !== '' && $file !== '') $path .= rawurlencode(upload_hash_dir($hash)) . '/' . rawurlencode(basename($file));
-    return absolute_url(asset_url($path));
+    return asset_url($path);
 }
 function attachment_max_count(): int
 {
@@ -2790,7 +2790,7 @@ function upload_attachment_markdown(array $file): string
     }
     $label = markdown_link_text($original !== '' ? $original : $name);
     if ($is_image) return '![' . $label . '](' . upload_url($hash, $name) . ')';
-    return '[' . $label . '](' . base_url() . route_url('attachment', ['f' => $name, 'name' => $original !== '' ? $original : '附件.' . $ext]) . ')';
+    return '[' . $label . '](' . route_url('attachment', ['f' => $name, 'name' => $original !== '' ? $original : '附件.' . $ext]) . ')';
 }
 function attachment_upload_page(): void
 {
