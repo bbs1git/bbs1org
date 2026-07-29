@@ -77,7 +77,7 @@ docker compose up -d
 
 ## 面板安装
 
-宝塔和 1Panel 使用同一套 Docker Compose 配置。在面板 终端 执行Docker 源码部署代码即可。
+宝塔和 1Panel 在面板 终端 执行Docker 源码部署代码即可。
 
 ## 在线升级
 
