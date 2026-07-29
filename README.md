@@ -77,25 +77,7 @@ docker compose up -d
 
 ## 面板安装
 
-宝塔和 1Panel 使用同一套 Docker Compose 配置。以下以 `/opt` 为范例；可替换为任意安装目录，但 `docker` 与 `bbs1org` 必须同级。在面板终端执行：
-
-```bash
-cd /opt
-git clone https://github.com/bbs1org/bbs1org.git
-git clone https://github.com/bbs1org/bbs1org_docker.git
-cd bbs1org_docker
-mv .env.example .env
-```
-
-在面板的 Docker/容器编排中创建项目：
-
-| 项目 | 填写内容 |
-| --- | --- |
-| 路径 | `/opt/bbs1org_docker` |
-| Compose 文件 | `/opt/bbs1org_docker/docker-compose.yml` |
-| 环境文件 | `/opt/bbs1org_docker/.env` |
-
-启动后访问 `http://服务器地址:8080`。需要域名和 HTTPS 时，将反向代理指向 `http://127.0.0.1:8080`。默认管理员账号和密码均为 `admin`。
+宝塔和 1Panel 使用同一套 Docker Compose 配置。在面板 终端 执行Docker 源码部署代码即可。
 
 ## 在线升级
 
