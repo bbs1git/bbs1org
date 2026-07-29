@@ -28,14 +28,12 @@ https://bbs1.org
 
 ```bash
 cd /opt
-git clone https://github.com/bbs1org/bbs1org.git bbs1org
-git clone https://github.com/bbs1org/bbs1org_docker.git docker
-cd docker
+git clone https://github.com/bbs1org/bbs1org.git
+git clone https://github.com/bbs1org/bbs1org_docker.git
+cd bbs1org_docker
 mv .env.example .env
 docker compose up -d
 ```
-
-`.env` 中的 `BBS1ORG_PATH` 默认是相对于 `docker` 目录的 `../bbs1org`。
 
 安装完成访问：
 
@@ -54,7 +52,7 @@ http://服务器地址:8080
 | MySQL | `mysql` | `mysql:3306` |
 | PostgreSQL | `pgsql` | `postgres:5432` |
 
-常用操作（均在 `/opt/docker` 执行）：
+常用操作（均在 `/opt/bbs1org_docker` 执行）：
 
 ```bash
 docker compose ps                 # 查看状态
@@ -67,14 +65,14 @@ docker compose down               # 停止并保留数据卷
 
 ```bash
 git -C /opt/bbs1org pull --ff-only
-git -C /opt/docker pull --ff-only
-cd /opt/docker
+git -C /opt/bbs1org_docker pull --ff-only
+cd /opt/bbs1org_docker
 docker compose pull
 docker compose up -d
 ```
 
 `data`、`avatars`、`upload`、`plugins` 以及 MySQL/PostgreSQL 数据使用命名卷保存；
-同时备份 `/opt/docker/.env` 和 `/opt/bbs1org`。
+同时备份 `/opt/bbs1org_docker/.env` 和 `/opt/bbs1org`。
 `docker compose down -v` 会删除数据库及其他运行数据，确认备份可恢复后才能执行。
 
 ## 面板安装
@@ -83,9 +81,9 @@ docker compose up -d
 
 ```bash
 cd /opt
-git clone https://github.com/bbs1org/bbs1org.git bbs1org
-git clone https://github.com/bbs1org/bbs1org_docker.git docker
-cd docker
+git clone https://github.com/bbs1org/bbs1org.git
+git clone https://github.com/bbs1org/bbs1org_docker.git
+cd bbs1org_docker
 mv .env.example .env
 ```
 
@@ -93,9 +91,9 @@ mv .env.example .env
 
 | 项目 | 填写内容 |
 | --- | --- |
-| 路径 | `/opt/docker` |
-| Compose 文件 | `/opt/docker/docker-compose.yml` |
-| 环境文件 | `/opt/docker/.env` |
+| 路径 | `/opt/bbs1org_docker` |
+| Compose 文件 | `/opt/bbs1org_docker/docker-compose.yml` |
+| 环境文件 | `/opt/bbs1org_docker/.env` |
 
 启动后访问 `http://服务器地址:8080`。需要域名和 HTTPS 时，将反向代理指向 `http://127.0.0.1:8080`。默认管理员账号和密码均为 `admin`。
 
