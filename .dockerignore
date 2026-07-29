@@ -1,9 +1,0 @@
-.git
-.github
-.env
-**/.env
-app/data
-app/avatars
-app/upload
-app/plugins
-app/cache

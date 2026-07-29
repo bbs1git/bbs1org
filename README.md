@@ -21,70 +21,62 @@
 
 https://bbs1.org
 
-## Docker 部署
+## Docker 源码部署
 
-服务器需先安装 Docker Engine，确保要使用的端口未被占用。
-
-### GHCR 镜像部署（推荐）
-
-适合生产环境部署。镜像包含 bbs1org、Nginx、PHP、SQLite 或 MySQL 或 PostgreSQL
+服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。
 
 ```bash
+cd /opt
+git clone https://github.com/bbs1org/bbs1org.git bbs1org
 git clone https://github.com/bbs1org/bbs1org_docker.git docker
 cd docker
 mv .env.example .env
-# 编辑配置文件
-nano .env
-# 启动
 docker compose up -d
 ```
 
-### 源码挂载部署
-
-适合开发、直接修改源码。
-
-```bash
-git clone https://github.com/bbs1org/bbs1org.git /opt/bbs1org
-git clone https://github.com/bbs1org/bbs1org_docker.git docker
-cd docker
-mv .env.example .env
-# 编辑配置文件
-nano .env
-# 启动
-docker compose -f docker-compose1.yml up -d
-```
-
-## 手动部署
-
-使用宝塔面板部署请参考 [宝塔部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_BT.md)；
-使用 1Panel 请参考 [1Panel 部署指南](https://github.com/bbs1org/bbs1org_docker/blob/main/README_1PANEL.md)。
-
-```bash
-git clone https://github.com/bbs1org/bbs1org.git /var/www/bbs1org
-cd /var/www/bbs1org
-chown -R www-data:www-data .
-```
-
-Nginx 参考 [bbs1org_docker/nginx.conf](https://github.com/bbs1org/bbs1org_docker/blob/main/nginx.conf)
-注意将 `fastcgi_pass php:9000` 改为本机 PHP-FPM 地址
-MySQL 默认端口为 `3306`，PostgreSQL 默认端口为 `5432`
-访问 `http://服务器地址/index.php?a=install`，选择数据库完成安装
-
-
-完成安装后，为运行 PHP 的系统用户配置每分钟一次的 CLI 计划任务：
-
-```cron
-* * * * * cd /var/www/bbs1org && /usr/bin/php index.php cron >> app/data/cron.log 2>&1
-```
-
-可通过 `crontab -e` 添加；`/usr/bin/php` 请按服务器上的 `command -v php` 结果调整。
-若主机不支持 CLI 计划任务，可使用云监控、cron-job.org 等定时 URL 服务每分钟访问：
+安装完成访问：
 
 ```text
-https://你的域名/index.php?a=cron
+http://服务器地址:8080
 ```
 
-## 升级
+默认管理员账号和密码均为 `admin`，登录后请及时修改密码。
+
+注意：默认使用 SQLite。
+如需 MySQL 或 PostgreSQL，启动前修改 `.env` 中的 `COMPOSE_PROFILES` 为 `mysql` 或 `pgsql`，然后执行 `docker compose up -d`。
+
+| 数据库 | 配置值 | 容器内默认地址 |
+| --- | --- | --- |
+| SQLite | `sqlite` | 无需端口 |
+| MySQL | `mysql` | `mysql:3306` |
+| PostgreSQL | `pgsql` | `postgres:5432` |
+
+宝塔或 1Panel 使用同一套 Compose 配置：在面板的 Docker/容器编排中创建项目，路径填写 `/opt/docker`，Compose 文件填写 `/opt/docker/docker-compose.yml`，环境文件填写 `/opt/docker/.env`。需要域名和 HTTPS 时，将反向代理指向 `http://127.0.0.1:8080`。
+
+常用操作（均在 `/opt/docker` 执行）：
+
+```bash
+docker compose ps                 # 查看状态
+docker compose logs -f            # 查看日志
+docker compose restart            # 重启
+docker compose down               # 停止并保留数据卷
+```
+
+## 手动升级
+
+```bash
+git -C /opt/bbs1org pull --ff-only
+git -C /opt/docker pull --ff-only
+cd /opt/docker
+docker compose pull
+docker compose up -d
+```
+
+`data`、`avatars`、`upload`、`plugins` 以及 MySQL/PostgreSQL 数据使用命名卷保存；
+同时备份 `/opt/docker/.env` 和 `/opt/bbs1org`。
+`docker compose down -v` 会删除数据库及其他运行数据，确认备份可恢复后才能执行。
+
+## 在线升级
 
 在后台设置底部点击“升级”，检测更新后选择文件并执行“在线升级”。升级前请先备份数据库、附件、头像和插件目录。
 
@@ -176,6 +168,19 @@ return [
 - CSS 函数只返回 CSS 源码，不包含 `<style>` 标签。
 - JavaScript 函数只返回 JavaScript 源码，不包含 `<script>` 标签。
 - 资源不得依赖当前用户、当前页面、CSRF 或每次请求才确定的数据。动态值应输出到插件 HTML 的 `data-*` 属性，再由合并后的 JavaScript 读取。
+- CSS 类名必须以插件 ID 为前缀，选择器作用域必须落在插件自己输出的前缀类或根容器内；不要使用 `body`、通用标签或核心通用类选择器覆盖全站样式。
+- 不得复用、覆盖或依赖其他插件的 CSS 类；其他插件未启用时，当前插件的界面仍须完整。
+- 颜色默认只使用系统变量，不要为插件另建重复的主题调色板：
+
+| 用途 | 系统颜色变量 |
+| --- | --- |
+| 背景、边框 | `--bg`、`--panel`、`--line`、`--line-soft` |
+| 文字 | `--text`、`--text-muted`、`--text-subtle`、`--text-disabled` |
+| 品牌、交互 | `--brand`、`--brand-hover`、`--brand-soft`、`--focus-ring` |
+| 状态 | `--success`、`--success-soft`、`--danger`、`--danger-soft`、`--warning`、`--warning-soft`、`--info`、`--info-soft` |
+| 反色、遮罩、阴影 | `--inverse`、`--inverse-border`、`--inverse-text`、`--backdrop`、`--shadow-base`、`--shadow-medium` |
+
+除必须还原的第三方品牌色或数据可视化色外，不要硬编码十六进制、RGB、HSL 或命名颜色。避免无理由使用 `!important`；布局必须兼容窄屏、长文本、空状态和交互状态。
 
 启用、停用、卸载、市场安装或更新插件后，系统会自动重新生成资源；后台“同步插件”会同时同步插件目录并重建资源。
 
