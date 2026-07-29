@@ -4,7 +4,7 @@ declare(strict_types=1);
 define('APP_START_TIME', microtime(true));
 date_default_timezone_set('Asia/Shanghai');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-define('APP_VERSION', 'v6.11');
+define('APP_VERSION', 'v6.12');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -993,8 +993,7 @@ function plugin_share_post_page(string $id): void
     $head = '<div class="admin-plugin-summary"><strong>正在前往插件市场</strong><span>插件代码已准备好，请在官方站点确认后发布。</span></div>';
     $plugin_author = trim((string)($plugin['author'] ?? ''));
     $row = '<li class="admin-list-item admin-object-row plugin-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h((string)($plugin['name'] ?? $id)) . '</strong><span class="admin-flag on">分享</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ((string)($plugin['version'] ?? '') !== '' ? '<span>版本 ' . h((string)$plugin['version']) . '</span>' : '') . ($plugin_author !== '' ? '<span>插件作者 ' . h($plugin_author) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div><div class="plugin-file">' . h($file) . '</div></div><div class="admin-inline-ops plugin-ops">' . $share_form . '</div></li>';
-    $tip = '<p class="muted" style="margin:8px 0 0">插件安装更新方法：后台 -> 插件 -> 插件市场 -> 搜索插件ID ' . h($id) . '</p>';
-    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, '') . '<ul class="admin-manage-list plugin-list">' . $row . '</ul></div>' . $tip;
+    $html = '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, '') . '<ul class="admin-manage-list plugin-list">' . $row . '</ul></div>';
     page('分享插件', shell_html($html, sidebar_stack_html([sidebar_user_card_html()])));
 }
 function plugin_market_fetch(): array
@@ -1087,14 +1086,11 @@ function plugin_market_update_info(array $plugin, ?array $item): ?array
     if (!$item) return null;
     $id = (string)($plugin['id'] ?? '');
     if (!plugin_id_valid($id)) return null;
-    $remote_sha = (string)($item['sha256'] ?? '');
-    $local_sha = setting('plugin_' . $id . '_market_sha256', '');
     $remote_version = trim((string)($item['version'] ?? ''));
     $local_version = trim((string)($plugin['version'] ?? ''));
-    $sha_update = $remote_sha !== '' && $local_sha !== '' && !hash_equals($local_sha, $remote_sha);
     $version_update = $remote_version !== '' && $local_version !== '' && version_compare($remote_version, $local_version, '>');
-    if (!$sha_update && !$version_update) return null;
-    return ['version' => $remote_version, 'sha256' => $remote_sha];
+    if (!$version_update) return null;
+    return ['version' => $remote_version];
 }
 function hook_registry(): array
 {
@@ -4570,11 +4566,12 @@ function admin_layout(string $tab, string $body): string
 }
 function admin_plugin_action_form(string $id, string $action, string $label, string $class = '', string $confirm = ''): string
 {
-    return post_action_form(admin_url(['tab' => 'plugins']), $label, ['plugin_id' => $id, 'plugin_action' => $action], $class, $confirm);
+    $confirm_attr = $confirm !== '' ? ' data-confirm="' . h($confirm) . '"' : '';
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => $action]) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . '>' . h($label) . '</button></form>';
 }
 function admin_plugin_uninstall_form(string $id): string
 {
-    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-confirm="确定卸载插件？">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
 }
 function admin_plugin_share_form(string $id): string
 {
@@ -4585,9 +4582,9 @@ function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $la
     if (!plugin_uses_entry($plugin, $entry)) return '';
     $id = (string)$plugin['id'];
     $checked = plugin_entry_enabled($plugin, $entry);
-    return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0']) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
+    return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0']) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
 }
-function admin_plugins_page_html(): string
+function admin_plugins_page_html(bool $with_tabs = true): string
 {
     $plugins = plugins();
     uasort($plugins, function (array $a, array $b): int {
@@ -4598,8 +4595,8 @@ function admin_plugins_page_html(): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (is_array($plugin) && plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = post_action_form(admin_url(['tab' => 'plugins']), '同步插件', ['plugin_action' => 'sync']);
-    $html = admin_plugins_tabs_html('local') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    $head_right = admin_plugin_action_form('', 'sync', '同步插件');
+    $html = ($with_tabs ? admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         if (!is_array($plugin)) continue;
         $id = (string)$plugin['id'];
@@ -4691,7 +4688,7 @@ function plugin_market_item_matches_query(array $item, string $query): bool
     }
     return false;
 }
-function admin_plugins_market_page_html(): string
+function admin_plugins_market_page_html(bool $with_tabs = true): string
 {
     $market = plugin_market_fetch();
     $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
@@ -4704,7 +4701,7 @@ function admin_plugins_market_page_html(): string
     $query = trim((string)($_GET['q'] ?? ''));
     $head_left = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。</span></div>';
     $head_right = '<div class="plugin-head-actions">' . plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">刷新</a></div>';
-    $html = admin_plugins_tabs_html('market') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    $html = ($with_tabs ? admin_plugins_tabs_html('market') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     if (!(int)($market['ok'] ?? 0)) {
         $html .= '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li>';
         return $html . '</ul></div>';
@@ -4721,7 +4718,7 @@ function admin_plugins_market_page_html(): string
         $needs_update = isset($update_ids[$id]);
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
-        $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        $ops = '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'market_install']) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
@@ -4774,35 +4771,46 @@ function admin_page(): void
     if ($tab === 'plugins' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $plugin_action = (string)($_POST['plugin_action'] ?? '');
         $plugin_id = (string)($_POST['plugin_id'] ?? '');
+        $message = '';
+        $refresh_after_response = false;
         if ($plugin_action === 'sync') {
             save_settings_values(['plugin_sync_pending' => '1']);
-            set_flash('插件及资源将在下一个请求同步');
+            $message = '插件已同步';
+            $refresh_after_response = true;
         } elseif ($plugin_action === 'enable') {
             plugin_set_enabled($plugin_id, true);
-            set_flash('插件已启用');
+            $message = '插件已启用';
         } elseif ($plugin_action === 'disable') {
             plugin_set_enabled($plugin_id, false);
-            set_flash('插件已停用');
+            $message = '插件已停用';
         } elseif ($plugin_action === 'uninstall') {
             $keep_data = (string)($_POST['keep_plugin_data'] ?? '1') === '1';
             plugin_uninstall($plugin_id, $keep_data);
-            set_flash($keep_data ? '插件已卸载，数据已保留' : '插件已卸载，数据已清理');
+            $message = $keep_data ? '插件已卸载，数据已保留' : '插件已卸载，数据已清理';
         } elseif ($plugin_action === 'share') {
             plugin_share_post_page($plugin_id);
             return;
         } elseif ($plugin_action === 'entry_toggle') {
             plugin_set_entry_enabled($plugin_id, (string)($_POST['entry'] ?? ''), (string)($_POST['entry_enabled'] ?? '0') === '1');
-            if (ajax_request()) {
-                header('Content-Type: application/json; charset=utf-8');
-                echo json_encode(['ok' => 1, 'message' => '插件入口显示已更新'], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-            set_flash('插件入口显示已更新');
+            $message = '插件入口显示已更新';
         } elseif ($plugin_action === 'market_install') {
             plugin_market_install($plugin_id);
-            set_flash('插件已安装或更新，已自动停用，请启用后使用。');
+            $message = '插件已安装或更新，已自动停用，请启用后使用。';
+            $refresh_after_response = true;
         } else err('参数错误');
         $view = (string)($_GET['view'] ?? '');
+        if (ajax_request()) {
+            if ($refresh_after_response) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $html = $view === 'market' ? admin_plugins_market_page_html(false) : admin_plugins_page_html(false);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => 1, 'message' => $message, 'html' => $html], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        set_flash($message);
         go(admin_url(['tab' => 'plugins', 'view' => in_array($view, ['market', 'cron'], true) ? $view : null]));
     }
     if ($tab === 'settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -360,6 +360,13 @@ document.addEventListener("change", async e => {
         const response = await fetch(form.action || window.location.href, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
         const data = await response.json();
         if (!data?.ok) throw new Error(data?.message || "保存失败");
+        const replaceTarget = form.dataset.replaceTarget || "";
+        const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
+        if (replaceEl && data.html) {
+            replaceEl.outerHTML = data.html;
+            showToast(data.message || "已保存");
+            return;
+        }
         showToast(data.message || "已保存");
     } catch (err) {
         input.checked = !previous;
@@ -627,9 +634,19 @@ document.addEventListener("submit", async e => {
             if (button) button.disabled = false;
             return;
         }
-        showToast(data.message || "操作完成");
         const replaceTarget = form.dataset.replaceTarget || "";
         const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
+        if (data.refresh && replaceEl) {
+            try {
+                const panelResponse = await fetch(window.location.href, {credentials: "same-origin"});
+                const panelDoc = new DOMParser().parseFromString(await panelResponse.text(), "text/html");
+                const panel = panelDoc.querySelector(replaceTarget);
+                if (panel) replaceEl.outerHTML = panel.outerHTML;
+            } catch (_) {}
+            showToast(data.message || "操作完成");
+            return;
+        }
+        showToast(data.message || "操作完成");
         if (replaceEl && data.html) {
             replaceEl.outerHTML = data.html;
             return;
