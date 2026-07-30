@@ -1997,7 +1997,8 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
 }
 function shell_html(string $main, string $sidebar, string $class = ''): string
 {
-    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . '</div></div>' . $sidebar . '</div></div>';
+    $mainpanel_extra = (string)hook('mainpanel_extra', '', ['main' => $main, 'class' => $class]);
+    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . $mainpanel_extra . '</div></div>' . $sidebar . '</div></div>';
 }
 function tab_bar_html(array $items, string $active, string $class = ''): string
 {
