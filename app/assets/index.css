@@ -253,13 +253,18 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .visitor-avatar{font-size:16px;font-weight:700}
 .table-avatar{width:24px;height:24px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:var(--bg)}
 .avatar-picker{display:grid;gap:10px;min-width:0}
-.profile-disclosure{min-width:0}
+.profile-disclosure{min-width:0;padding:12px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:var(--panel)}
 .profile-disclosure>div{min-width:0}
-.profile-disclosure-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;padding:7px 10px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:var(--font-size-md)}
+.profile-disclosure-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;color:var(--text);font-size:var(--font-size-md)}
 .profile-disclosure-summary strong{color:var(--text)}
+.profile-disclosure-summary small{color:var(--text-subtle)}
+.profile-disclosure-main{display:flex;align-items:center;gap:8px;min-width:0}
+.profile-disclosure-heading{display:grid;gap:2px;min-width:0}
+.profile-disclosure-heading>span{color:var(--text-muted);font-size:var(--font-size-sm);line-height:1.2}
+.profile-disclosure-heading strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .profile-edit-action{min-height:auto!important;padding:3px 7px!important;border:0!important;border-radius:4px!important;background:transparent!important;color:var(--text-subtle)!important;font-size:var(--font-size-sm)!important;font-weight:400!important;box-shadow:none!important}
 .profile-edit-action:hover{background:var(--info-soft)!important;color:var(--brand)!important}
-.profile-disclosure-detail{display:grid;gap:10px;margin-top:10px}
+.profile-disclosure-detail{display:grid;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)}
 .profile-disclosure-detail .grid{grid-template-columns:88px minmax(0,1fr);gap:10px}
 .profile-avatar-summary{display:flex;width:30px;height:30px;overflow:hidden;border-radius:50%;background:var(--bg)}
 .profile-avatar-summary .avatar-img{width:100%;height:100%;border-radius:inherit}
