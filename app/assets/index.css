@@ -257,7 +257,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .profile-disclosure>div{min-width:0}
 .profile-disclosure-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;color:var(--text);font-size:var(--font-size-md)}
 .profile-disclosure-summary strong{color:var(--text)}
-.profile-disclosure-summary small{color:var(--text-subtle)}
+.profile-disclosure-summary small,.profile-disclosure-heading small{color:var(--text-subtle)}
 .profile-disclosure-main{display:flex;align-items:center;gap:8px;min-width:0}
 .profile-disclosure-heading{display:grid;gap:2px;min-width:0}
 .profile-disclosure-heading>span{color:var(--text-muted);font-size:var(--font-size-sm);line-height:1.2}
