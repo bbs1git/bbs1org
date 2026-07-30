@@ -1211,7 +1211,7 @@ function cron_lease_touch(): void
 }
 function cron_task_finish(array $task, string $status, string $error, int $finished_at): bool
 {
-    $interval = max(60, (int)$task['interval_seconds']);
+    $interval = max(60, (int)(val('SELECT interval_seconds FROM app_cron_tasks WHERE plugin_id=? AND task_name=?', [(string)$task['plugin_id'], (string)$task['task_name']]) ?: $task['interval_seconds']));
     $failure_count = (int)$task['failure_count'];
     $pause_until = 0;
     if ($status === 'success') {
