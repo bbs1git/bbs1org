@@ -44,7 +44,7 @@ http://服务器地址:8080
 默认管理员账号和密码均为 `admin`，登录后请及时修改密码。
 
 注意：默认使用 SQLite。
-如需 MySQL 或 PostgreSQL，启动前修改 `.env` 中的 `COMPOSE_PROFILES` 为 `mysql` 或 `pgsql`，然后执行 `docker compose up -d`。
+如需修改端口，或者使用 MySQL 或 PostgreSQL，务必启动前修改 `.env`。
 
 | 数据库 | 配置值 | 容器内默认地址 |
 | --- | --- | --- |
