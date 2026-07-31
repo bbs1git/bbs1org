@@ -2884,9 +2884,9 @@ function markdown_token(array &$tokens, string $html): string
 }
 function markdown_inline(string $text, int $topic_id = 0): string
 {
-    if (strpbrk($text, '`*[@') === false && !str_contains($text, 'http')) return h($text);
-    $has_url = str_contains($text, 'http://') || str_contains($text, 'https://');
-    $has_local_image = str_contains($text, '](/app/') || str_contains($text, '](app/');
+    if (strpbrk($text, '`*[@') === false && stripos($text, 'http') === false) return h($text);
+    $has_url = stripos($text, 'http://') !== false || stripos($text, 'https://') !== false;
+    $has_markdown_url = $has_url || str_contains($text, '](/');
     $text = h($text);
     $codes = [];
     if (str_contains($text, '`')) {
@@ -2901,13 +2901,12 @@ function markdown_inline(string $text, int $topic_id = 0): string
             return '<em>' . $m[3] . '</em>';
         }, $text) ?? $text;
     }
-    if (str_contains($text, '[') && ($has_url || $has_local_image)) {
-        $text = preg_replace_callback('/!\[((?:\\\\.|[^\]\\\\\n])*)\]\(((?:https?:\/\/|\/?app\/(?:upload|avatars)\/)[^\s)<]+)\)|\[((?:\\\\.|[^\]\\\\\n])+)\]\((https?:\/\/[^\s)<]+)\)/u', function ($m) use (&$codes) {
+    if (str_contains($text, '[') && $has_markdown_url) {
+        $text = preg_replace_callback('/!\[((?:\\\\.|[^\]\\\\\n])*)\]\(((?:https?:\/\/|\/)[^\s)<]+)\)|\[((?:\\\\.|[^\]\\\\\n])+)\]\(((?:https?:\/\/|\/)[^\s)<]+)\)/ui', function ($m) use (&$codes) {
             $image = str_starts_with($m[0], '![');
             $label = (string)$m[$image ? 1 : 3];
             $label = str_replace(['\\]', '\\[', '\\\\'], [']', '[', '\\'], $label);
             $url = html_entity_decode((string)$m[$image ? 2 : 4], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            if ($image && !preg_match('/^https?:\/\//i', $url)) $url = asset_url($url);
             $html = $image
                 ? '<img src="' . h($url) . '" alt="' . $label . '" loading="lazy" referrerpolicy="no-referrer">'
                 : '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . $label . '</a>';
@@ -2926,7 +2925,7 @@ function markdown_inline(string $text, int $topic_id = 0): string
         }, $text) ?? $text;
     }
     if ($has_url) {
-        $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/u', function ($m) {
+        $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/ui', function ($m) {
             $raw_url = rtrim($m[1], '.,;:!?');
             $url = html_entity_decode($raw_url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $tail = substr($m[1], strlen($raw_url));
