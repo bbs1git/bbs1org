@@ -69,25 +69,7 @@ docker compose down               # 停止并保留数据卷
 - 使用第三方(比如：cron-job.org)定时请求服务，启用定时任务。
 每分钟以 `GET` 方式访问：`https://你的域名/index.php?a=cron`
 
-### 升级和备份
-
-升级前使用面板导出 MySQL 数据库，并通过 FTP 下载 `app/data`、`app/avatars`、`app/upload` 和 `app/plugins` 备份。升级时上传新版代码并覆盖程序文件，不要删除上述运行数据目录。若 PHP-FPM 开启了不自动检查文件变化的 OPcache，升级后在面板中重启对应 PHP-FPM 服务。
-
-## 手动升级
-
-```bash
-git -C /opt/bbs1org pull --ff-only
-git -C /opt/bbs1org_docker pull --ff-only
-cd /opt/bbs1org_docker
-docker compose pull
-docker compose up -d
-```
-
-`data`、`avatars`、`upload`、`plugins` 以及 MySQL/PostgreSQL 数据使用命名卷保存；
-同时备份 `/opt/bbs1org_docker/.env` 和 `/opt/bbs1org`。
-`docker compose down -v` 会删除数据库及其他运行数据，确认备份可恢复后才能执行。
-
-## 面板安装
+## 面板部署
 
 宝塔和 1Panel 在面板 终端 执行Docker 源码部署代码即可。
 
@@ -95,7 +77,7 @@ docker compose up -d
 
 在后台设置底部点击“升级”，检测更新后选择文件并执行“在线升级”。升级前请先备份数据库、附件、头像和插件目录。
 
-## 数据库迁移
+## 数据库转换和迁移
 
 先在新数据库完成安装并登录管理员账号，再从升级页进入“数据迁入”，或访问 `index.php?a=migrate`。选择旧数据库类型并填写连接信息，程序会迁入旧库的全部普通数据表；当前库没有的表会自动复制字段、主键和索引后再导入数据，同名表则清空后替换，并保留原 ID。
 
@@ -109,16 +91,16 @@ docker compose up -d
 index.php                       论坛唯一主程序
 app/assets/                     静态资源
 app/avatars/                    头像镜像，需持久存储
-app/upload/                     附件，需持久存储
+app/upload/                     附件，定期备份，需持久存储
 ```
 
 ### 公网禁止访问
 
 ```text
-app/data/                       数据文件，需持久存储
-app/plugins/                    插件，需持久存储
-app/cache/                      插件及临时缓存
-app/setup/                      安装升级与数据迁入
+app/data/                       数据文件，定期备份，需持久存储
+app/plugins/                    插件，定期备份，需持久存储
+app/cache/                      临时缓存
+app/setup/                      安装升级与数据迁入函数
 ```
 
 ## 插件开发指南
