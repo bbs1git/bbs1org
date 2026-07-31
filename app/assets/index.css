@@ -342,9 +342,12 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .attachment-upload-list{display:grid;gap:6px;margin-top:2px}
 .attachment-upload-list[hidden]{display:none}
 .attachment-upload-item{display:grid;gap:6px;min-width:0;padding:8px 10px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:var(--bg)}
-.attachment-upload-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;min-width:0}
+.attachment-upload-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:start;gap:10px;min-width:0}
 .attachment-upload-name{min-width:0;overflow:hidden;color:var(--text);font-size:var(--font-size-sm);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
 .attachment-upload-status{max-width:220px;color:var(--text-subtle);font-size:11px;line-height:1.4;text-align:right;overflow-wrap:anywhere}
+.attachment-upload-remove{display:grid;place-items:center;width:20px;min-width:20px;min-height:20px;padding:0;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-subtle);font-size:18px;line-height:1;box-shadow:none}
+.attachment-upload-remove:hover{background:var(--line-soft);color:var(--danger)}
+.attachment-upload-remove:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
 .attachment-upload-progress{display:block;width:100%;height:4px;overflow:hidden;border-radius:4px;background:var(--line)}
 .attachment-upload-progress>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--brand);transition:width .15s ease}
 .attachment-upload-item[data-state="success"] .attachment-upload-status{color:var(--success)}

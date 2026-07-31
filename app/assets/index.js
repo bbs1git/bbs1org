@@ -493,10 +493,11 @@ const attachmentHistoryWrite = (storageKey, history) => {
         localStorage.setItem(storageKey, JSON.stringify(history));
     } catch (_) {}
 };
-const attachmentUploadItem = (list, file) => {
+const attachmentUploadItem = (list, file, key = "") => {
     const item = document.createElement("div");
     item.className = "attachment-upload-item";
     item.dataset.state = "waiting";
+    if (key) item.dataset.attachmentKey = key;
     const head = document.createElement("div");
     head.className = "attachment-upload-head";
     const name = document.createElement("span");
@@ -506,6 +507,13 @@ const attachmentUploadItem = (list, file) => {
     const status = document.createElement("span");
     status.className = "attachment-upload-status";
     status.textContent = "等待上传 · " + attachmentFileSize(file.size || 0);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "attachment-upload-remove";
+    remove.dataset.attachmentRemove = "1";
+    remove.setAttribute("aria-label", "不插入此附件");
+    remove.title = "不插入内容";
+    remove.textContent = "×";
     const progress = document.createElement("span");
     progress.className = "attachment-upload-progress";
     progress.setAttribute("role", "progressbar");
@@ -514,7 +522,7 @@ const attachmentUploadItem = (list, file) => {
     progress.setAttribute("aria-valuenow", "0");
     const fill = document.createElement("span");
     progress.append(fill);
-    head.append(name, status);
+    head.append(name, status, remove);
     item.append(head, progress);
     list.append(item);
     return {item, status, progress, fill};
@@ -543,7 +551,7 @@ const updateAttachmentUploadToolbar = (uploader, state) => {
     if (summary) summary.textContent = "已上传 " + state.history.length + " 个";
     if (button) {
         button.disabled = pending === 0;
-        button.textContent = pending > 0 ? "批量插入内容（" + pending + "）" : "已全部插入";
+        button.textContent = pending > 0 ? "批量插入（" + pending + "）" : "已全部插入";
     }
 };
 const attachmentUploaderState = uploader => {
@@ -551,15 +559,27 @@ const attachmentUploaderState = uploader => {
     if (state) return state;
     const storageKey = uploader.dataset.uploadStorageKey || "";
     const history = attachmentHistoryRead(storageKey);
-    state = {storageKey, history, selected: new Set(history.map(entry => entry.key)), inserted: new Set()};
+    state = {storageKey, history, selected: new Set(history.map(entry => entry.key)), inserted: new Set(), dismissed: new Set()};
     attachmentUploaderStates.set(uploader, state);
     const list = uploader.querySelector("[data-attachment-upload-list]");
     if (list && history.length > 0) {
         list.hidden = false;
-        history.forEach(entry => attachmentUploadSuccess(attachmentUploadItem(list, entry), entry, true));
+        history.forEach(entry => attachmentUploadSuccess(attachmentUploadItem(list, entry, entry.key), entry, true));
     }
     updateAttachmentUploadToolbar(uploader, state);
     return state;
+};
+const dismissAttachmentUploadItem = (uploader, key, item) => {
+    if (!uploader || !key) return;
+    const state = attachmentUploaderState(uploader);
+    state.dismissed.add(key);
+    state.history = state.history.filter(entry => entry.key !== key);
+    state.inserted.delete(key);
+    attachmentHistoryWrite(state.storageKey, state.history);
+    item?.remove();
+    const list = uploader.querySelector("[data-attachment-upload-list]");
+    if (list && list.children.length === 0) list.hidden = true;
+    updateAttachmentUploadToolbar(uploader, state);
 };
 const appendPendingAttachmentMarkdown = form => {
     const textarea = form?.querySelector("textarea[name=body]");
@@ -598,6 +618,7 @@ const clearAttachmentUploadHistory = storageKey => {
         state.history.length = 0;
         state.selected.clear();
         state.inserted.clear();
+        state.dismissed.clear();
         const list = uploader.querySelector("[data-attachment-upload-list]");
         if (list) {
             list.replaceChildren();
@@ -660,12 +681,14 @@ const uploadAttachmentFile = (url, token, file, onProgress) => new Promise((reso
             return;
         }
         if (request.status < 200 || request.status >= 300 || !data.ok) {
-            reject(new Error(data.message || "上传失败"));
+            const error = new Error(data.message || "上传失败");
+            error.csrf = typeof data.csrf === "string" ? data.csrf : "";
+            reject(error);
             return;
         }
         resolve(data);
     });
-    request.addEventListener("error", () => reject(new Error("网络错误")));
+    request.addEventListener("error", () => reject(new Error("上传失败")));
     request.addEventListener("abort", () => reject(new Error("上传已取消")));
     const body = new FormData();
     body.append("_csrf", token);
@@ -681,7 +704,7 @@ document.addEventListener("change", async e => {
     const form = input.closest("form");
     const textarea = form?.querySelector("textarea[name=body]");
     const url = uploader?.dataset?.uploadUrl || "";
-    const token = form?.querySelector("input[name=_csrf]")?.value || "";
+    let token = form?.querySelector("input[name=_csrf]")?.value || "";
     const selectedFiles = Array.from(input.files || []);
     if (!uploader || !textarea || !url || selectedFiles.length === 0) return;
     const state = attachmentUploaderState(uploader);
@@ -709,7 +732,7 @@ document.addEventListener("change", async e => {
     if (list) {
         list.hidden = false;
     }
-    const rows = files.map(file => list ? attachmentUploadItem(list, file) : null);
+    const rows = entries.map(entry => list ? attachmentUploadItem(list, entry.file, entry.key) : null);
     input.disabled = true;
     for (const [index, file] of files.entries()) {
         const row = rows[index];
@@ -717,12 +740,28 @@ document.addEventListener("change", async e => {
         try {
             if (file.size > maxMb * 1024 * 1024) throw new Error("超过" + maxMb + "MB");
             if (row) updateAttachmentUploadItem(row, "uploading", 0);
-            const data = await uploadAttachmentFile(url, token, file, percent => {
-                if (row) updateAttachmentUploadItem(row, "uploading", percent);
-            });
+            let data;
+            try {
+                data = await uploadAttachmentFile(url, token, file, percent => {
+                    if (row) updateAttachmentUploadItem(row, "uploading", percent);
+                });
+            } catch (error) {
+                if (!error?.csrf) throw error;
+                token = error.csrf;
+                const csrfInput = form.querySelector("input[name=_csrf]");
+                if (csrfInput) csrfInput.value = token;
+                data = await uploadAttachmentFile(url, token, file, percent => {
+                    if (row) updateAttachmentUploadItem(row, "uploading", percent);
+                });
+            }
+            if (typeof data.csrf === "string" && data.csrf) {
+                token = data.csrf;
+                const csrfInput = form.querySelector("input[name=_csrf]");
+                if (csrfInput) csrfInput.value = token;
+            }
             const markdown = String(data.markdown || "");
             const entry = {key: entries[index].key, name: file.name || "未命名附件", size: file.size || 0, lastModified: file.lastModified || 0, markdown, createdAt: Date.now()};
-            if (markdown) {
+            if (markdown && !state.dismissed.has(entry.key)) {
                 state.history.push(entry);
                 attachmentHistoryWrite(state.storageKey, state.history);
                 if (row) attachmentUploadSuccess(row, entry);
@@ -740,6 +779,14 @@ document.addEventListener("change", async e => {
     input.value = "";
 });
 document.addEventListener("click", e => {
+    const remove = e.target.closest("[data-attachment-remove]");
+    if (remove) {
+        e.preventDefault();
+        e.stopPropagation();
+        const item = remove.closest(".attachment-upload-item");
+        dismissAttachmentUploadItem(item?.closest(".attachment-uploader"), item?.dataset.attachmentKey || "", item);
+        return;
+    }
     const insertAll = e.target.closest("[data-attachment-insert-all]");
     if (insertAll) {
         const uploader = insertAll.closest(".attachment-uploader");
@@ -758,6 +805,7 @@ document.addEventListener("click", e => {
     if (item) copyAttachmentMarkdown(item);
 });
 document.addEventListener("keydown", e => {
+    if (e.target.closest("[data-attachment-remove]")) return;
     const item = e.target.closest(".attachment-upload-item[data-state='success'][data-markdown]");
     if (!item || (e.key !== "Enter" && e.key !== " ")) return;
     e.preventDefault();

@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v6.22');
+define('APP_VERSION', 'v6.26');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2222,7 +2222,12 @@ function check(): void
     $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
     if ($is_post && hook('request.csrf_exempt', false, ['action' => (string)($_GET['a'] ?? '')]) === true) return;
     if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
-        ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
+        if (ajax_request()) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => 0, 'message' => '请求已过期', 'csrf' => csrf_token()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        err('请求已过期');
     }
 }
 function ajax_request(): bool
@@ -2707,7 +2712,7 @@ function attachment_store(int $user_id, string $tmp, string $target, string $has
             $quota = ($quota_mb > 0 ? $quota_mb : ATTACHMENT_DEFAULT_QUOTA_MB) * 1024 * 1024;
             if (attachment_used_bytes($user_id) + $size > $quota) throw new AttachmentUploadException('上传空间已达用户组上限');
             if (!is_file($target)) {
-                if (!move_uploaded_file($tmp, $target)) throw new AttachmentUploadException('附件保存失败');
+                if (!move_uploaded_file($tmp, $target)) throw new AttachmentUploadException('上传失败');
                 $created_file = true;
             }
             app_db_insert_ignore('app_attachments', ['user_id'=>$user_id, 'hash'=>$hash, 'file_name'=>$file_name, 'original_name'=>$original, 'ext'=>$ext, 'mime'=>$mime, 'size'=>$size, 'is_image'=>$is_image ? 1 : 0, 'created_at'=>now()], ['user_id', 'hash']);
@@ -2753,8 +2758,7 @@ function upload_attachment_markdown(array $file): string
     $allowed = hook('attachment.before_upload', true, ['user_id' => $user_id]);
     if ($allowed !== true) err(is_string($allowed) ? $allowed : '禁止上传附件');
     $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
-    if ($error === UPLOAD_ERR_NO_FILE) err('请选择附件');
-    if ($error !== UPLOAD_ERR_OK) err('附件上传失败');
+    if ($error !== UPLOAD_ERR_OK) err($error === UPLOAD_ERR_NO_FILE ? '请选择附件' : '上传失败');
     require_writable_dir(UPLOAD_DIR, '附件目录不可写，请检查 app/upload/ 目录权限');
     $size = (int)($file['size'] ?? 0);
     if ($size <= 0) err('附件不能为空');
@@ -2762,14 +2766,14 @@ function upload_attachment_markdown(array $file): string
     $original = trim(preg_replace('/[\r\n]+/', ' ', basename((string)($file['name'] ?? ''))) ?? '');
     $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
     $storage_ext = upload_storage_ext($ext);
-    if (!is_uploaded_file((string)($file['tmp_name'] ?? ''))) err('附件保存失败');
+    if (!is_uploaded_file((string)($file['tmp_name'] ?? ''))) err('上传失败');
     $tmp = (string)$file['tmp_name'];
     $mime = upload_detect_mime($tmp);
     if ($mime === '') err('附件类型无法识别');
     $is_image = upload_image_ext($ext);
     if ($is_image && !upload_image_valid($tmp, $ext, $mime)) err('图片文件校验失败');
     $hash = hash_file('sha256', (string)$file['tmp_name']);
-    if (!is_string($hash) || $hash === '') err('附件保存失败');
+    if (!is_string($hash) || $hash === '') err('上传失败');
     $hash_dir = upload_hash_dir($hash);
     $dir = UPLOAD_DIR . '/' . $hash_dir;
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('附件目录不可写');
@@ -2794,7 +2798,7 @@ function attachment_upload_page(): void
         $markdown = upload_attachment_markdown(is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : []);
         if (ob_get_level() > 0) ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => 1, 'markdown' => $markdown, 'csrf' => csrf_token()], JSON_UNESCAPED_UNICODE);
         exit;
     } catch (Throwable $e) {
         if (ob_get_level() > 0) ob_end_clean();
@@ -3526,7 +3530,7 @@ function attachment_uploader_html(bool $muted = false): string
     $mb = attachment_max_mb();
     if ($mb <= 0 || attachment_quota_bytes() <= 0) return '';
     $storage_key = 'bbs1_attachment_upload_history_v1_' . uid();
-    return '<div class="grid attachment-field' . ($muted ? ' attachment-field-muted' : '') . '"><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-mb="' . $mb . '" data-upload-storage-key="' . h($storage_key) . '"><label class="attachment-drop"><input class="attachment-input" type="file" multiple data-attachment-input><strong>选择附件</strong><span>单个不超过' . $mb . 'MB</span></label><div class="attachment-upload-toolbar" data-attachment-upload-toolbar hidden><span data-attachment-upload-summary></span><button type="button" class="attachment-upload-insert" data-attachment-insert-all>批量插入内容</button></div><div class="attachment-upload-list" data-attachment-upload-list aria-live="polite" hidden></div></div></div>';
+    return '<div class="grid attachment-field' . ($muted ? ' attachment-field-muted' : '') . '"><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-mb="' . $mb . '" data-upload-storage-key="' . h($storage_key) . '"><label class="attachment-drop"><input class="attachment-input" type="file" multiple data-attachment-input><strong>选择附件</strong><span>单个不超过' . $mb . 'MB</span></label><div class="attachment-upload-toolbar" data-attachment-upload-toolbar hidden><span data-attachment-upload-summary></span><button type="button" class="attachment-upload-insert" data-attachment-insert-all>批量插入</button></div><div class="attachment-upload-list" data-attachment-upload-list aria-live="polite" hidden></div></div></div>';
 }
 function select_group(int $gid): string
 {
