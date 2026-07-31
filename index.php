@@ -1407,6 +1407,16 @@ function clear_opcache_cache(): bool
         return false;
     }
 }
+function opcache_refresh_route(): void
+{
+    $lock_file = DATA_DIR . '/opcache-refresh.lock';
+    if (!is_file($lock_file) || !clear_opcache_cache()) {
+        http_response_code(403);
+        exit('failed');
+    }
+    @unlink($lock_file);
+    exit('ok');
+}
 function clean_site_base_url(string $url): string
 {
     $url = rtrim(trim($url), '/');
@@ -5105,7 +5115,7 @@ function core_routes(): array
         'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'forgot_password'=>'forgot_password_page', 'reset_password'=>'reset_password_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
         'topic_edit'=>'topic_edit_page', 'reply_edit'=>'reply_edit_page', 'delete'=>'delete_route',
         'attachment'=>'attachment_page', 'attachment_upload'=>'attachment_upload_page', 'avatar_mirror'=>'avatar_mirror_page',
-        'migrate'=>'migration_route', 'admin'=>'admin_route', 'cron'=>'cron_route',
+        'migrate'=>'migration_route', 'admin'=>'admin_route', 'cron'=>'cron_route', 'opcache_refresh'=>'opcache_refresh_route',
     ];
 }
 

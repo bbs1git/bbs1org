@@ -593,6 +593,21 @@ function us_writable_parent(string $path): bool
     return is_dir($parent) && is_writable($parent);
 }
 
+function us_refresh_fpm_opcache_after_update(): string
+{
+    if (PHP_SAPI !== 'cli') return 'OPcache 已成功清理';
+
+    $lock_file = UPDATE_DATA_DIR . '/opcache-refresh.lock';
+    if (file_put_contents($lock_file, '', LOCK_EX) === false) throw new RuntimeException('无法创建 OPcache 刷新锁。');
+    try {
+        $result = @file_get_contents('http://nginx/?a=opcache_refresh');
+        if ($result !== 'ok') throw new RuntimeException('程序文件已更新，但 PHP-FPM OPcache 清理失败；请重启 PHP-FPM 后重试。');
+        return 'OPcache 已成功清理';
+    } finally {
+        @unlink($lock_file);
+    }
+}
+
 function us_refresh_opcache_after_update(array $files): string
 {
     $php_updated = (bool)array_filter($files, static fn(string $path): bool => str_ends_with(strtolower($path), '.php'));
@@ -606,7 +621,7 @@ function us_refresh_opcache_after_update(array $files): string
             // 无法读取状态时，以配置值判断，随后仍要求 opcache_reset() 成功。
         }
     }
-    if (!$opcache_enabled) return 'OPcache 未启用，无需清理';
+    if (!$opcache_enabled) return us_refresh_fpm_opcache_after_update();
     if (!function_exists('opcache_reset')) {
         throw new RuntimeException('程序文件已更新，但 OPcache 已启用且无法调用 opcache_reset()；数据库结构尚未同步，请清理 OPcache 后重试。');
     }
@@ -618,7 +633,7 @@ function us_refresh_opcache_after_update(array $files): string
     if (!$cleared) {
         throw new RuntimeException('程序文件已更新，但 OPcache 清理失败；数据库结构尚未同步，请清理 OPcache 后重试。');
     }
-    return 'OPcache 已成功清理';
+    return us_refresh_fpm_opcache_after_update();
 }
 
 function us_install_files(string $sha, array $remote_files, array $selected): array
