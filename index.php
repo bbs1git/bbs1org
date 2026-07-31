@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v6.26');
+define('APP_VERSION', 'v6.27');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2220,14 +2220,10 @@ function check(): void
 {
     if (uid()) me();
     $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
-    if ($is_post && hook('request.csrf_exempt', false, ['action' => (string)($_GET['a'] ?? '')]) === true) return;
+    $action = (string)($_GET['a'] ?? '');
+    if ($is_post && (hook('request.csrf_exempt', false, ['action' => $action]) === true || ($action === 'attachment_upload' && ajax_request()))) return;
     if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
-        if (ajax_request()) {
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 0, 'message' => '请求已过期', 'csrf' => csrf_token()], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        err('请求已过期');
+        ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
     }
 }
 function ajax_request(): bool
@@ -2798,7 +2794,7 @@ function attachment_upload_page(): void
         $markdown = upload_attachment_markdown(is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : []);
         if (ob_get_level() > 0) ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 1, 'markdown' => $markdown, 'csrf' => csrf_token()], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
         exit;
     } catch (Throwable $e) {
         if (ob_get_level() > 0) ob_end_clean();

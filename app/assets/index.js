@@ -665,7 +665,7 @@ const copyAttachmentMarkdown = async item => {
         showToast("复制失败");
     }
 };
-const uploadAttachmentFile = (url, token, file, onProgress) => new Promise((resolve, reject) => {
+const uploadAttachmentFile = (url, file, onProgress) => new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", url, true);
     request.setRequestHeader("X-Requested-With", "XMLHttpRequest");
@@ -681,9 +681,7 @@ const uploadAttachmentFile = (url, token, file, onProgress) => new Promise((reso
             return;
         }
         if (request.status < 200 || request.status >= 300 || !data.ok) {
-            const error = new Error(data.message || "上传失败");
-            error.csrf = typeof data.csrf === "string" ? data.csrf : "";
-            reject(error);
+            reject(new Error(data.message || "上传失败"));
             return;
         }
         resolve(data);
@@ -691,7 +689,6 @@ const uploadAttachmentFile = (url, token, file, onProgress) => new Promise((reso
     request.addEventListener("error", () => reject(new Error("上传失败")));
     request.addEventListener("abort", () => reject(new Error("上传已取消")));
     const body = new FormData();
-    body.append("_csrf", token);
     body.append("attachment", file);
     request.send(body);
 });
@@ -704,7 +701,6 @@ document.addEventListener("change", async e => {
     const form = input.closest("form");
     const textarea = form?.querySelector("textarea[name=body]");
     const url = uploader?.dataset?.uploadUrl || "";
-    let token = form?.querySelector("input[name=_csrf]")?.value || "";
     const selectedFiles = Array.from(input.files || []);
     if (!uploader || !textarea || !url || selectedFiles.length === 0) return;
     const state = attachmentUploaderState(uploader);
@@ -740,25 +736,9 @@ document.addEventListener("change", async e => {
         try {
             if (file.size > maxMb * 1024 * 1024) throw new Error("超过" + maxMb + "MB");
             if (row) updateAttachmentUploadItem(row, "uploading", 0);
-            let data;
-            try {
-                data = await uploadAttachmentFile(url, token, file, percent => {
-                    if (row) updateAttachmentUploadItem(row, "uploading", percent);
-                });
-            } catch (error) {
-                if (!error?.csrf) throw error;
-                token = error.csrf;
-                const csrfInput = form.querySelector("input[name=_csrf]");
-                if (csrfInput) csrfInput.value = token;
-                data = await uploadAttachmentFile(url, token, file, percent => {
-                    if (row) updateAttachmentUploadItem(row, "uploading", percent);
-                });
-            }
-            if (typeof data.csrf === "string" && data.csrf) {
-                token = data.csrf;
-                const csrfInput = form.querySelector("input[name=_csrf]");
-                if (csrfInput) csrfInput.value = token;
-            }
+            const data = await uploadAttachmentFile(url, file, percent => {
+                if (row) updateAttachmentUploadItem(row, "uploading", percent);
+            });
             const markdown = String(data.markdown || "");
             const entry = {key: entries[index].key, name: file.name || "未命名附件", size: file.size || 0, lastModified: file.lastModified || 0, markdown, createdAt: Date.now()};
             if (markdown && !state.dismissed.has(entry.key)) {
