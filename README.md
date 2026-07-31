@@ -64,8 +64,10 @@ docker compose down               # 停止并保留数据卷
 ## 虚拟机部署（已有 Nginx/Apache + PHP8 环境）
 
 下载项目压缩包 `https://github.com/bbs1org/bbs1org/archive/refs/heads/main.zip`
+
 解压缩后通过 FTP 上传到网站目录，确保 `index.php` 位于根目录。
 访问站点域名，根据指示进行安装即可。
+
 使用第三方(比如：cron-job.org)定时请求服务，启用定时任务。
 每分钟以 `GET` 方式访问：`https://你的域名/index.php?a=cron`
 
