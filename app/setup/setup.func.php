@@ -264,8 +264,8 @@ function setup_install_run(): never
     [$tables, $indexes] = app_db_schema($driver);
     foreach ($tables as $table => $sql) if (!app_db_table_exists($db, $driver, $table)) $db->exec($sql);
     if ($driver === 'sqlite') {
-        $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')");
-        $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')");
+        app_db_create_fts5_table($db, 'app_topics_fts', 'title, body');
+        app_db_create_fts5_table($db, 'app_replies_fts', 'body');
     }
     app_db_prepare_search($db, $driver);
     foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, app_db_index_table($sql))) $db->exec($sql);
@@ -746,8 +746,8 @@ function us_install_schema(): array
     }
     $virtual_tables = [];
     if ($driver === 'sqlite') {
-        $virtual_tables['app_topics_fts'] = "CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')";
-        $virtual_tables['app_replies_fts'] = "CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')";
+        $virtual_tables['app_topics_fts'] = 'title, body';
+        $virtual_tables['app_replies_fts'] = 'body';
     }
     return [$tables, $virtual_tables, $schema_indexes];
 }
@@ -788,11 +788,13 @@ function us_rename_legacy_system_tables(PDO $db, string $driver): array
     foreach ($tables as $table => $target) {
         if (!app_db_table_exists($db, $driver, $table)) continue;
         if ($driver === 'sqlite' && $table === 'topics_fts') {
-            $db->exec("CREATE VIRTUAL TABLE " . app_db_identifier($driver, $target) . " USING fts5(title, body, tokenize='trigram')");
-            if (app_db_table_exists($db, $driver, 'app_topics')) {
+            $fts_created = app_db_create_fts5_table($db, $target, 'title, body', false);
+            if ($fts_created && app_db_table_exists($db, $driver, 'app_topics')) {
                 $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
             }
             $db->exec('DROP TABLE ' . app_db_identifier($driver, $table));
+            $changes[] = $fts_created ? '重命名系统表：' . $table . ' -> ' . $target : '删除不兼容的旧搜索表：' . $table;
+            continue;
         } else {
             $db->exec('ALTER TABLE ' . app_db_identifier($driver, $table) . ' RENAME TO ' . app_db_identifier($driver, $target));
         }
@@ -813,9 +815,9 @@ function us_sync_schema(): array
         $changes = array_merge($changes, us_rename_legacy_system_tables($db, db_driver()));
         app_db_prepare_search($db, db_driver());
         $created_virtual_tables = [];
-        foreach ($virtual_tables as $table => $sql) {
+        foreach ($virtual_tables as $table => $columns) {
             if (!app_db_table_exists($db, db_driver(), $table)) {
-                $db->exec($sql);
+                if (!app_db_create_fts5_table($db, $table, $columns)) continue;
                 $created_virtual_tables[] = $table;
                 $changes[] = '新增虚拟表：' . $table;
             }

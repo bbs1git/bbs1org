@@ -25,7 +25,6 @@ define('CRON_LEASE_SECONDS', 1800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('UPDATE_SETUP_FILE', APP_DIR . '/setup/setup.func.php');
-define('SEARCH_MIN_CHARS', 3);
 define('PASSWORD_MIN_LENGTH', 4);
 define('COOKIE_TTL', 15552000);
 define('FAVORITE_COOKIE_LIMIT', 50);
@@ -211,6 +210,19 @@ function app_db_create_table(string $table, string $definition): void
     $sql = 'CREATE TABLE IF NOT EXISTS ' . app_db_identifier(db_driver(), $table) . '(' . $definition . ')';
     if (db_driver() === 'mysql') $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     db()->exec($sql);
+}
+
+function app_db_create_fts5_table(PDO $db, string $table, string $columns, bool $if_not_exists = true): bool
+{
+    $create = 'CREATE VIRTUAL TABLE ' . ($if_not_exists ? 'IF NOT EXISTS ' : '') . app_db_identifier('sqlite', $table) . ' USING fts5(' . $columns;
+    try {
+        $db->exec($create . ", tokenize='trigram')");
+        return true;
+    } catch (PDOException $e) {
+        $message = strtolower($e->getMessage());
+        if (!str_contains($message, 'no such tokenizer') && !str_contains($message, 'no such module: fts5')) throw $e;
+        return false;
+    }
 }
 
 function app_db_drop_table(string $table): void
@@ -430,6 +442,7 @@ function default_settings(): array
         'pc_nav_forum_count' => '6',
         'topics_per_page' => '30',
         'replies_per_page' => '50',
+        'search_min_chars' => '2',
         'register_per_hour' => '1',
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
@@ -1420,7 +1433,7 @@ function save_settings(): void
     ];
     foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
     foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
-    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
+    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'search_min_chars' => [1, 20, 2], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
     save_settings_values($values);
@@ -1767,7 +1780,7 @@ function admin_search_form(string $tab, string $query): string
     if ($tab === 'users') $has_clear = $has_clear || $group_id > 0 || ($_GET['is_banned'] ?? '') !== '' || ($_GET['is_muted'] ?? '') !== '';
     if ($tab === 'topics') $has_clear = $has_clear || (int)($_GET['forum_id'] ?? 0) > 0 || $field !== 'title';
     $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="' . h($tab) . '">';
-    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索" minlength="' . SEARCH_MIN_CHARS . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索" minlength="' . search_min_chars() . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
 }
 function admin_bulk_delete_form_open(string $tab, string $query): string
 {
@@ -1775,7 +1788,7 @@ function admin_bulk_delete_form_open(string $tab, string $query): string
 }
 function admin_rebuild_fts_form(string $type = 'topics'): string
 {
-    if (db_driver() !== 'sqlite') return '';
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return '';
     $is_reply = $type === 'replies';
     $label = $is_reply ? '回帖' : '主题';
     return '<form class="admin-rebuild-fts-form" method="post" action="' . h(admin_url(['do' => 'rebuild_fts'])) . '" data-prompt-title="重建' . $label . '索引" data-prompt-message="请输入起始' . $label . ' ID，将重建该 ID 及之后的' . $label . '搜索索引。" data-prompt-field="start_id" data-prompt-value="1">' . form_token() . '<input type="hidden" name="fts_type" value="' . h($type) . '"><input type="hidden" name="start_id" value="1"><button class="admin-search-link" type="submit">重建索引</button></form>';
@@ -3225,22 +3238,47 @@ function topic_fts_query(string $query, string $field = ''): string
 }
 function topic_fts_create(): void
 {
-    if (db_driver() === 'sqlite') q("CREATE VIRTUAL TABLE IF NOT EXISTS app_topics_fts USING fts5(title, body, tokenize='trigram')");
+    if (db_driver() === 'sqlite') app_db_create_fts5_table(db(), 'app_topics_fts', 'title, body');
 }
 function reply_fts_create(): void
 {
-    if (db_driver() === 'sqlite') q("CREATE VIRTUAL TABLE IF NOT EXISTS app_replies_fts USING fts5(body, tokenize='trigram')");
+    if (db_driver() === 'sqlite') app_db_create_fts5_table(db(), 'app_replies_fts', 'body');
+}
+function sqlite_fts_uses_trigram(): bool
+{
+    static $enabled;
+    if ($enabled !== null) return $enabled;
+    if (db_driver() !== 'sqlite') return $enabled = false;
+    $sql = (string)val("SELECT sql FROM sqlite_master WHERE type='table' AND name='app_topics_fts'");
+    return $enabled = preg_match('/tokenize\s*=\s*[\'\"]trigram[\'\"]/i', $sql) === 1;
+}
+function search_min_chars(): int
+{
+    return min(20, max(1, (int)setting('search_min_chars', '2')));
+}
+function search_char_count(string $query): int
+{
+    $count = preg_match_all('/./us', trim($query));
+    return $count === false ? 0 : $count;
+}
+function sqlite_search_uses_fts(string $query): bool
+{
+    return sqlite_fts_uses_trigram() && search_char_count($query) >= 3;
 }
 function require_search_min_chars(string $query): void
 {
     $query = trim($query);
     if ($query === '') return;
-    preg_match_all('/./us', $query, $chars);
-    if (count($chars[0] ?? []) < SEARCH_MIN_CHARS) err('请至少输入' . SEARCH_MIN_CHARS . '个字符再搜索');
+    $minimum = search_min_chars();
+    if (search_char_count($query) < $minimum) err('请至少输入' . $minimum . '个字符再搜索');
 }
 function topic_search_field(string $field): string
 {
     return in_array($field, ['title', 'body', 'reply'], true) ? $field : 'title';
+}
+function search_like_pattern(string $query): string
+{
+    return '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
 }
 function reply_search_condition(string $query): array
 {
@@ -3249,9 +3287,9 @@ function reply_search_condition(string $query): array
         return ['MATCH(body) AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
     if (db_driver() === 'pgsql') {
-        $value = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
-        return ["body ILIKE ? ESCAPE '\\'", [$value]];
+        return ["body ILIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
     }
+    if (!sqlite_search_uses_fts($query)) return ["body LIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
     return [
         "id IN (SELECT rowid FROM app_replies_fts WHERE app_replies_fts MATCH ?)",
         [topic_fts_query($query)],
@@ -3269,9 +3307,9 @@ function topic_search_condition(string $query, string $field = 'title'): array
         return ['MATCH(' . $field . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
     if (db_driver() === 'pgsql') {
-        $value = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
-        return [$field . " ILIKE ? ESCAPE '\\'", [$value]];
+        return [$field . " ILIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
     }
+    if (!sqlite_search_uses_fts($query)) return [$field . " LIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
     return [
         "id IN (SELECT rowid FROM app_topics_fts WHERE app_topics_fts MATCH ?)",
         [topic_fts_query($query, $field)],
@@ -3279,30 +3317,30 @@ function topic_search_condition(string $query, string $field = 'title'): array
 }
 function topic_fts_sync(int $id, string $title, string $body): void
 {
-    if (db_driver() !== 'sqlite') return;
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
     q("DELETE FROM app_topics_fts WHERE rowid=?", [$id]);
     q("INSERT INTO app_topics_fts(rowid,title,body) VALUES(?,?,?)", [$id, $title, $body]);
 }
 function topic_fts_delete(int $id): void
 {
-    if (db_driver() !== 'sqlite') return;
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
     q("DELETE FROM app_topics_fts WHERE rowid=?", [$id]);
 }
 function reply_fts_sync(int $id, string $body): void
 {
-    if (db_driver() !== 'sqlite') return;
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
     q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
     q("INSERT INTO app_replies_fts(rowid,body) VALUES(?,?)", [$id, $body]);
 }
 function reply_fts_delete(int $id): void
 {
-    if (db_driver() !== 'sqlite') return;
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
     q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
 }
 function topic_fts_rebuild_from(int $start_id): int
 {
     $start_id = max(1, $start_id);
-    if (db_driver() !== 'sqlite') return (int)val('SELECT COUNT(*) FROM app_topics WHERE id>=?', [$start_id]);
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return (int)val('SELECT COUNT(*) FROM app_topics WHERE id>=?', [$start_id]);
     $db = db();
     $db->beginTransaction();
     try {
@@ -3326,7 +3364,7 @@ function topic_fts_rebuild_from(int $start_id): int
 function reply_fts_rebuild_from(int $start_id): int
 {
     $start_id = max(1, $start_id);
-    if (db_driver() !== 'sqlite') return (int)val('SELECT COUNT(*) FROM app_replies WHERE id>=?', [$start_id]);
+    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return (int)val('SELECT COUNT(*) FROM app_replies WHERE id>=?', [$start_id]);
     $db = db();
     $db->beginTransaction();
     try {
@@ -3430,7 +3468,7 @@ function page_nav_html(string $site_name): string
         foreach ($forums as $f) $more_panel_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
         $more_panel_html .= '</div></div>';
     }
-    $search_html = '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . SEARCH_MIN_CHARS . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form>';
+    $search_html = '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . search_min_chars() . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form>';
     return $html . '</nav>' . $more_button_html . $search_html . '<a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
 }
 function page_footer_html(array $settings, string $title, string $flash): string
@@ -4667,7 +4705,7 @@ function plugin_market_search_form(string $query): string
 {
     $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="plugins"><input type="hidden" name="view" value="market">';
     $clear = $query !== '' ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market'])) . '">清空</a>' : '';
-    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者" minlength="' . SEARCH_MIN_CHARS . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者" minlength="' . search_min_chars() . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
 }
 function plugin_market_item_matches_query(array $item, string $query): bool
 {
@@ -4841,6 +4879,7 @@ function admin_page(): void
             'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
             'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
             'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+            'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
             'mail_virtual' => ['label' => '是否虚拟发送邮件', 'type' => 'checkbox'],
             'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
             'avatar_mirror' => ['html' => $avatar_mirror_field],
@@ -5021,6 +5060,10 @@ function admin_route(): void
         $fts_type = (string)($_POST['fts_type'] ?? 'topics') === 'replies' ? 'replies' : 'topics';
         if (db_driver() !== 'sqlite') {
             set_flash('当前数据库的搜索索引由数据库自动维护，无需重建');
+            go(admin_url(['tab' => $fts_type]));
+        }
+        if (!sqlite_fts_uses_trigram()) {
+            set_flash('当前 SQLite 不支持 trigram，搜索使用 LIKE，无需重建索引');
             go(admin_url(['tab' => $fts_type]));
         }
         $start_id = max(1, (int)($_POST['start_id'] ?? 1));
