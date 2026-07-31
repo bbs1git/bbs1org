@@ -665,7 +665,7 @@ const copyAttachmentMarkdown = async item => {
         showToast("复制失败");
     }
 };
-const uploadAttachmentFile = (url, file, onProgress) => new Promise((resolve, reject) => {
+const uploadAttachmentFile = (url, csrf, file, onProgress) => new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", url, true);
     request.setRequestHeader("X-Requested-With", "XMLHttpRequest");
@@ -689,6 +689,7 @@ const uploadAttachmentFile = (url, file, onProgress) => new Promise((resolve, re
     request.addEventListener("error", () => reject(new Error("上传失败")));
     request.addEventListener("abort", () => reject(new Error("上传已取消")));
     const body = new FormData();
+    body.append("_csrf", csrf);
     body.append("attachment", file);
     request.send(body);
 });
@@ -701,6 +702,7 @@ document.addEventListener("change", async e => {
     const form = input.closest("form");
     const textarea = form?.querySelector("textarea[name=body]");
     const url = uploader?.dataset?.uploadUrl || "";
+    const csrf = form?.querySelector("input[name=_csrf]")?.value || "";
     const selectedFiles = Array.from(input.files || []);
     if (!uploader || !textarea || !url || selectedFiles.length === 0) return;
     const state = attachmentUploaderState(uploader);
@@ -736,7 +738,7 @@ document.addEventListener("change", async e => {
         try {
             if (file.size > maxMb * 1024 * 1024) throw new Error("超过" + maxMb + "MB");
             if (row) updateAttachmentUploadItem(row, "uploading", 0);
-            const data = await uploadAttachmentFile(url, file, percent => {
+            const data = await uploadAttachmentFile(url, csrf, file, percent => {
                 if (row) updateAttachmentUploadItem(row, "uploading", percent);
             });
             const markdown = String(data.markdown || "");
