@@ -87,7 +87,7 @@ docker compose down               # 停止并保留数据卷
 
 SQLite数据目录 `app/data/ `、附件目录 `app/upload/`、插件目录 `app/plugins/` 需要定期备份。
 
-## 插件开发指南
+## AI插件开发指南
 
-插件开发规范、最小示例、资源、计划任务、数据库与 Hook 说明请阅读 [`.ai-rules.md`](.ai-rules.md)。
+推荐使用AI为本项目开发插件。插件开发规范、最小示例、资源、计划任务、数据库与 Hook 说明请阅读 [`.ai-rules.md`](.ai-rules.md)。
 本文件用于约束 AI 为 bbs1org 开发或修改插件，规则按优先级排列且必须逐条遵守。
