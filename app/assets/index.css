@@ -336,6 +336,24 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .attachment-field-muted .attachment-drop strong{flex:0 0 auto;color:var(--text-muted);font-size:var(--font-size-sm);font-weight:500}
 .attachment-field-muted .attachment-drop span{min-width:0;font-size:11px}
 .attachment-field-muted .attachment-uploader:focus-within .attachment-drop,.attachment-field-muted .attachment-drop:hover{background:transparent;color:var(--text-muted)}
+.attachment-upload-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 10px;color:var(--text-subtle);font-size:11px}
+.attachment-upload-toolbar[hidden]{display:none}
+.attachment-upload-insert{min-height:28px;padding:4px 9px;font-size:var(--font-size-sm);white-space:nowrap}
+.attachment-upload-list{display:grid;gap:6px;margin-top:2px}
+.attachment-upload-list[hidden]{display:none}
+.attachment-upload-item{display:grid;gap:6px;min-width:0;padding:8px 10px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:var(--bg)}
+.attachment-upload-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;min-width:0}
+.attachment-upload-name{min-width:0;overflow:hidden;color:var(--text);font-size:var(--font-size-sm);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.attachment-upload-status{max-width:220px;color:var(--text-subtle);font-size:11px;line-height:1.4;text-align:right;overflow-wrap:anywhere}
+.attachment-upload-progress{display:block;width:100%;height:4px;overflow:hidden;border-radius:4px;background:var(--line)}
+.attachment-upload-progress>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--brand);transition:width .15s ease}
+.attachment-upload-item[data-state="success"] .attachment-upload-status{color:var(--success)}
+.attachment-upload-item[data-state="success"] .attachment-upload-progress{display:none}
+.attachment-upload-item[data-state="success"][data-markdown]{cursor:pointer;transition:border-color .15s,background .15s}
+.attachment-upload-item[data-state="success"][data-markdown]:hover{border-color:var(--brand);background:var(--brand-soft)}
+.attachment-upload-item[data-state="success"][data-markdown]:focus-visible{border-color:var(--brand);outline:2px solid var(--focus-ring);outline-offset:1px}
+.attachment-upload-item[data-state="error"] .attachment-upload-status{color:var(--danger)}
+.attachment-upload-item[data-state="error"] .attachment-upload-progress>span{background:var(--danger)}
 .grid{display:grid;grid-template-columns:98px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}
 .grid>span{padding-top:6px;color:var(--text-muted);font-size:var(--font-size-sm)}
 .form-panel{margin:12px 0}

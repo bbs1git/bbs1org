@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v6.16');
+define('APP_VERSION', 'v6.22');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -430,7 +430,6 @@ function default_settings(): array
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
         'post_interval_seconds' => '5',
-        'attachment_max_count' => '10',
         'attachment_max_mb' => '20',
         'stats_topics' => '0',
         'stats_replies' => '0',
@@ -1417,7 +1416,7 @@ function save_settings(): void
     ];
     foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
     foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
-    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_count' => [0, PHP_INT_MAX, 10], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
+    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5], 'attachment_max_mb' => [0, PHP_INT_MAX, 20]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
     save_settings_values($values);
@@ -2675,10 +2674,6 @@ function upload_url(string $hash = '', string $file = ''): string
     if ($hash !== '' && $file !== '') $path .= rawurlencode(upload_hash_dir($hash)) . '/' . rawurlencode(basename($file));
     return asset_url($path);
 }
-function attachment_max_count(): int
-{
-    return max(0, (int)setting('attachment_max_count', '10'));
-}
 function attachment_max_mb(): int
 {
     return max(0, (int)setting('attachment_max_mb', '20'));
@@ -2695,20 +2690,9 @@ function attachment_used_bytes(int $user_id): int
 {
     return max(0, (int)(val("SELECT COALESCE(SUM(size),0) FROM app_attachments WHERE user_id=?", [$user_id]) ?: 0));
 }
-function attachment_upload_count(): int
+function attachment_upload_history_mark_clear(): void
 {
-    return max(0, (int)($_COOKIE['__attachment_upload_count'] ?? 0));
-}
-function attachment_upload_count_increment(): void
-{
-    $count = attachment_upload_count() + 1;
-    app_cookie('__attachment_upload_count', (string)$count, time() + 7200, false);
-    $_COOKIE['__attachment_upload_count'] = (string)$count;
-}
-function attachment_upload_count_reset(): void
-{
-    app_cookie('__attachment_upload_count', '', time() - 3600, false);
-    unset($_COOKIE['__attachment_upload_count']);
+    if (uid() > 0) app_cookie('__attachment_upload_history_clear', (string)uid(), time() + 120, false);
 }
 class AttachmentUploadException extends RuntimeException {}
 function attachment_store(int $user_id, string $tmp, string $target, string $hash, string $file_name, string $original, string $ext, string $mime, int $size, bool $is_image): void
@@ -2763,7 +2747,7 @@ function attachment_summary_html(int $total, int $used_bytes, int $quota_bytes):
 function upload_attachment_markdown(array $file): string
 {
     $max_mb = attachment_max_mb();
-    if (attachment_max_count() <= 0 || $max_mb <= 0) err('附件上传已关闭');
+    if ($max_mb <= 0) err('附件上传已关闭');
     $user_id = uid();
     if ($user_id <= 0) err('请先登录');
     $allowed = hook('attachment.before_upload', true, ['user_id' => $user_id]);
@@ -2805,12 +2789,9 @@ function attachment_upload_page(): void
 {
     require_post();
     need_speak();
-    $max_count = attachment_max_count();
-    if ($max_count <= 0 || attachment_upload_count() >= $max_count) err('附件最多上传' . $max_count . '个');
     ob_start();
     try {
         $markdown = upload_attachment_markdown(is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : []);
-        attachment_upload_count_increment();
         if (ob_get_level() > 0) ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => 1, 'markdown' => $markdown], JSON_UNESCAPED_UNICODE);
@@ -2826,13 +2807,6 @@ function topic_upload_attachments_markdown(): string
     $files = $_FILES['attachments'] ?? null;
     if (!is_array($files) || !is_array($files['name'] ?? null)) return '';
     $items = [];
-    $count = count(array_filter((array)($files['error'] ?? []), fn($error): bool => (int)$error !== UPLOAD_ERR_NO_FILE));
-    $max_count = attachment_max_count();
-    if ($max_count <= 0) {
-        foreach ((array)$files['error'] as $error) if ((int)$error !== UPLOAD_ERR_NO_FILE) err('附件上传已关闭');
-        return '';
-    }
-    if (attachment_upload_count() + $count > $max_count) err('附件最多上传' . $max_count . '个');
     for ($i = 0, $file_count = count((array)$files['name']); $i < $file_count; $i++) {
         if ((int)($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
         $items[] = upload_attachment_markdown([
@@ -2842,7 +2816,6 @@ function topic_upload_attachments_markdown(): string
             'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
             'size' => $files['size'][$i] ?? 0,
         ]);
-        attachment_upload_count_increment();
     }
     return $items ? "\n\n附件：\n" . implode("\n", $items) : '';
 }
@@ -3550,10 +3523,10 @@ function render_form_fields(array $fields, array $values = []): string
 }
 function attachment_uploader_html(bool $muted = false): string
 {
-    $count = attachment_max_count();
     $mb = attachment_max_mb();
-    if ($count <= 0 || $mb <= 0 || attachment_quota_bytes() <= 0) return '';
-    return '<label class="grid attachment-field' . ($muted ? ' attachment-field-muted' : '') . '"><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-count="' . $count . '" data-upload-max-mb="' . $mb . '"><input class="attachment-input" type="file" multiple data-attachment-input><div class="attachment-drop"><strong>选择附件</strong><span>最多' . $count . '个，单个不超过' . $mb . 'MB。</span></div></div></label>';
+    if ($mb <= 0 || attachment_quota_bytes() <= 0) return '';
+    $storage_key = 'bbs1_attachment_upload_history_v1_' . uid();
+    return '<div class="grid attachment-field' . ($muted ? ' attachment-field-muted' : '') . '"><div class="attachment-uploader" data-upload-url="' . h(route_url('attachment_upload')) . '" data-upload-max-mb="' . $mb . '" data-upload-storage-key="' . h($storage_key) . '"><label class="attachment-drop"><input class="attachment-input" type="file" multiple data-attachment-input><strong>选择附件</strong><span>单个不超过' . $mb . 'MB</span></label><div class="attachment-upload-toolbar" data-attachment-upload-toolbar hidden><span data-attachment-upload-summary></span><button type="button" class="attachment-upload-insert" data-attachment-insert-all>批量插入内容</button></div><div class="attachment-upload-list" data-attachment-upload-list aria-live="polite" hidden></div></div></div>';
 }
 function select_group(int $gid): string
 {
@@ -4000,8 +3973,8 @@ function save_topic(): int
             q("UPDATE app_topics SET forum_id=?,title=?,body=?,reply_order=?,last_reply_at=? WHERE id=?", [$fid, $title, $body, $reply_order, now(), $topic_id]);
             topic_fts_sync($topic_id, $title, $body);
         });
-        attachment_upload_count_reset();
         fire('topic.after_save', ['id' => $topic_id, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'editing' => true]);
+        attachment_upload_history_mark_clear();
         return $topic_id;
     }
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
@@ -4020,8 +3993,8 @@ function save_topic(): int
         return $tid;
     });
     home_stats_refresh_topics();
-    attachment_upload_count_reset();
     fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
+    attachment_upload_history_mark_clear();
     return $tid;
 }
 function save_reply(): array
@@ -4051,8 +4024,8 @@ function save_reply(): array
             q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
             reply_fts_sync(id(), $body);
         });
-        attachment_upload_count_reset();
         fire('reply.after_save', ['id' => (int)$r['id'], 'topic_id' => (int)$r['topic_id'], 'body' => $body, 'editing' => true]);
+        attachment_upload_history_mark_clear();
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
     }
     $author = apply_puppet_author($body);
@@ -4069,8 +4042,8 @@ function save_reply(): array
         return $rid;
     });
     home_stats_record_insert('replies', $rid);
-    attachment_upload_count_reset();
     fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
+    attachment_upload_history_mark_clear();
     return ['topic_id' => $tid, 'reply_id' => $rid];
 }
 function del(string $table, int $id): void
@@ -4877,7 +4850,6 @@ function admin_page(): void
             'login_fail_per_hour' => ['label' => '1小时内登录错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
             'reset_fail_per_hour' => ['label' => '1小时内操作错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
             'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
-            'attachment_max_count' => ['label' => '附件数量限制', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传。'],
             'attachment_max_mb' => ['label' => '单个附件大小（MB）', 'type' => 'number', 'min' => 0, 'help' => '设置为 0 可关闭附件上传，实际上限受服务器配置影响。'],
         ];
         $debug_cards = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
