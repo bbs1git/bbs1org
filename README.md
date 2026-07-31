@@ -61,6 +61,18 @@ docker compose restart            # 重启
 docker compose down               # 停止并保留数据卷
 ```
 
+## 虚拟机部署（已有 Nginx/Apache + PHP8 环境）
+
+下载项目压缩包 `https://github.com/bbs1org/bbs1org/archive/refs/heads/main.zip`
+解压缩后通过 FTP 上传到网站目录，确保 `index.php` 位于根目录。
+访问站点域名，根据指示进行安装即可。
+使用第三方(比如：cron-job.org)定时请求服务，启用定时任务。
+每分钟以 `GET` 方式访问：`https://你的域名/index.php?a=cron`
+
+### 升级和备份
+
+升级前使用面板导出 MySQL 数据库，并通过 FTP 下载 `app/data`、`app/avatars`、`app/upload` 和 `app/plugins` 备份。升级时上传新版代码并覆盖程序文件，不要删除上述运行数据目录。若 PHP-FPM 开启了不自动检查文件变化的 OPcache，升级后在面板中重启对应 PHP-FPM 服务。
+
 ## 手动升级
 
 ```bash
