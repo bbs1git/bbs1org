@@ -319,14 +319,18 @@ function tx(callable $fn)
 {
     $db = db();
     if ($db->inTransaction()) return $fn();
-    if (db_driver() === 'sqlite') $db->exec('BEGIN IMMEDIATE');
+    $sqlite = db_driver() === 'sqlite';
+    if ($sqlite) $db->exec('BEGIN IMMEDIATE');
     else $db->beginTransaction();
     try {
         $result = $fn();
-        $db->commit();
+        if ($sqlite) $db->exec('COMMIT');
+        else $db->commit();
         return $result;
     } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
+        if ($sqlite) {
+            try { $db->exec('ROLLBACK'); } catch (Throwable) {}
+        } elseif ($db->inTransaction()) $db->rollBack();
         throw $e;
     }
 }
