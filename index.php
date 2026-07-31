@@ -2652,7 +2652,18 @@ function upload_image_valid(string $path, string $ext, string $mime): bool
 }
 function upload_allowed_ext(string $ext): bool
 {
-    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'txt', 'zip', 'rar', '7z', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'mp3', 'mp4', 'mov'], true);
+    static $allowed = [
+        'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg',
+        'mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'oga', 'opus',
+        'mp4', 'm4v', 'mov', 'webm', 'ogv', 'mpeg', 'mpg',
+    ];
+    return in_array(strtolower($ext), $allowed, true);
+}
+function upload_storage_ext(string $ext): string
+{
+    $ext = strtolower(trim($ext));
+    if ($ext === '' || preg_match('/^[a-z0-9]{1,24}$/', $ext) !== 1) return 'file1';
+    return $ext . (upload_allowed_ext($ext) ? '' : '1');
 }
 function upload_hash_dir(string $hash): string
 {
@@ -2766,21 +2777,20 @@ function upload_attachment_markdown(array $file): string
     if ($size > $max_mb * 1024 * 1024) err('单个附件不能超过' . $max_mb . 'MB');
     $original = trim(preg_replace('/[\r\n]+/', ' ', basename((string)($file['name'] ?? ''))) ?? '');
     $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-    if ($ext === '' || !upload_allowed_ext($ext)) err('附件格式不允许');
+    $storage_ext = upload_storage_ext($ext);
     if (!is_uploaded_file((string)($file['tmp_name'] ?? ''))) err('附件保存失败');
     $tmp = (string)$file['tmp_name'];
     $mime = upload_detect_mime($tmp);
     if ($mime === '') err('附件类型无法识别');
     $is_image = upload_image_ext($ext);
     if ($is_image && !upload_image_valid($tmp, $ext, $mime)) err('图片文件校验失败');
-    if (!$is_image && str_starts_with($mime, 'image/')) err('附件格式与内容不一致');
     $hash = hash_file('sha256', (string)$file['tmp_name']);
     if (!is_string($hash) || $hash === '') err('附件保存失败');
     $hash_dir = upload_hash_dir($hash);
     $dir = UPLOAD_DIR . '/' . $hash_dir;
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('附件目录不可写');
     require_writable_dir($dir, '附件目录不可写，请检查 app/upload/ 目录权限');
-    $name = $hash . ($is_image ? '.' . $ext : '.attach');
+    $name = $hash . '.' . $storage_ext;
     $target = $dir . '/' . $name;
     try {
         attachment_store($user_id, $tmp, $target, $hash, $name, $original, $ext, $mime, $size, $is_image);
@@ -2839,7 +2849,7 @@ function topic_upload_attachments_markdown(): string
 function attachment_page(): void
 {
     $file = (string)($_GET['f'] ?? '');
-    if (preg_match('/^[a-f0-9]{64}\.(?:attach|jpe?g|png|gif|webp)$/', $file) !== 1) err('附件不存在', 404);
+    if (preg_match('/^[a-f0-9]{64}\.[a-z0-9]{1,25}$/', $file) !== 1) err('附件不存在', 404);
     $hash = substr($file, 0, 64);
     $path = UPLOAD_DIR . '/' . upload_hash_dir($hash) . '/' . $file;
     if (!is_file($path)) err('附件不存在', 404);
