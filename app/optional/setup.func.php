@@ -841,7 +841,7 @@ function us_migrate_legacy_plugin_settings(): int
         $delete = array_merge($delete, $names);
         $count++;
         if ($file === '' || isset($registered[$id])) continue;
-        $config = json_decode((string)($settings['plugin_' . $id . '_config'] ?? '{}'), true);
+        $config = plugin_json_decode($settings['plugin_' . $id . '_config'] ?? '') ?? [];
         $enabled = (string)($settings['plugin_' . $id . '_enabled'] ?? '0') === '1' ? 1 : 0;
         app_db_insert_ignore('app_plugins', [
             'id' => $id,
@@ -849,12 +849,12 @@ function us_migrate_legacy_plugin_settings(): int
             'version' => (string)($settings['plugin_' . $id . '_version'] ?? ''),
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => '',
-            'manifest_json' => '{}',
-            'config_json' => json_encode(is_array($config) ? $config : [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'entries_json' => json_encode([
+            'manifest_json' => plugin_json_encode([]),
+            'config_json' => plugin_json_encode($config),
+            'entries_json' => plugin_json_encode([
                 'feature_links' => (string)($settings['plugin_' . $id . '_entry_feature_links'] ?? '1') === '1',
                 'sidebar_cards' => (string)($settings['plugin_' . $id . '_entry_sidebar_cards'] ?? '1') === '1',
-            ], JSON_UNESCAPED_UNICODE),
+            ]),
             'enabled' => $enabled,
             'status' => $enabled ? 'enabled' : 'disabled',
             'disabled_reason' => (string)($settings['plugin_' . $id . '_disabled_reason'] ?? ''),

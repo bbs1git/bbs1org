@@ -68,7 +68,7 @@ function plugin_market_install(string $id): void
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-    q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='',updated_at=? WHERE id=?", [now(), $id]);
+    plugin_update_row($id, ['enabled' => 0, 'status' => 'disabled', 'disabled_reason' => '']);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],

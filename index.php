@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v6.36');
+define('APP_VERSION', 'v6.37');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -572,6 +572,29 @@ function plugin_runtime_cache_reset(): void
 {
     unset($GLOBALS['__hook_registry']);
 }
+function plugin_json_decode(mixed $json, ?array $fallback = []): ?array
+{
+    if (is_array($json)) return $json;
+    $value = json_decode((string)$json, true);
+    return is_array($value) ? $value : $fallback;
+}
+function plugin_json_encode(array $value): string
+{
+    return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+}
+function plugin_update_row(string $id, array $values): void
+{
+    if (!plugin_id_valid($id)) throw new InvalidArgumentException('插件 ID 无效');
+    $allowed = array_flip(['name', 'version', 'file', 'code_hash', 'manifest_json', 'config_json', 'entries_json', 'enabled', 'status', 'disabled_reason', 'installed_at']);
+    if (array_diff_key($values, $allowed)) throw new InvalidArgumentException('插件字段无效');
+    foreach (['manifest_json', 'config_json', 'entries_json'] as $field) {
+        if (array_key_exists($field, $values)) $values[$field] = plugin_json_encode(plugin_json_decode($values[$field]) ?? []);
+    }
+    if (!$values) return;
+    $values['updated_at'] = now();
+    $fields = array_keys($values);
+    q('UPDATE app_plugins SET ' . implode('=?,', $fields) . '=? WHERE id=?', array_merge(array_values($values), [$id]));
+}
 function plugin_normalize(array $plugin, string $file = ''): ?array
 {
     $id = (string)($plugin['id'] ?? '');
@@ -630,8 +653,8 @@ function plugin_files(): array
 }
 function plugin_registry_row(array $row): ?array
 {
-    $manifest = json_decode((string)($row['manifest_json'] ?? ''), true);
-    if (!is_array($manifest) || !plugin_id_valid((string)($row['id'] ?? ''))) return null;
+    $manifest = plugin_json_decode($row['manifest_json'] ?? '', null);
+    if ($manifest === null || !plugin_id_valid((string)($row['id'] ?? ''))) return null;
     return array_merge($manifest, [
         'id' => (string)$row['id'],
         'name' => (string)$row['name'],
@@ -640,8 +663,8 @@ function plugin_registry_row(array $row): ?array
         'disabled_reason' => (string)($row['disabled_reason'] ?? ''),
         'updated_at' => (int)($row['updated_at'] ?? 0),
         'file' => APP_ROOT . '/' . ltrim((string)$row['file'], '/'),
-        'config' => json_decode((string)($row['config_json'] ?? '{}'), true) ?: [],
-        'entries' => json_decode((string)($row['entries_json'] ?? '{}'), true) ?: [],
+        'config' => plugin_json_decode($row['config_json'] ?? '') ?? [],
+        'entries' => plugin_json_decode($row['entries_json'] ?? '') ?? [],
     ]);
 }
 function plugin_load(array $plugin): void
@@ -664,7 +687,7 @@ function plugin_disable_after_exception(string $id, Throwable $e): void
     if (str_starts_with($file, $root)) $file = substr($file, strlen($root));
     $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . cut($message, 500) : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
     try {
-        q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [$reason, now(), $id]);
+        plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
         plugins(true);
         plugin_assets_mark_dirty();
@@ -692,7 +715,7 @@ function plugin_registry_sync(): array
     $synced = [];
     $disable = function (string $id, string $reason) use (&$existing, &$synced): void {
         if (!isset($existing[$id])) return;
-        q("UPDATE app_plugins SET enabled=0,status='error',disabled_reason=?,updated_at=? WHERE id=?", [$reason, now(), $id]);
+        plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
         $synced[$id] = true;
     };
@@ -723,11 +746,11 @@ function plugin_registry_sync(): array
         $updated_at = isset($old['updated_at']) && (string)($old['code_hash'] ?? '') === $code_hash
             ? (int)$old['updated_at']
             : now();
-        $config_json = (string)($old['config_json'] ?? '{}');
-        $entries_json = (string)($old['entries_json'] ?? json_encode([
+        $config = plugin_json_decode($old['config_json'] ?? '') ?? [];
+        $entries = isset($old['entries_json']) ? plugin_json_decode($old['entries_json']) ?? [] : [
             'feature_links' => true,
             'sidebar_cards' => true,
-        ], JSON_UNESCAPED_UNICODE));
+        ];
         $enabled = isset($old['enabled']) ? (int)$old['enabled'] : 0;
         app_db_upsert('app_plugins', [
             'id' => $id,
@@ -735,9 +758,9 @@ function plugin_registry_sync(): array
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
-            'manifest_json' => json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall'])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'config_json' => $config_json,
-            'entries_json' => $entries_json,
+            'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall']))),
+            'config_json' => plugin_json_encode($config),
+            'entries_json' => plugin_json_encode($entries),
             'enabled' => $enabled,
             'status' => $enabled ? 'enabled' : 'disabled',
             'disabled_reason' => (string)($old['disabled_reason'] ?? ''),
@@ -863,7 +886,7 @@ function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): voi
     if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
     $entries = (array)($plugin['entries'] ?? []);
     $entries[$entry] = $enabled;
-    q("UPDATE app_plugins SET entries_json=?,updated_at=? WHERE id=?", [json_encode($entries, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), now(), $id]);
+    plugin_update_row($id, ['entries_json' => $entries]);
     plugins(true);
 }
 function plugin_config(string $id, array $defaults = []): array
@@ -874,7 +897,7 @@ function plugin_config(string $id, array $defaults = []): array
 function plugin_save_config(string $id, array $config): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
-    q("UPDATE app_plugins SET config_json=?,updated_at=? WHERE id=?", [json_encode($config, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), now(), $id]);
+    plugin_update_row($id, ['config_json' => $config]);
     $plugin = plugins(true)[$id] ?? null;
     if ($plugin) plugin_cron_sync($plugin);
 }
@@ -890,7 +913,7 @@ function plugin_set_enabled(string $id, bool $enabled): void
             }
         });
     }
-    q("UPDATE app_plugins SET enabled=?,status=?,disabled_reason='',updated_at=? WHERE id=?", [$enabled ? 1 : 0, $enabled ? 'enabled' : 'disabled', now(), $id]);
+    plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => '']);
     q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$enabled ? 1 : 0, $id]);
     plugins(true);
     plugin_assets_mark_dirty();
