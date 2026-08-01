@@ -351,6 +351,7 @@ function tx(callable $fn)
         if ($sqlite) {
             try { $db->exec('ROLLBACK'); } catch (Throwable) {}
         } elseif ($db->inTransaction()) $db->rollBack();
+        db_row_cache_clear();
         throw $e;
     }
 }
@@ -499,21 +500,6 @@ function settings_rows_cache(string $key, string $sql, bool $refresh): array
     $rows = q($sql)->fetchAll();
     save_settings_values([$key => json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
     return $rows;
-}
-function update_state_data(): array
-{
-    if (!is_file(UPDATE_STATE_FILE)) return [];
-    $state = json_decode((string)file_get_contents(UPDATE_STATE_FILE), true);
-    return is_array($state) ? $state : [];
-}
-function update_state_write(array $state): void
-{
-    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-    $swap = UPDATE_STATE_FILE . '.tmp-' . bin2hex(random_bytes(4));
-    if ($json === false || file_put_contents($swap, $json, LOCK_EX) === false || !rename($swap, UPDATE_STATE_FILE)) {
-        @unlink($swap);
-        throw new RuntimeException('无法更新升级状态');
-    }
 }
 function exception_detail(Throwable $e): string
 {
@@ -688,38 +674,6 @@ function plugin_save_config(string $id, array $config): void
     plugin_update_row($id, ['config_json' => $config]);
     $plugin = plugins(true)[$id] ?? null;
     if ($plugin) Cron::plugin_cron_sync($plugin);
-}
-function remote_http_request(string $url, int $timeout = 8, array $headers = [], ?array $post_fields = null): array
-{
-    if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
-    $ch = curl_init($url);
-    if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];
-    $options = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS => 3,
-        CURLOPT_CONNECTTIMEOUT => min(4, max(1, $timeout)),
-        CURLOPT_TIMEOUT => max(1, $timeout),
-        CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
-    ];
-    if (setting('ignore_ssl_errors') === '1') {
-        $options[CURLOPT_SSL_VERIFYPEER] = false;
-        $options[CURLOPT_SSL_VERIFYHOST] = 0;
-    }
-    if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
-    if ($post_fields !== null) {
-        $options[CURLOPT_POST] = true;
-        $options[CURLOPT_POSTFIELDS] = http_build_query($post_fields);
-    }
-    if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
-    if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
-    curl_setopt_array($ch, $options);
-    $body = curl_exec($ch);
-    $error = curl_error($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    if ($body === false) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => $error !== '' ? $error : '请求失败'];
-    if ($status < 200 || $status >= 300) return ['ok' => false, 'status' => $status, 'body' => (string)$body, 'error' => 'HTTP ' . $status];
-    return ['ok' => true, 'status' => $status, 'body' => (string)$body, 'error' => ''];
 }
 function require_writable_dir(string $dir, string $message): void
 {
@@ -1995,26 +1949,6 @@ function local_avatar_url(string $style, string $seed, string $remote): string
 {
     return avatar_style_mirrored($style) ? asset_url('app/avatars/' . avatar_file_name($style, $seed)) : $remote;
 }
-function cache_avatar_url(string $style, string $seed): string
-{
-    $style = avatar_style($style) ?: 'dylan';
-    $seed = avatar_seed($style, $seed);
-    $remote = avatar_remote_url($style, $seed);
-    require_writable_dir(AVATAR_DIR, '头像目录不可写，请检查 app/avatars/ 目录权限');
-    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
-    if (is_file($file)) return asset_url('app/avatars/' . basename($file));
-    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
-    $response = remote_http_request($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
-    if (!$response['ok']) return $remote;
-    $svg = (string)$response['body'];
-    if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
-    if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
-    if (!@rename($tmp, $file)) {
-        @unlink($tmp);
-        return $remote;
-    }
-    return asset_url('app/avatars/' . basename($file));
-}
 function avatar_mirror_page(): void
 {
     need_admin();
@@ -2032,7 +1966,7 @@ function avatar_mirror_page(): void
         echo json_encode(['ok' => 1, 'style' => $style, 'styles' => setting('avatar_mirror_styles', '')], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $url = cache_avatar_url($style, $seed);
+    $url = Setup::cache_avatar_url($style, $seed);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['ok' => str_starts_with($url, asset_url('app/avatars/')) ? 1 : 0, 'url' => $url, 'style' => $style, 'seed' => $seed], JSON_UNESCAPED_UNICODE);
     exit;
@@ -4100,7 +4034,7 @@ function admin_page(): void
     }
     $html = '';
     if ($tab === 'settings') {
-        $notice_state = update_state_data();
+        $notice_state = Setup::update_state_data();
         $pending_notice = is_array($notice_state['update_notice'] ?? null) ? $notice_state['update_notice'] : [];
         $notice_sha = (string)($pending_notice['sha'] ?? ($notice_state['update_notice_sent_sha'] ?? ''));
         $has_update_notice = preg_match('/^[a-f0-9]{40}$/', $notice_sha) === 1;

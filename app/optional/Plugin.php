@@ -19,9 +19,42 @@ public static function plugin_market_url(string $action): string
     return append_url_query(PLUGIN_MARKET_ENDPOINT, ['a' => $action]);
 }
 
+public static function remote_http_request(string $url, int $timeout = 8, array $headers = [], ?array $post_fields = null): array
+{
+    if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
+    $ch = curl_init($url);
+    if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => min(4, max(1, $timeout)),
+        CURLOPT_TIMEOUT => max(1, $timeout),
+        CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
+    ];
+    if (setting('ignore_ssl_errors') === '1') {
+        $options[CURLOPT_SSL_VERIFYPEER] = false;
+        $options[CURLOPT_SSL_VERIFYHOST] = 0;
+    }
+    if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
+    if ($post_fields !== null) {
+        $options[CURLOPT_POST] = true;
+        $options[CURLOPT_POSTFIELDS] = http_build_query($post_fields);
+    }
+    if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+    if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+    curl_setopt_array($ch, $options);
+    $body = curl_exec($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    if ($body === false) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => $error !== '' ? $error : '请求失败'];
+    if ($status < 200 || $status >= 300) return ['ok' => false, 'status' => $status, 'body' => (string)$body, 'error' => 'HTTP ' . $status];
+    return ['ok' => true, 'status' => $status, 'body' => (string)$body, 'error' => ''];
+}
+
 public static function plugin_market_fetch(): array
 {
-    $response = remote_http_request(self::plugin_market_url('plugin_market_feed'), 8, ['Accept: application/json']);
+    $response = self::remote_http_request(self::plugin_market_url('plugin_market_feed'), 8, ['Accept: application/json']);
     if (!$response['ok']) return ['ok' => 0, 'message' => '无法连接插件市场' . ((string)$response['error'] !== '' ? '：' . (string)$response['error'] : ''), 'plugins' => []];
     $data = json_decode((string)$response['body'], true);
     if (!is_array($data)) return ['ok' => 0, 'message' => '插件市场返回格式错误', 'plugins' => []];

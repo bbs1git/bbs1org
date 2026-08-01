@@ -477,6 +477,44 @@ public static function us_git_blob_sha(string $file): string
     return sha1('blob ' . strlen($content) . "\0" . $content);
 }
 
+public static function cache_avatar_url(string $style, string $seed): string
+{
+    $style = avatar_style($style) ?: 'dylan';
+    $seed = avatar_seed($style, $seed);
+    $remote = avatar_remote_url($style, $seed);
+    require_writable_dir(AVATAR_DIR, '头像目录不可写，请检查 app/avatars/ 目录权限');
+    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
+    if (is_file($file)) return asset_url('app/avatars/' . basename($file));
+    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
+    $response = Plugin::remote_http_request($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
+    if (!$response['ok']) return $remote;
+    $svg = (string)$response['body'];
+    if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
+    if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
+    if (!@rename($tmp, $file)) {
+        @unlink($tmp);
+        return $remote;
+    }
+    return asset_url('app/avatars/' . basename($file));
+}
+
+public static function update_state_data(): array
+{
+    if (!is_file(UPDATE_STATE_FILE)) return [];
+    $state = json_decode((string)file_get_contents(UPDATE_STATE_FILE), true);
+    return is_array($state) ? $state : [];
+}
+
+public static function update_state_write(array $state): void
+{
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $swap = UPDATE_STATE_FILE . '.tmp-' . bin2hex(random_bytes(4));
+    if ($json === false || file_put_contents($swap, $json, LOCK_EX) === false || !rename($swap, UPDATE_STATE_FILE)) {
+        @unlink($swap);
+        throw new RuntimeException('无法更新升级状态');
+    }
+}
+
 public static function us_local_changes(array $remote_files): array
 {
     $changes = [];
@@ -485,7 +523,7 @@ public static function us_local_changes(array $remote_files): array
         if (!is_file($file)) $changes[] = ['path' => $path, 'type' => '新增'];
         elseif (!hash_equals($sha, self::us_git_blob_sha($file))) $changes[] = ['path' => $path, 'type' => '更新'];
     }
-    foreach ((array)(update_state_data()['files'] ?? []) as $path) {
+    foreach ((array)(self::update_state_data()['files'] ?? []) as $path) {
         if (is_string($path) && !isset($remote_files[$path]) && !self::us_protected_path($path) && is_file(APP_ROOT . '/' . $path)) {
             $changes[] = ['path' => $path, 'type' => '删除'];
         }
@@ -502,7 +540,7 @@ public static function us_json(array $data): never
 
 public static function deliver_update_notice(): void
 {
-    $state = update_state_data();
+    $state = self::update_state_data();
     $notice = is_array($state['update_notice'] ?? null) ? $state['update_notice'] : [];
     $sha = (string)($notice['sha'] ?? '');
     if (!preg_match('/^[a-f0-9]{40}$/', $sha)) return;
@@ -514,7 +552,7 @@ public static function deliver_update_notice(): void
     }
     unset($state['update_notice']);
     $state['update_notice_sent_sha'] = $sha;
-    update_state_write($state);
+    self::update_state_write($state);
     unset($GLOBALS['__me_cache']);
 }
 
@@ -523,7 +561,7 @@ public static function us_notice_check(): never
     $lock = @fopen(UPDATE_RUN_LOCK_FILE, 'c');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) self::us_json(['ok' => 1, 'pending' => 1]);
     try {
-        $state = update_state_data();
+        $state = self::update_state_data();
         $available = is_array($state['update_notice'] ?? null) || preg_match('/^[a-f0-9]{40}$/', (string)($state['update_notice_sent_sha'] ?? '')) === 1;
         $last_checked = strtotime((string)($state['last_notice_checked_at'] ?? '')) ?: 0;
         if (!$available && $last_checked > time() - UPDATE_NOTICE_CHECK_INTERVAL) {
@@ -531,7 +569,7 @@ public static function us_notice_check(): never
         }
         if (!is_array($state['update_notice'] ?? null)) {
             $state['last_notice_checked_at'] = date(DATE_ATOM);
-            update_state_write($state);
+            self::update_state_write($state);
             $release = self::us_remote_release();
             $changes = self::us_local_changes((array)$release['files']);
             $sha = (string)$release['sha'];
@@ -541,7 +579,7 @@ public static function us_notice_check(): never
                     'message' => (string)($release['message'] ?? ''),
                     'checked_at' => date(DATE_ATOM),
                 ];
-                update_state_write($state);
+                self::update_state_write($state);
                 $available = true;
             }
         }
@@ -557,7 +595,7 @@ public static function us_notice_check(): never
 public static function us_update_page(?array $release = null, string $error = ''): void
 {
     $token = csrf_token();
-    $state = update_state_data();
+    $state = self::update_state_data();
     $local = isset($state['sha']) ? substr((string)$state['sha'], 0, 12) : '未记录';
     $local_time = ($timestamp = strtotime((string)($state['updated_at'] ?? ''))) !== false ? date('Y-m-d H:i', $timestamp) : '';
     $body = '<h1 class="update-title">系统升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测并安装 ' . h(UPDATE_REPOSITORY) . ' 主分支的最新代码，也可单独同步当前代码对应的数据库结构。</p>';
