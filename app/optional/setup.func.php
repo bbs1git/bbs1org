@@ -16,7 +16,7 @@ define('UPDATE_BRANCH', 'main');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
-define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/setup/setup.func.php']);
+define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/optional/setup.func.php', 'app/optional/cron.func.php', 'app/optional/plugin_market.func.php']);
 
 function setup_html(string $title, string $body): never
 {
@@ -818,6 +818,60 @@ function us_rename_legacy_system_tables(PDO $db, string $driver): array
     return $changes;
 }
 
+function us_migrate_legacy_plugin_settings(): int
+{
+    $settings = settings_cache();
+    $registered = array_fill_keys(array_map('strval', q("SELECT id FROM app_plugins")->fetchAll(PDO::FETCH_COLUMN)), true);
+    $files = [];
+    foreach (plugin_files() as $file) {
+        $id = basename(dirname($file));
+        if ($id !== 'plugin_market') $files[$id] = $file;
+    }
+    $files['plugin_market'] = '';
+    $suffixes = ['enabled', 'version', 'config', 'disabled_reason', 'entry_feature_links', 'entry_sidebar_cards'];
+    $delete = [];
+    $count = 0;
+    foreach ($files as $id => $file) {
+        $names = [];
+        foreach ($suffixes as $suffix) {
+            $name = 'plugin_' . $id . '_' . $suffix;
+            if (array_key_exists($name, $settings)) $names[] = $name;
+        }
+        if (!$names) continue;
+        $delete = array_merge($delete, $names);
+        $count++;
+        if ($file === '' || isset($registered[$id])) continue;
+        $config = json_decode((string)($settings['plugin_' . $id . '_config'] ?? '{}'), true);
+        $enabled = (string)($settings['plugin_' . $id . '_enabled'] ?? '0') === '1' ? 1 : 0;
+        app_db_insert_ignore('app_plugins', [
+            'id' => $id,
+            'name' => $id,
+            'version' => (string)($settings['plugin_' . $id . '_version'] ?? ''),
+            'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
+            'code_hash' => '',
+            'manifest_json' => '{}',
+            'config_json' => json_encode(is_array($config) ? $config : [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'entries_json' => json_encode([
+                'feature_links' => (string)($settings['plugin_' . $id . '_entry_feature_links'] ?? '1') === '1',
+                'sidebar_cards' => (string)($settings['plugin_' . $id . '_entry_sidebar_cards'] ?? '1') === '1',
+            ], JSON_UNESCAPED_UNICODE),
+            'enabled' => $enabled,
+            'status' => $enabled ? 'enabled' : 'disabled',
+            'disabled_reason' => (string)($settings['plugin_' . $id . '_disabled_reason'] ?? ''),
+            'installed_at' => now(),
+            'updated_at' => now(),
+        ], ['id']);
+        $registered[$id] = true;
+    }
+    if ($delete) {
+        $delete = array_values(array_unique($delete));
+        q("DELETE FROM app_settings WHERE name IN (" . sql_marks(count($delete)) . ")", $delete);
+        db_row_cache_clear();
+        if (is_array($GLOBALS['__settings_cache'] ?? null)) foreach ($delete as $name) unset($GLOBALS['__settings_cache'][$name]);
+    }
+    return $count;
+}
+
 function us_sync_schema(): array
 {
     [$tables, $virtual_tables, $indexes] = us_install_schema();
@@ -901,6 +955,8 @@ function us_sync_schema(): array
             }
         }
         if ($transactional) $db->commit();
+        $legacy_plugin_count = us_migrate_legacy_plugin_settings();
+        if ($legacy_plugin_count > 0) $changes[] = '迁移旧插件配置：' . $legacy_plugin_count . ' 个';
         $plugin_count = count(plugin_registry_sync());
         plugin_assets_rebuild();
         $changes[] = '同步插件注册表：' . $plugin_count . ' 个';
@@ -954,7 +1010,7 @@ function setup_update_run(): never
 {
     if (!is_file(UPDATE_INSTALL_LOCK_FILE) || !is_file(UPDATE_DB_CONFIG_FILE)) us_result_page('请先安装', [], '请先执行安装操作。');
     if (db_driver() === 'sqlite' && !is_file((string)db_config()['path'])) us_result_page('请先安装', [], '请先执行安装操作。');
-    if (!is_file(UPDATE_SETUP_FILE)) us_result_page('升级失败', [], 'app/setup/setup.func.php 不存在。');
+    if (!is_file(UPDATE_SETUP_FILE)) us_result_page('升级失败', [], 'app/optional/setup.func.php 不存在。');
     $legacy_state = us_legacy_upgrade_state(db(), db_driver());
     if ($legacy_state === 'legacy') us_handle_legacy_upgrade();
     if ($legacy_state !== '') us_result_page('无法自动升级', [], $legacy_state);
@@ -984,6 +1040,11 @@ function setup_update_run(): never
             $requested_sha = (string)($_POST['sha'] ?? '');
             if (!hash_equals($remote['sha'], $requested_sha)) throw new RuntimeException('远端版本已变化，请重新检测后再升级。');
             $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => in_array((string)$path, UPDATE_CODE_FILES, true))));
+            if (in_array('index.php', $selected, true)) {
+                foreach (['app/optional/cron.func.php', 'app/optional/plugin_market.func.php'] as $dependency) {
+                    if (isset($remote['files'][$dependency]) && !in_array($dependency, $selected, true)) $selected[] = $dependency;
+                }
+            }
             if ($selected) {
                 $installed = us_install_files($remote['sha'], $remote['files'], $selected);
                 $changes[] = '程序代码已更新至 ' . $remote['short_sha'] . '（' . (int)$installed['count'] . ' 个文件）';

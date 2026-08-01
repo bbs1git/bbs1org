@@ -2,7 +2,7 @@ app/*
 !app/assets/index.css
 !app/assets/index.js
 !app/assets/index.svg
-!app/setup/setup.func.php
+!app/optional/
 .DS_Store
 .vscode
 .codebuddy
