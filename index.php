@@ -1649,7 +1649,7 @@ function need_manage(): void
 }
 function need_site_access(): void
 {
-    if (!db_schema_ready()) simple_error_page('请访问 index.php?a=install 进行安装', index_url(['a' => 'install']));
+    if (!db_schema_ready()) err('请访问 index.php?a=install 进行安装', 200, 'simple', false, index_url(['a' => 'install']));
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
     if (setting('site_closed') === '1' && !can_access_admin()) {
@@ -1675,11 +1675,11 @@ function set_flash(string $message): void
 {
     app_cookie('__flash', $message, time() + 30, true, false);
 }
-function error_response(string $message, int $status = 200, string $mode = 'auto', bool $log = true, string $url = ''): never
+function err(string $message, int $status = 200, string $mode = 'auto', ?bool $log = null, string $url = ''): never
 {
     $status = $status > 0 ? $status : 200;
     $is_not_found = $status === 404;
-    if ($log) debug_log_write($message);
+    if ($log ?? !$is_not_found) debug_log_write($message);
     if ($status !== 200) http_response_code($status);
 
     if ($mode === 'auto') {
@@ -1710,18 +1710,6 @@ function error_response(string $message, int $status = 200, string $mode = 'auto
     }
 
     error_page($is_not_found ? '404' : '错误', $message, $status);
-}
-function form_error_redirect(string $message): never
-{
-    error_response($message, 200, 'form', false);
-}
-function ajax_error(string $m, bool $log = true): never
-{
-    error_response($m, 200, 'ajax', $log);
-}
-function simple_error_page(string $m, string $url = ''): never
-{
-    error_response($m, 200, 'simple', false, $url);
 }
 function go(string $u): never
 {
@@ -1769,11 +1757,6 @@ function database_error_code(Throwable $e): string
 function database_error_message(Throwable $e): string
 {
     return '数据库出了点小问题（错误代码：' . database_error_code($e) . '）';
-}
-function err(string $m, int $status = 200): never
-{
-    $status = $status > 0 ? $status : 200;
-    error_response($m, $status, 'auto', $status !== 404);
 }
 function cut(string $v, int $max): string
 {
@@ -2239,7 +2222,7 @@ function attachment_upload_page(): void
     } catch (Throwable $e) {
         if (ob_get_level() > 0) ob_end_clean();
         debug_log_write('附件上传失败', $e);
-        ajax_error(database_error($e) ? database_error_message($e) : ($e->getMessage() ?: '附件上传失败'));
+        err(database_error($e) ? database_error_message($e) : ($e->getMessage() ?: '附件上传失败'), 200, 'ajax');
     }
 }
 function topic_upload_attachments_markdown(): string
@@ -4328,7 +4311,7 @@ if ($setup_action === 'install') {
 if ($setup_action === 'update') {
     Setup::setup_update_run();
 }
-if (!db_schema_ready()) simple_error_page('欢迎使用，请先进行数据初始化安装', index_url(['a' => 'install']));
+if (!db_schema_ready()) err('欢迎使用，请先进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
 if (setting('plugin_sync_pending', '0') === '1') {
     Plugin::plugin_registry_sync();
     Plugin::plugin_assets_rebuild();
