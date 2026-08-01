@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+namespace app\optional;
+
+use PDO;
+use RuntimeException;
+use Throwable;
+
 if (!defined('APP_ROOT')) exit;
 
 define('INSTALL_DATA_DIR', DATA_DIR);
@@ -16,9 +22,11 @@ define('UPDATE_BRANCH', 'main');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
-define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/optional/setup.func.php', 'app/optional/cron.func.php', 'app/optional/plugin_market.func.php']);
+define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/optional/Setup.php', 'app/optional/Cron.php', 'app/optional/Plugin.php']);
 
-function setup_html(string $title, string $body): never
+final class Setup
+{
+public static function setup_html(string $title, string $body): never
 {
     if (PHP_SAPI === 'cli') {
         $text = preg_replace('#<(?:style|script)\b[^>]*>.*?</(?:style|script)>#is', '', $body) ?? $body;
@@ -49,7 +57,7 @@ function setup_html(string $title, string $body): never
     exit;
 }
 
-function app_db_config_source(array $config): string
+public static function app_db_config_source(array $config): string
 {
     $saved = $config;
     unset($saved['path']);
@@ -57,7 +65,7 @@ function app_db_config_source(array $config): string
     return "<?php\nif (!defined('APP_ROOT')) exit;\nreturn " . var_export($saved, true) . ";\n";
 }
 
-function app_db_schema(string $driver): array
+public static function app_db_schema(string $driver): array
 {
     $types = app_db_types($driver);
     $id = $types['id'];
@@ -117,17 +125,17 @@ function app_db_schema(string $driver): array
     return [$tables, $indexes];
 }
 
-function app_db_prepare_search(PDO $db, string $driver): void
+public static function app_db_prepare_search(PDO $db, string $driver): void
 {
     if ($driver === 'pgsql') $db->exec('CREATE EXTENSION IF NOT EXISTS pg_trgm');
 }
 
-function app_db_index_table(string $sql): string
+public static function app_db_index_table(string $sql): string
 {
     return preg_match('/\bON\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)/i', $sql, $match) ? $match[1] : '';
 }
 
-function i_db_name(): string
+public static function i_db_name(): string
 {
     if (is_file(INSTALL_DB_CONFIG_FILE)) {
         $config = include INSTALL_DB_CONFIG_FILE;
@@ -137,13 +145,13 @@ function i_db_name(): string
     if (is_file(INSTALL_DEFAULT_DB_FILE)) return basename(INSTALL_DEFAULT_DB_FILE);
     return 'forum-' . bin2hex(random_bytes(8)) . '.sqlite';
 }
-function i_save_db_config(array $config): void
+public static function i_save_db_config(array $config): void
 {
     if (!is_dir(INSTALL_DATA_DIR)) mkdir(INSTALL_DATA_DIR, 0755, true);
-    if (file_put_contents(INSTALL_DB_CONFIG_FILE, app_db_config_source($config), LOCK_EX) === false) i_install_error('安装失败', '数据库配置文件写入失败。');
+    if (file_put_contents(INSTALL_DB_CONFIG_FILE, self::app_db_config_source($config), LOCK_EX) === false) self::i_install_error('安装失败', '数据库配置文件写入失败。');
 }
 
-function i_require_writable_dirs(): void
+public static function i_require_writable_dirs(): void
 {
     $dirs = [
         INSTALL_DATA_DIR => 'app/data/',
@@ -151,29 +159,29 @@ function i_require_writable_dirs(): void
     ];
     foreach ($dirs as $dir => $label) {
         if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
-            i_install_error('安装环境检查未通过', $label . '目录无法创建，请检查目录权限。');
+            self::i_install_error('安装环境检查未通过', $label . '目录无法创建，请检查目录权限。');
         }
         if (!is_writable($dir)) {
-            i_install_error('安装环境检查未通过', $label . '目录不可写，请赋予 PHP 写入权限。');
+            self::i_install_error('安装环境检查未通过', $label . '目录不可写，请赋予 PHP 写入权限。');
         }
         $probe = tempnam($dir, '.install-');
         if ($probe === false || file_put_contents($probe, '1', LOCK_EX) === false) {
             if ($probe !== false) @unlink($probe);
-            i_install_error('安装环境检查未通过', $label . '目录无法写入文件，请检查目录权限。');
+            self::i_install_error('安装环境检查未通过', $label . '目录无法写入文件，请检查目录权限。');
         }
         @unlink($probe);
     }
 }
 
-function i_install_error(string $title, string $message): void
+public static function i_install_error(string $title, string $message): void
 {
     if (PHP_SAPI === 'cli') {
         fwrite(STDERR, $title . PHP_EOL . $message . PHP_EOL);
         exit(1);
     }
-    setup_html($title, '<div class="hero"><h1>' . h($title) . '</h1><p>安装环境检查未通过。</p></div><div class="card"><div class="bd"><div class="note warn">' . h($message) . '</div></div></div>');
+    self::setup_html($title, '<div class="hero"><h1>' . h($title) . '</h1><p>安装环境检查未通过。</p></div><div class="card"><div class="bd"><div class="note warn">' . h($message) . '</div></div></div>');
 }
-function i_db(array $config): PDO
+public static function i_db(array $config): PDO
 {
     $attempts = defined('AUTO_INSTALL_RUNNING') ? 30 : 1;
     $last_error = null;
@@ -185,31 +193,31 @@ function i_db(array $config): PDO
             if ($attempt + 1 < $attempts) sleep(2);
         }
     }
-    i_install_error('数据库初始化失败', '数据库连接失败：' . ($last_error?->getMessage() ?: '未知错误'));
+    self::i_install_error('数据库初始化失败', '数据库连接失败：' . ($last_error?->getMessage() ?: '未知错误'));
 }
-function i_database_install_state(PDO $db, string $driver): string
+public static function i_database_install_state(PDO $db, string $driver): string
 {
     if (!app_db_table_exists($db, $driver, 'app_users') || $db->query('SELECT id FROM app_users ORDER BY id LIMIT 1')->fetchColumn() === false) return 'empty';
     foreach (['app_settings', 'app_groups', 'app_forums', 'app_topics', 'app_replies'] as $table) if (!app_db_table_exists($db, $driver, $table)) return 'partial';
     $site = $db->query("SELECT value FROM app_settings WHERE name='site_name' LIMIT 1")->fetchColumn();
     return $site === false ? 'partial' : 'installed';
 }
-function i_restore_existing_install(array $config): never
+public static function i_restore_existing_install(array $config): never
 {
-    i_save_db_config($config);
-    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) i_install_error('安装失败', '安装锁文件写入失败。');
+    self::i_save_db_config($config);
+    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) self::i_install_error('安装失败', '安装锁文件写入失败。');
     header('Location: index.php?a=login', true, 303);
     exit;
 }
-function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $database): void
+public static function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $database): void
 {
-    setup_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . h($site_name) . '</div><div>数据库</div><div class="mono">' . h($database) . '</div><div>管理员用户名</div><div class="mono">' . h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建数据库结构和索引</li><li>创建默认版块</li><li>创建第一个管理员</li><li>生成缓存文件</li><li>数据库密码仅保存在 app/data/db.php</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
+    self::setup_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . h($site_name) . '</div><div>数据库</div><div class="mono">' . h($database) . '</div><div>管理员用户名</div><div class="mono">' . h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建数据库结构和索引</li><li>创建默认版块</li><li>创建第一个管理员</li><li>生成缓存文件</li><li>数据库密码仅保存在 app/data/db.php</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
 }
-function i_locked(): void
+public static function i_locked(): void
 {
-    setup_html('安装已锁定', '<div class="hero"><h1>安装已锁定</h1><p>安装入口当前不可访问。</p></div><div class="card"><div class="bd"><div class="note warn">如需重新安装，请先删除安装锁文件后再访问。</div><div style="height:14px"></div><div class="actions"><a class="btn" href="index.php">进入首页</a></div></div></div>');
+    self::setup_html('安装已锁定', '<div class="hero"><h1>安装已锁定</h1><p>安装入口当前不可访问。</p></div><div class="card"><div class="bd"><div class="note warn">如需重新安装，请先删除安装锁文件后再访问。</div><div style="height:14px"></div><div class="actions"><a class="btn" href="index.php">进入首页</a></div></div></div>');
 }
-function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, array $values = []): void
+public static function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, array $values = []): void
 {
     $type = in_array((string)($values['db_type'] ?? 'sqlite'), ['sqlite', 'mysql', 'pgsql'], true) ? (string)($values['db_type'] ?? 'sqlite') : 'sqlite';
     $option = fn(string $value, string $label): string => '<option value="' . $value . '"' . ($type === $value ? ' selected' : '') . '>' . $label . '</option>';
@@ -218,24 +226,24 @@ function i_form(string $site_name, string $admin_user, string $admin_email, stri
     $default_port = $type === 'pgsql' ? '5432' : '3306';
     $db_fields = '<div class="db-fields" id="server-db-fields"' . ($type === 'sqlite' ? ' hidden' : '') . '><div class="row compact"><div class="field"><label>数据库地址</label><input type="text" name="db_host" value="' . $v('db_host', $default_host) . '"></div><div class="field"><label>端口</label><input type="text" name="db_port" value="' . $v('db_port', $default_port) . '"></div></div><div class="row"><label>数据库名</label><input type="text" name="db_name" value="' . $v('db_name') . '"><small>数据库需要提前创建，安装器会创建其中的数据表。</small></div><div class="row compact"><div class="field"><label>数据库用户</label><input type="text" name="db_user" value="' . $v('db_user') . '"></div><div class="field"><label>数据库密码</label><input type="password" name="db_password" value="' . $v('db_password') . '"></div></div></div>';
     $body = '<div class="hero"><h1>安装</h1><p>一页完成初始化，创建管理员和默认版块。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>数据库类型</label><select name="db_type" id="db-type">' . $option('sqlite', 'SQLite（默认）') . $option('mysql', 'MySQL') . $option('pgsql', 'PostgreSQL') . '</select></div>' . $db_fields . '<div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . h($admin_user) . '" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . h($admin_email) . '" required><small>用于找回密码与通知。</small></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . h($admin_pass) . '" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . h($admin_pass) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . h($default_forum) . '" required></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>SQLite 无需填写连接信息</li><li>MySQL/PostgreSQL 数据库需提前创建</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li></ul></div></aside></div><script>const type=document.getElementById("db-type"),fields=document.getElementById("server-db-fields"),host=fields.querySelector("[name=db_host]"),port=fields.querySelector("[name=db_port]"),defaults={mysql:["mysql","3306"],pgsql:["postgres","5432"]};function toggleDb(change){const values=defaults[type.value]||null;fields.hidden=!values;if(change&&values){host.value=values[0];port.value=values[1]}}type.addEventListener("change",()=>toggleDb(true));toggleDb(false);</script>';
-    setup_html('安装', $body);
+    self::setup_html('安装', $body);
 }
 
-function setup_install_run(): never
+public static function setup_install_run(): never
 {
     if (is_file(INSTALL_LOCK_FILE)) {
-        i_locked();
+        self::i_locked();
     }
-    i_require_writable_dirs();
+    self::i_require_writable_dirs();
     $step = (string)($_POST['step'] ?? '');
     if ($step !== 'install') {
-        i_form('我的论坛', 'admin', '', '', '默认版块');
+        self::i_form('我的论坛', 'admin', '', '', '默认版块');
     }
     $form_values = $_POST;
-    if (!isset($_POST['confirm_clean'], $_POST['confirm_admin'])) i_form('我的论坛', 'admin', '', '', '默认版块', $form_values);
+    if (!isset($_POST['confirm_clean'], $_POST['confirm_admin'])) self::i_form('我的论坛', 'admin', '', '', '默认版块', $form_values);
     $driver = in_array((string)($_POST['db_type'] ?? 'sqlite'), ['sqlite', 'mysql', 'pgsql'], true) ? (string)($_POST['db_type'] ?? 'sqlite') : 'sqlite';
     $db_name = trim((string)($_POST['db_name'] ?? ''));
-    $sqlite_name = $driver === 'sqlite' ? i_db_name() : '';
+    $sqlite_name = $driver === 'sqlite' ? self::i_db_name() : '';
     $config = $driver === 'sqlite' ? [
         'driver' => 'sqlite', 'database' => $sqlite_name, 'path' => INSTALL_DATA_DIR . '/' . $sqlite_name,
     ] : [
@@ -246,29 +254,29 @@ function setup_install_run(): never
         'username' => (string)($_POST['db_user'] ?? ''),
         'password' => (string)($_POST['db_password'] ?? ''),
     ];
-    if ($driver !== 'sqlite' && ($config['host'] === '' || $config['database'] === '' || $config['username'] === '')) i_form('我的论坛', 'admin', '', '', '默认版块', $form_values);
+    if ($driver !== 'sqlite' && ($config['host'] === '' || $config['database'] === '' || $config['username'] === '')) self::i_form('我的论坛', 'admin', '', '', '默认版块', $form_values);
     $site_name = trim((string)($_POST['site_name'] ?? '我的论坛'));
     $admin_username = trim((string)($_POST['admin_username'] ?? 'admin'));
     $admin_email = trim((string)($_POST['admin_email'] ?? ''));
     $admin_password = (string)($_POST['admin_password'] ?? '');
     $admin_password2 = (string)($_POST['admin_password2'] ?? '');
     $forum_name = trim((string)($_POST['forum_name'] ?? '默认版块'));
-    if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '') i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $form_values);
-    if ($admin_password !== $admin_password2) i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $form_values);
-    if (is_file(INSTALL_LOCK_FILE)) i_locked();
-    $db = i_db($config);
-    $install_state = i_database_install_state($db, $driver);
-    if ($install_state === 'installed') i_restore_existing_install($config);
-    if ($install_state === 'partial') i_install_error('检测到已有数据', '数据库中已有用户数据，但安装记录不完整。请恢复原程序文件或使用空数据库安装。');
-    i_save_db_config($config);
-    [$tables, $indexes] = app_db_schema($driver);
+    if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '') self::i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $form_values);
+    if ($admin_password !== $admin_password2) self::i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $form_values);
+    if (is_file(INSTALL_LOCK_FILE)) self::i_locked();
+    $db = self::i_db($config);
+    $install_state = self::i_database_install_state($db, $driver);
+    if ($install_state === 'installed') self::i_restore_existing_install($config);
+    if ($install_state === 'partial') self::i_install_error('检测到已有数据', '数据库中已有用户数据，但安装记录不完整。请恢复原程序文件或使用空数据库安装。');
+    self::i_save_db_config($config);
+    [$tables, $indexes] = self::app_db_schema($driver);
     foreach ($tables as $table => $sql) if (!app_db_table_exists($db, $driver, $table)) $db->exec($sql);
     if ($driver === 'sqlite') {
         app_db_create_fts5_table($db, 'app_topics_fts', 'title, body');
         app_db_create_fts5_table($db, 'app_replies_fts', 'body');
     }
-    app_db_prepare_search($db, $driver);
-    foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, app_db_index_table($sql))) $db->exec($sql);
+    self::app_db_prepare_search($db, $driver);
+    foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, self::app_db_index_table($sql))) $db->exec($sql);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin', 'upload_quota_mb'], ['id']));
     $seed->execute([1, '管理员', 1, 1, 0]); $seed->execute([2, '会员', 0, 0, 0]);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_forums', ['id', 'name', 'description', 'sort'], ['id']));
@@ -287,23 +295,23 @@ function setup_install_run(): never
     forums_cache(true);
     groups_cache(true);
     home_stats_record_insert('users', 1);
-    plugin_registry_sync();
-    plugin_assets_rebuild();
-    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) i_install_error('安装失败', '安装锁文件写入失败。');
+    Plugin::plugin_registry_sync();
+    Plugin::plugin_assets_rebuild();
+    if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) self::i_install_error('安装失败', '安装锁文件写入失败。');
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
-    i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
+    self::i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
 }
 
-function setup_auto_install_run(): never
+public static function setup_auto_install_run(): never
 {
     define('AUTO_INSTALL_RUNNING', true);
     $driver = strtolower(trim((string)(getenv('BBS_DB_DRIVER') ?: 'sqlite')));
-    if (!in_array($driver, ['sqlite', 'mysql', 'pgsql'], true)) i_install_error('自动安装失败', 'BBS_DB_DRIVER 只能是 sqlite、mysql 或 pgsql。');
+    if (!in_array($driver, ['sqlite', 'mysql', 'pgsql'], true)) self::i_install_error('自动安装失败', 'BBS_DB_DRIVER 只能是 sqlite、mysql 或 pgsql。');
     $default_host = $driver === 'mysql' ? 'mysql' : ($driver === 'pgsql' ? 'postgres' : '');
     $default_port = $driver === 'mysql' ? 3306 : 5432;
     $admin_username = trim((string)(getenv('BBS_ADMIN_USERNAME') ?: 'admin'));
     $admin_password = (string)(getenv('BBS_ADMIN_PASSWORD') ?: '');
-    if ($admin_username === '' || $admin_password === '') i_install_error('自动安装失败', '请设置 BBS_ADMIN_USERNAME 和 BBS_ADMIN_PASSWORD。');
+    if ($admin_username === '' || $admin_password === '') self::i_install_error('自动安装失败', '请设置 BBS_ADMIN_USERNAME 和 BBS_ADMIN_PASSWORD。');
     $_POST = [
         'step' => 'install',
         'confirm_clean' => '1',
@@ -321,10 +329,10 @@ function setup_auto_install_run(): never
         'admin_password2' => $admin_password,
         'forum_name' => trim((string)(getenv('BBS_FORUM_NAME') ?: '默认版块')),
     ];
-    setup_install_run();
+    self::setup_install_run();
 }
 
-function us_unlock(): void
+public static function us_unlock(): void
 {
     if (isset($GLOBALS['update_lock_handle']) && is_resource($GLOBALS['update_lock_handle'])) {
         flock($GLOBALS['update_lock_handle'], LOCK_UN);
@@ -333,12 +341,12 @@ function us_unlock(): void
     }
 }
 
-function us_styles(): string
+public static function us_styles(): string
 {
     return '.update-page{min-height:100vh;padding:28px 12px;background:#f6f7f8}.update-card{width:min(720px,100%);margin:auto;padding:28px;border:1px solid #e8e8e8;border-radius:8px;background:#fff;box-shadow:0 18px 45px rgba(16,24,40,.08)}.update-title{display:flex;align-items:center;gap:9px;margin:0;color:#111;font-size:22px;line-height:1.3}.update-file-version{padding:2px 6px;border:1px solid #dfe4e1;border-radius:4px;background:#f7f9f8;color:#6d7571;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}.update-sub{margin:7px 0 20px;color:#777;font-size:13px;line-height:1.7}.update-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 18px}.update-panel{padding:16px;border:1px solid #eee;border-radius:6px;background:#fafafa}.update-panel strong{display:block;margin-bottom:6px;color:#222}.update-panel span{display:block;color:#777;font-size:13px;line-height:1.6}.update-version{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.update-notice,.update-warning,.update-error{margin:0 0 18px;padding:14px;border:1px solid #dfe8e3;border-radius:6px;background:#f8fcfa;color:#376348;font-size:13px;line-height:1.7;word-break:break-word}.update-warning{border-color:#f3d6a2;background:#fffaf0;color:#8a5a13}.update-error{border-color:#ffd8d8;background:#fff8f8;color:#b42318}.update-list{list-style:none;margin:0 0 20px;padding:0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;background:#fff}.update-list li{padding:0;border-bottom:1px solid #edf0f2;color:#444;font-size:13px}.update-list li:last-child{border-bottom:0}.update-list label{display:flex;align-items:center;gap:12px;min-height:48px;padding:10px 14px;cursor:pointer;transition:background .15s ease}.update-list label:hover{background:#f7faf8}.update-list li:has(input:checked){background:#f8fcfa}.update-list input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:#20a45a;cursor:pointer;flex:0 0 18px}.update-file-type{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:3px 7px;border-radius:4px;background:#eef8f2;color:#267247;font-size:12px;line-height:1.2}.update-file-path{min-width:0;color:#252b2e;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.update-schema-item{background:#fafafa}.update-schema-copy{display:grid;gap:2px;min-width:0}.update-schema-copy strong{color:#30363a;font-size:13px}.update-schema-copy span{color:#7a8185;font-size:12px;line-height:1.5}.update-result-item{padding:11px 14px!important;line-height:1.6}.update-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}.update-actions form{display:flex;margin:0}.update-actions a,.update-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#555;font:inherit;text-decoration:none;cursor:pointer}.update-actions button.primary{border-color:#2ecc71;background:#2ecc71;color:#fff}.update-actions button:disabled{cursor:not-allowed;opacity:.55}@media(max-width:600px){.update-card{padding:20px}.update-grid{grid-template-columns:1fr}.update-list label{gap:10px;padding:10px 12px}.update-file-type{min-width:40px}.update-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));align-items:stretch}.update-actions a,.update-actions form,.update-actions button{width:100%;min-width:0}}';
 }
 
-function us_result_page(string $title, array $changes, string $error = ''): void
+public static function us_result_page(string $title, array $changes, string $error = ''): void
 {
     $body = '<h1 class="update-title">' . h($title) . '</h1><p class="update-sub">勾选数据库同步时，将根据当前程序幂等同步数据库结构和索引。</p>';
     if ($error !== '') {
@@ -351,22 +359,22 @@ function us_result_page(string $title, array $changes, string $error = ''): void
         $body .= '<div class="update-notice">数据库结构和索引已是最新，无需调整。</div>';
     }
     $body .= '<div class="update-actions"><a href="index.php?a=update">返回升级页</a><a href="index.php">进入首页</a></div>';
-    us_unlock();
-    setup_html($title, '<style>' . us_styles() . '</style><section class="update-card">' . $body . '</section>');
+    self::us_unlock();
+    self::setup_html($title, '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>');
 }
 
-function us_need_admin(): void
+public static function us_need_admin(): void
 {
-    if (!uid()) us_result_page('请先登录', [], '请先登录管理员账号后再执行升级。');
+    if (!uid()) self::us_result_page('请先登录', [], '请先登录管理员账号后再执行升级。');
     if (uid() === 1) return;
-    if (!app_db_table_exists(db(), db_driver(), 'app_users') || !app_db_table_exists(db(), db_driver(), 'app_groups') || !can_access_admin()) us_result_page('无权限', [], '当前账号没有后台管理权限。');
+    if (!app_db_table_exists(db(), db_driver(), 'app_users') || !app_db_table_exists(db(), db_driver(), 'app_groups') || !can_access_admin()) self::us_result_page('无权限', [], '当前账号没有后台管理权限。');
 }
 
-function us_legacy_upgrade_state(PDO $db, string $driver): string
+public static function us_legacy_upgrade_state(PDO $db, string $driver): string
 {
     $legacy = [];
     $current = [];
-    foreach (migrate_core_table_map() as $table => $target) {
+    foreach (self::migrate_core_table_map() as $table => $target) {
         if ($table === 'topics_fts') continue;
         if (app_db_table_exists($db, $driver, $table)) $legacy[] = $table;
         if (app_db_table_exists($db, $driver, $target)) $current[] = $target;
@@ -379,7 +387,7 @@ function us_legacy_upgrade_state(PDO $db, string $driver): string
     return 'legacy';
 }
 
-function us_legacy_admin_id(string $username, string $password): int
+public static function us_legacy_admin_id(string $username, string $password): int
 {
     $user = one('SELECT * FROM users WHERE username=?', [trim($username)]);
     if (!$user || !password_verify($password, (string)$user['password']) || (int)($user['is_banned'] ?? 0) === 1) return 0;
@@ -389,40 +397,40 @@ function us_legacy_admin_id(string $username, string $password): int
     return (int)($group['allow_admin'] ?? 0) === 1 ? $user_id : 0;
 }
 
-function us_acquire_lock(): void
+public static function us_acquire_lock(): void
 {
     $lock = fopen(UPDATE_RUN_LOCK_FILE, 'c');
-    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) us_result_page('升级失败', [], '升级正在执行，请稍后再试。');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) self::us_result_page('升级失败', [], '升级正在执行，请稍后再试。');
     $GLOBALS['update_lock_handle'] = $lock;
 }
 
-function us_legacy_upgrade_page(string $error = ''): never
+public static function us_legacy_upgrade_page(string $error = ''): never
 {
     $token = csrf_token();
     $body = '<h1 class="update-title">旧版本数据库升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测到数据库仍使用无 app_ 前缀的旧系统表。升级将原子改名系统表并同步当前结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';
     $body .= '<div class="update-warning"><strong>操作前必须完整备份数据库。</strong>若旧库结构不完整，请重新安装后使用“数据迁入”。</div><form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="legacy_upgrade" value="1"><div class="update-grid"><label class="update-panel"><strong>旧版管理员用户名</strong><input type="text" name="username" required autocomplete="username"></label><label class="update-panel"><strong>旧版管理员密码</strong><input type="password" name="password" required autocomplete="current-password"></label></div><label class="update-warning"><input type="checkbox" name="confirm_backup" value="1" required> 已完成数据库备份</label><div class="update-actions"><button class="primary" type="submit">升级旧数据库</button></div></form>';
-    setup_html('旧版本数据库升级', '<style>' . us_styles() . '</style><section class="update-card">' . $body . '</section>');
+    self::setup_html('旧版本数据库升级', '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>');
 }
 
-function us_handle_legacy_upgrade(): never
+public static function us_handle_legacy_upgrade(): never
 {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') us_legacy_upgrade_page();
-    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) us_legacy_upgrade_page('请求已过期，请返回重试。');
-    if (!isset($_POST['confirm_backup'])) us_legacy_upgrade_page('请先确认已完成数据库备份。');
-    $user_id = us_legacy_admin_id((string)($_POST['username'] ?? ''), (string)($_POST['password'] ?? ''));
-    if ($user_id <= 0) us_legacy_upgrade_page('管理员账号或密码错误。');
-    us_acquire_lock();
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') self::us_legacy_upgrade_page();
+    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) self::us_legacy_upgrade_page('请求已过期，请返回重试。');
+    if (!isset($_POST['confirm_backup'])) self::us_legacy_upgrade_page('请先确认已完成数据库备份。');
+    $user_id = self::us_legacy_admin_id((string)($_POST['username'] ?? ''), (string)($_POST['password'] ?? ''));
+    if ($user_id <= 0) self::us_legacy_upgrade_page('管理员账号或密码错误。');
+    self::us_acquire_lock();
     try {
-        $changes = us_sync_schema();
+        $changes = self::us_sync_schema();
         start_cookie_login($user_id);
-        us_result_page('升级完成', $changes);
+        self::us_result_page('升级完成', $changes);
     } catch (Throwable $e) {
-        us_result_page('升级失败', [], $e->getMessage());
+        self::us_result_page('升级失败', [], $e->getMessage());
     }
 }
 
-function us_http(string $url): string
+public static function us_http(string $url): string
 {
     $context = stream_context_create(['http' => [
         'method' => 'GET',
@@ -441,13 +449,13 @@ function us_http(string $url): string
     return $body;
 }
 
-function us_remote_release(): array
+public static function us_remote_release(): array
 {
-    $json = json_decode(us_http('https://api.github.com/repos/' . UPDATE_REPOSITORY . '/commits/' . UPDATE_BRANCH), true, 512, JSON_THROW_ON_ERROR);
+    $json = json_decode(self::us_http('https://api.github.com/repos/' . UPDATE_REPOSITORY . '/commits/' . UPDATE_BRANCH), true, 512, JSON_THROW_ON_ERROR);
     $sha = (string)($json['sha'] ?? '');
     $tree_url = (string)($json['commit']['tree']['url'] ?? '');
     if (!preg_match('/^[a-f0-9]{40}$/', $sha) || $tree_url === '') throw new RuntimeException('GitHub 返回的版本信息无效。');
-    $tree = json_decode(us_http($tree_url . '?recursive=1'), true, 512, JSON_THROW_ON_ERROR);
+    $tree = json_decode(self::us_http($tree_url . '?recursive=1'), true, 512, JSON_THROW_ON_ERROR);
     if (!empty($tree['truncated']) || !is_array($tree['tree'] ?? null)) throw new RuntimeException('GitHub 返回的文件清单不完整。');
     $files = [];
     foreach ($tree['tree'] as $item) {
@@ -464,51 +472,69 @@ function us_remote_release(): array
     ];
 }
 
-function us_git_blob_sha(string $file): string
+public static function us_git_blob_sha(string $file): string
 {
     $content = (string)file_get_contents($file);
     return sha1('blob ' . strlen($content) . "\0" . $content);
 }
 
-function us_local_changes(array $remote_files): array
+public static function us_local_changes(array $remote_files): array
 {
     $changes = [];
     foreach ($remote_files as $path => $sha) {
         $file = APP_ROOT . '/' . $path;
         if (!is_file($file)) $changes[] = ['path' => $path, 'type' => '新增'];
-        elseif (!hash_equals($sha, us_git_blob_sha($file))) $changes[] = ['path' => $path, 'type' => '更新'];
+        elseif (!hash_equals($sha, self::us_git_blob_sha($file))) $changes[] = ['path' => $path, 'type' => '更新'];
     }
     foreach ((array)(update_state_data()['files'] ?? []) as $path) {
-        if (is_string($path) && !isset($remote_files[$path]) && !us_protected_path($path) && is_file(APP_ROOT . '/' . $path)) {
+        if (is_string($path) && !isset($remote_files[$path]) && !self::us_protected_path($path) && is_file(APP_ROOT . '/' . $path)) {
             $changes[] = ['path' => $path, 'type' => '删除'];
         }
     }
     return $changes;
 }
 
-function us_json(array $data): never
+public static function us_json(array $data): never
 {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-function us_notice_check(): never
+public static function deliver_update_notice(): void
+{
+    $state = update_state_data();
+    $notice = is_array($state['update_notice'] ?? null) ? $state['update_notice'] : [];
+    $sha = (string)($notice['sha'] ?? '');
+    if (!preg_match('/^[a-f0-9]{40}$/', $sha)) return;
+    $short_sha = substr($sha, 0, 12);
+    $message = trim((string)($notice['message'] ?? ''));
+    $content = '检测到系统新版本 ' . $short_sha . '。' . ($message !== '' ? "\n\n" . cut($message, 120) : '') . "\n\n请前往后台设置中的“系统升级”完成升级。";
+    if (!one("SELECT 1 FROM app_notifications WHERE recipient_id=? AND kind='system_update' AND content=? LIMIT 1", [uid(), $content])) {
+        create_notification(uid(), 0, 'system_update', $content);
+    }
+    unset($state['update_notice']);
+    $state['update_notice_sent_sha'] = $sha;
+    update_state_write($state);
+    unset($GLOBALS['__me_cache']);
+}
+
+public static function us_notice_check(): never
 {
     $lock = @fopen(UPDATE_RUN_LOCK_FILE, 'c');
-    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) us_json(['ok' => 1, 'pending' => 1]);
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) self::us_json(['ok' => 1, 'pending' => 1]);
     try {
         $state = update_state_data();
         $available = is_array($state['update_notice'] ?? null) || preg_match('/^[a-f0-9]{40}$/', (string)($state['update_notice_sent_sha'] ?? '')) === 1;
         $last_checked = strtotime((string)($state['last_notice_checked_at'] ?? '')) ?: 0;
         if (!$available && $last_checked > time() - UPDATE_NOTICE_CHECK_INTERVAL) {
-            us_json(['ok' => 1, 'update_available' => 0, 'cached' => 1]);
+            self::us_json(['ok' => 1, 'update_available' => 0, 'cached' => 1]);
         }
         if (!is_array($state['update_notice'] ?? null)) {
             $state['last_notice_checked_at'] = date(DATE_ATOM);
             update_state_write($state);
-            $release = us_remote_release();
-            $changes = us_local_changes((array)$release['files']);
+            $release = self::us_remote_release();
+            $changes = self::us_local_changes((array)$release['files']);
             $sha = (string)$release['sha'];
             if ($changes && !hash_equals((string)($state['update_notice_sent_sha'] ?? ''), $sha)) {
                 $state['update_notice'] = [
@@ -520,16 +546,16 @@ function us_notice_check(): never
                 $available = true;
             }
         }
-        us_json(['ok' => 1, 'update_available' => $available ? 1 : 0]);
+        self::us_json(['ok' => 1, 'update_available' => $available ? 1 : 0]);
     } catch (Throwable $e) {
-        us_json(['ok' => 0, 'message' => $e->getMessage() ?: '检查升级失败']);
+        self::us_json(['ok' => 0, 'message' => $e->getMessage() ?: '检查升级失败']);
     } finally {
         flock($lock, LOCK_UN);
         fclose($lock);
     }
 }
 
-function us_update_page(?array $release = null, string $error = ''): void
+public static function us_update_page(?array $release = null, string $error = ''): void
 {
     $token = csrf_token();
     $state = update_state_data();
@@ -538,7 +564,7 @@ function us_update_page(?array $release = null, string $error = ''): void
     $body = '<h1 class="update-title">系统升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测并安装 ' . h(UPDATE_REPOSITORY) . ' 主分支的最新代码，也可单独同步当前代码对应的数据库结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';
     if ($release) {
-        $changes = us_local_changes($release['files']);
+        $changes = self::us_local_changes($release['files']);
         $remote_time = ($timestamp = strtotime((string)$release['date'])) !== false ? date('Y-m-d H:i', $timestamp) : (string)$release['date'];
         $body .= '<div class="update-grid"><div class="update-panel"><strong>本地记录</strong><span class="update-version">' . h($local) . '</span>' . ($local_time !== '' ? '<span>更新时间：' . h($local_time) . '</span>' : '') . '</div><div class="update-panel"><strong>远端最新</strong><span class="update-version">' . h($release['short_sha']) . '</span><span>最后提交：' . h($remote_time) . '</span><span>' . h($release['message']) . '</span></div></div>';
         if ($changes) {
@@ -561,11 +587,11 @@ function us_update_page(?array $release = null, string $error = ''): void
     if (!$release || !$changes) $body .= '<form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
     if ($release && $changes) $body .= '<form id="online-update-form" method="post" onsubmit="return confirm(\'确定下载并覆盖已勾选的程序文件？\')"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="online"><input type="hidden" name="sha" value="' . h($release['sha']) . '"><button class="primary" type="submit">在线升级</button></form>';
     $body .= '</div>';
-    us_unlock();
-    setup_html('系统升级', '<style>' . us_styles() . '</style><section class="update-card">' . $body . '</section>');
+    self::us_unlock();
+    self::setup_html('系统升级', '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>');
 }
 
-function us_protected_path(string $path): bool
+public static function us_protected_path(string $path): bool
 {
     $path = trim(str_replace('\\', '/', $path), '/');
     if ($path === '' || str_contains($path, "\0") || preg_match('#(^|/)\.\.(/|$)#', $path)) return true;
@@ -573,7 +599,7 @@ function us_protected_path(string $path): bool
     return false;
 }
 
-function us_remove_dir(string $dir): void
+public static function us_remove_dir(string $dir): void
 {
     if (!is_dir($dir)) return;
     $items = scandir($dir);
@@ -581,19 +607,19 @@ function us_remove_dir(string $dir): void
     foreach ($items as $item) {
         if ($item === '.' || $item === '..') continue;
         $path = $dir . '/' . $item;
-        is_dir($path) && !is_link($path) ? us_remove_dir($path) : @unlink($path);
+        is_dir($path) && !is_link($path) ? self::us_remove_dir($path) : @unlink($path);
     }
     @rmdir($dir);
 }
 
-function us_writable_parent(string $path): bool
+public static function us_writable_parent(string $path): bool
 {
     $parent = dirname($path);
     while (!is_dir($parent) && $parent !== dirname($parent)) $parent = dirname($parent);
     return is_dir($parent) && is_writable($parent);
 }
 
-function us_refresh_fpm_opcache_after_update(): string
+public static function us_refresh_fpm_opcache_after_update(): string
 {
     if (PHP_SAPI !== 'cli') return 'OPcache 已成功清理';
 
@@ -608,7 +634,7 @@ function us_refresh_fpm_opcache_after_update(): string
     }
 }
 
-function us_refresh_opcache_after_update(array $files): string
+public static function us_refresh_opcache_after_update(array $files): string
 {
     $php_updated = (bool)array_filter($files, static fn(string $path): bool => str_ends_with(strtolower($path), '.php'));
     if (!$php_updated) return '本次未更新 PHP 文件，无需清理 OPcache';
@@ -621,7 +647,7 @@ function us_refresh_opcache_after_update(array $files): string
             // 无法读取状态时，以配置值判断，随后仍要求 opcache_reset() 成功。
         }
     }
-    if (!$opcache_enabled) return us_refresh_fpm_opcache_after_update();
+    if (!$opcache_enabled) return self::us_refresh_fpm_opcache_after_update();
     if (!function_exists('opcache_reset')) {
         throw new RuntimeException('程序文件已更新，但 OPcache 已启用且无法调用 opcache_reset()；数据库结构尚未同步，请清理 OPcache 后重试。');
     }
@@ -633,10 +659,10 @@ function us_refresh_opcache_after_update(array $files): string
     if (!$cleared) {
         throw new RuntimeException('程序文件已更新，但 OPcache 清理失败；数据库结构尚未同步，请清理 OPcache 后重试。');
     }
-    return us_refresh_fpm_opcache_after_update();
+    return self::us_refresh_fpm_opcache_after_update();
 }
 
-function us_install_files(string $sha, array $remote_files, array $selected): array
+public static function us_install_files(string $sha, array $remote_files, array $selected): array
 {
     if (!preg_match('/^[a-f0-9]{40}$/', $sha)) throw new RuntimeException('升级版本无效。');
     $temp = UPDATE_DATA_DIR . '/update-' . bin2hex(random_bytes(6));
@@ -646,7 +672,7 @@ function us_install_files(string $sha, array $remote_files, array $selected): ar
         foreach ($remote_files as $path => $expected_sha) {
             if (!in_array($path, UPDATE_CODE_FILES, true)) continue;
             if (!in_array($path, $selected, true)) continue;
-            $content = us_http('https://raw.githubusercontent.com/' . UPDATE_REPOSITORY . '/' . $sha . '/' . $path);
+            $content = self::us_http('https://raw.githubusercontent.com/' . UPDATE_REPOSITORY . '/' . $sha . '/' . $path);
             if (strlen($content) > UPDATE_MAX_ARCHIVE_BYTES || !hash_equals($expected_sha, sha1('blob ' . strlen($content) . "\0" . $content))) throw new RuntimeException('远端文件校验失败：' . $path);
             $target = $temp . '/' . $path;
             if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0700, true)) throw new RuntimeException('无法创建临时目录：' . dirname($path));
@@ -657,7 +683,7 @@ function us_install_files(string $sha, array $remote_files, array $selected): ar
         $backups = [];
         foreach ($files as $path) {
             $target = APP_ROOT . '/' . $path;
-            if (!us_writable_parent($target)) throw new RuntimeException('文件所在目录不可写：' . $path);
+            if (!self::us_writable_parent($target)) throw new RuntimeException('文件所在目录不可写：' . $path);
             $backup = $temp . '/backup/' . $path;
             $existed = is_file($target);
             if ($existed) {
@@ -681,7 +707,7 @@ function us_install_files(string $sha, array $remote_files, array $selected): ar
                     throw new RuntimeException('更新文件失败：' . $path);
                 }
                 $replaced[] = $path;
-                if (!hash_equals((string)$remote_files[$path], us_git_blob_sha($target))) throw new RuntimeException('更新后校验失败：' . $path);
+                if (!hash_equals((string)$remote_files[$path], self::us_git_blob_sha($target))) throw new RuntimeException('更新后校验失败：' . $path);
             }
             $state = json_encode(['sha' => $sha, 'updated_at' => date(DATE_ATOM), 'files' => $files], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             $state_swap = UPDATE_STATE_FILE . '.update-' . bin2hex(random_bytes(4));
@@ -713,13 +739,13 @@ function us_install_files(string $sha, array $remote_files, array $selected): ar
             throw new RuntimeException($e->getMessage() . '；已恢复升级前文件。', 0, $e);
         }
         clearstatcache();
-        return ['count' => count($files), 'opcache' => us_refresh_opcache_after_update($files)];
+        return ['count' => count($files), 'opcache' => self::us_refresh_opcache_after_update($files)];
     } finally {
-        us_remove_dir($temp);
+        self::us_remove_dir($temp);
     }
 }
 
-function us_split_defs(string $body): array
+public static function us_split_defs(string $body): array
 {
     $defs = [];
     $buf = '';
@@ -739,24 +765,24 @@ function us_split_defs(string $body): array
     return $defs;
 }
 
-function us_parse_table_sql(string $sql): array
+public static function us_parse_table_sql(string $sql): array
 {
     if (!preg_match('/CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+[`"]?([a-zA-Z0-9_]+)[`"]?\s*\((.*)\)\s*(?:ENGINE=.*)?;?\s*$/is', trim($sql), $m)) return [];
     $columns = [];
-    foreach (us_split_defs($m[2]) as $def) {
+    foreach (self::us_split_defs($m[2]) as $def) {
         if (preg_match('/^(PRIMARY|UNIQUE|CHECK|FOREIGN|CONSTRAINT)\b/i', $def)) continue;
         if (preg_match('/^([a-zA-Z0-9_]+)\s+(.+)$/s', $def, $cm)) $columns[$cm[1]] = $def;
     }
     return ['name' => $m[1], 'sql' => rtrim(trim($sql), ';') . ';', 'columns' => $columns];
 }
 
-function us_install_schema(): array
+public static function us_install_schema(): array
 {
     $driver = db_driver();
-    [$schema_tables, $schema_indexes] = app_db_schema($driver);
+    [$schema_tables, $schema_indexes] = self::app_db_schema($driver);
     $tables = [];
     foreach ($schema_tables as $sql) {
-        $table = us_parse_table_sql($sql);
+        $table = self::us_parse_table_sql($sql);
         if ($table) $tables[$table['name']] = $table;
     }
     $virtual_tables = [];
@@ -767,7 +793,7 @@ function us_install_schema(): array
     return [$tables, $virtual_tables, $schema_indexes];
 }
 
-function us_column_type(PDO $db, string $driver, string $table, string $column): string
+public static function us_column_type(PDO $db, string $driver, string $table, string $column): string
 {
     if ($driver === 'sqlite') {
         foreach ($db->query('PRAGMA table_info(' . app_db_identifier($driver, $table) . ')')->fetchAll() as $row) {
@@ -781,10 +807,10 @@ function us_column_type(PDO $db, string $driver, string $table, string $column):
     return strtolower((string)$stmt->fetchColumn());
 }
 
-function us_rename_legacy_system_tables(PDO $db, string $driver): array
+public static function us_rename_legacy_system_tables(PDO $db, string $driver): array
 {
     $changes = [];
-    $tables = migrate_core_table_map();
+    $tables = self::migrate_core_table_map();
     foreach ($tables as $table => $target) {
         if (app_db_table_exists($db, $driver, $table) && app_db_table_exists($db, $driver, $target)) {
             throw new RuntimeException('系统表同时存在旧名称和新名称：' . $table . '、' . $target . '，请先检查数据。');
@@ -818,7 +844,7 @@ function us_rename_legacy_system_tables(PDO $db, string $driver): array
     return $changes;
 }
 
-function us_migrate_legacy_plugin_settings(): int
+public static function us_migrate_legacy_plugin_settings(): int
 {
     $settings = settings_cache();
     $registered = array_fill_keys(array_map('strval', q("SELECT id FROM app_plugins")->fetchAll(PDO::FETCH_COLUMN)), true);
@@ -872,17 +898,17 @@ function us_migrate_legacy_plugin_settings(): int
     return $count;
 }
 
-function us_sync_schema(): array
+public static function us_sync_schema(): array
 {
-    [$tables, $virtual_tables, $indexes] = us_install_schema();
+    [$tables, $virtual_tables, $indexes] = self::us_install_schema();
     if (!$tables) throw new RuntimeException('未读取到当前程序的数据表结构。');
     $db = db();
     $transactional = db_driver() !== 'mysql';
     $changes = [];
     try {
         if ($transactional) $db->beginTransaction();
-        $changes = array_merge($changes, us_rename_legacy_system_tables($db, db_driver()));
-        app_db_prepare_search($db, db_driver());
+        $changes = array_merge($changes, self::us_rename_legacy_system_tables($db, db_driver()));
+        self::app_db_prepare_search($db, db_driver());
         $created_virtual_tables = [];
         foreach ($virtual_tables as $table => $columns) {
             if (!app_db_table_exists($db, db_driver(), $table)) {
@@ -937,7 +963,7 @@ function us_sync_schema(): array
             $db->exec("ALTER TABLE $cron_table DROP COLUMN " . app_db_identifier(db_driver(), $column));
             $changes[] = '删除字段：cron_tasks.' . $column;
         }
-        if (!str_contains(us_column_type($db, db_driver(), $topics_table, 'reply_order'), 'int')) {
+        if (!str_contains(self::us_column_type($db, db_driver(), $topics_table, 'reply_order'), 'int')) {
             $table = app_db_identifier(db_driver(), $topics_table);
             $column = app_db_identifier(db_driver(), 'reply_order');
             $db->exec("ALTER TABLE $table DROP COLUMN $column");
@@ -945,7 +971,7 @@ function us_sync_schema(): array
             $changes[] = '更新字段：topics.reply_order';
         }
         foreach ($indexes as $index => $sql) {
-            if (!app_db_index_exists($db, db_driver(), $index, app_db_index_table($sql))) {
+            if (!app_db_index_exists($db, db_driver(), $index, self::app_db_index_table($sql))) {
                 if ($index === 'idx_attachments_user_hash') {
                     $removed = $db->exec('DELETE FROM app_attachments WHERE id NOT IN (SELECT keep_id FROM (SELECT MIN(id) keep_id FROM app_attachments GROUP BY user_id,hash) attachment_dedup)');
                     if ($removed) $changes[] = '清理重复附件：' . $removed . ' 条';
@@ -955,10 +981,10 @@ function us_sync_schema(): array
             }
         }
         if ($transactional) $db->commit();
-        $legacy_plugin_count = us_migrate_legacy_plugin_settings();
+        $legacy_plugin_count = self::us_migrate_legacy_plugin_settings();
         if ($legacy_plugin_count > 0) $changes[] = '迁移旧插件配置：' . $legacy_plugin_count . ' 个';
-        $plugin_count = count(plugin_registry_sync());
-        plugin_assets_rebuild();
+        $plugin_count = count(Plugin::plugin_registry_sync());
+        Plugin::plugin_assets_rebuild();
         $changes[] = '同步插件注册表：' . $plugin_count . ' 个';
         return $changes;
     } catch (Throwable $e) {
@@ -967,7 +993,7 @@ function us_sync_schema(): array
     }
 }
 
-function us_defer_schema_after_update(array $changes): never
+public static function us_defer_schema_after_update(array $changes): never
 {
     $nonce = bin2hex(random_bytes(24));
     cache_write_php(CACHE_DIR . '/update-schema-' . $nonce . '.php', [
@@ -975,12 +1001,12 @@ function us_defer_schema_after_update(array $changes): never
         'created_at' => time(),
         'changes' => array_values($changes),
     ]);
-    us_unlock();
+    self::us_unlock();
     header('Location: index.php?a=update&schema_after_update=' . rawurlencode($nonce), true, 303);
     exit;
 }
 
-function us_run_deferred_schema(): never
+public static function us_run_deferred_schema(): never
 {
     $nonce = (string)($_GET['schema_after_update'] ?? '');
     $file = preg_match('/^[a-f0-9]{48}$/D', $nonce) ? CACHE_DIR . '/update-schema-' . $nonce . '.php' : '';
@@ -991,87 +1017,86 @@ function us_run_deferred_schema(): never
         || !hash_equals((string)($pending['nonce'] ?? ''), $nonce)
         || time() - (int)($pending['created_at'] ?? 0) > 300
     ) {
-        us_result_page('升级失败', [], '数据库同步请求无效或已过期，请返回升级页重试。');
+        self::us_result_page('升级失败', [], '数据库同步请求无效或已过期，请返回升级页重试。');
     }
 
     $changes = array_values(array_filter((array)($pending['changes'] ?? []), 'is_string'));
-    us_acquire_lock();
+    self::us_acquire_lock();
     try {
-        $schema_changes = us_sync_schema();
+        $schema_changes = self::us_sync_schema();
         $changes = array_merge($changes, $schema_changes ?: ['数据库结构同步完成，当前结构无需调整']);
-        us_result_page('升级完成', $changes);
+        self::us_result_page('升级完成', $changes);
     } catch (Throwable $e) {
         $prefix = $changes ? implode('；', $changes) . '；' : '';
-        us_result_page('数据库同步失败', [], $prefix . $e->getMessage());
+        self::us_result_page('数据库同步失败', [], $prefix . $e->getMessage());
     }
 }
 
-function setup_update_run(): never
+public static function setup_update_run(): never
 {
-    if (!is_file(UPDATE_INSTALL_LOCK_FILE) || !is_file(UPDATE_DB_CONFIG_FILE)) us_result_page('请先安装', [], '请先执行安装操作。');
-    if (db_driver() === 'sqlite' && !is_file((string)db_config()['path'])) us_result_page('请先安装', [], '请先执行安装操作。');
-    if (!is_file(UPDATE_SETUP_FILE)) us_result_page('升级失败', [], 'app/optional/setup.func.php 不存在。');
-    $legacy_state = us_legacy_upgrade_state(db(), db_driver());
-    if ($legacy_state === 'legacy') us_handle_legacy_upgrade();
-    if ($legacy_state !== '') us_result_page('无法自动升级', [], $legacy_state);
-    us_need_admin();
+    if (!is_file(UPDATE_INSTALL_LOCK_FILE) || !is_file(UPDATE_DB_CONFIG_FILE)) self::us_result_page('请先安装', [], '请先执行安装操作。');
+    if (db_driver() === 'sqlite' && !is_file((string)db_config()['path'])) self::us_result_page('请先安装', [], '请先执行安装操作。');
+    $legacy_state = self::us_legacy_upgrade_state(db(), db_driver());
+    if ($legacy_state === 'legacy') self::us_handle_legacy_upgrade();
+    if ($legacy_state !== '') self::us_result_page('无法自动升级', [], $legacy_state);
+    self::us_need_admin();
 
-    if (isset($_GET['schema_after_update'])) us_run_deferred_schema();
-    
-    if ((string)($_GET['notice_check'] ?? '') === '1') us_notice_check();
-    
+    if (isset($_GET['schema_after_update'])) self::us_run_deferred_schema();
+
+    if ((string)($_GET['notice_check'] ?? '') === '1') self::us_notice_check();
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        if (!isset($_GET['check'])) us_update_page();
+        if (!isset($_GET['check'])) self::us_update_page();
         try {
-            us_update_page(us_remote_release());
+            self::us_update_page(self::us_remote_release());
         } catch (Throwable $e) {
-            us_update_page(null, $e->getMessage());
+            self::us_update_page(null, $e->getMessage());
         }
     }
-    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) us_result_page('升级失败', [], '请求已过期，请返回重试。');
-    
-    us_acquire_lock();
-    
+    if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) self::us_result_page('升级失败', [], '请求已过期，请返回重试。');
+
+    self::us_acquire_lock();
+
     try {
         $action = (string)($_POST['action'] ?? 'schema');
         $changes = [];
         if ($action === 'online') {
-            $remote = us_remote_release();
+            $remote = self::us_remote_release();
             $requested_sha = (string)($_POST['sha'] ?? '');
             if (!hash_equals($remote['sha'], $requested_sha)) throw new RuntimeException('远端版本已变化，请重新检测后再升级。');
             $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => in_array((string)$path, UPDATE_CODE_FILES, true))));
             if (in_array('index.php', $selected, true)) {
-                foreach (['app/optional/cron.func.php', 'app/optional/plugin_market.func.php'] as $dependency) {
+                foreach (['app/optional/Cron.php', 'app/optional/Plugin.php'] as $dependency) {
                     if (isset($remote['files'][$dependency]) && !in_array($dependency, $selected, true)) $selected[] = $dependency;
                 }
             }
             if ($selected) {
-                $installed = us_install_files($remote['sha'], $remote['files'], $selected);
+                $installed = self::us_install_files($remote['sha'], $remote['files'], $selected);
                 $changes[] = '程序代码已更新至 ' . $remote['short_sha'] . '（' . (int)$installed['count'] . ' 个文件）';
                 $changes[] = (string)$installed['opcache'];
-                if (isset($_POST['sync_schema'])) us_defer_schema_after_update($changes);
+                if (isset($_POST['sync_schema'])) self::us_defer_schema_after_update($changes);
             } elseif (!isset($_POST['sync_schema'])) {
                 throw new RuntimeException('请至少选择一个需要执行的升级操作。');
             }
         } elseif ($action !== 'schema') {
             throw new RuntimeException('未知升级操作。');
         }
-        if ($action === 'schema' || isset($_POST['sync_schema'])) $changes = array_merge($changes, us_sync_schema());
-        us_result_page('升级完成', $changes);
+        if ($action === 'schema' || isset($_POST['sync_schema'])) $changes = array_merge($changes, self::us_sync_schema());
+        self::us_result_page('升级完成', $changes);
     } catch (Throwable $e) {
-        us_result_page('升级失败', [], $e->getMessage());
+        self::us_result_page('升级失败', [], $e->getMessage());
     }
 }
 
-function migrate_driver(string $driver): string
+public static function migrate_driver(string $driver): string
 {
     if (!in_array($driver, ['sqlite', 'mysql', 'pgsql'], true)) throw new RuntimeException('不支持的数据库类型。');
     return $driver;
 }
 
-function migrate_source_config(): array
+public static function migrate_source_config(): array
 {
-    $driver = migrate_driver((string)($_POST['source_driver'] ?? 'sqlite'));
+    $driver = self::migrate_driver((string)($_POST['source_driver'] ?? 'sqlite'));
     if ($driver === 'sqlite') {
         $path = trim((string)($_POST['source_sqlite'] ?? ''));
         if ($path === '') throw new RuntimeException('SQLite 文件不能为空。');
@@ -1090,13 +1115,13 @@ function migrate_source_config(): array
     return $config;
 }
 
-function migrate_source_db(array $config): PDO
+public static function migrate_source_db(array $config): PDO
 {
     if ($config['driver'] === 'sqlite' && !is_file((string)$config['path'])) throw new RuntimeException('SQLite 文件不存在：' . $config['path']);
     return app_db_connect($config);
 }
 
-function migrate_tables(PDO $db, string $driver): array
+public static function migrate_tables(PDO $db, string $driver): array
 {
     if ($driver === 'sqlite') {
         $rows = $db->query("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll();
@@ -1116,12 +1141,12 @@ function migrate_tables(PDO $db, string $driver): array
     return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 }
 
-function migrate_columns(PDO $db, string $driver, string $table): array
+public static function migrate_columns(PDO $db, string $driver, string $table): array
 {
     return array_keys(app_db_columns($db, $driver, $table));
 }
 
-function migrate_column_schema(PDO $db, string $driver, string $table): array
+public static function migrate_column_schema(PDO $db, string $driver, string $table): array
 {
     if ($driver === 'sqlite') {
         $rows = $db->query('PRAGMA table_info(' . app_db_identifier($driver, $table) . ')')->fetchAll();
@@ -1151,12 +1176,12 @@ function migrate_column_schema(PDO $db, string $driver, string $table): array
     return $columns;
 }
 
-function migrate_db_bool(mixed $value): bool
+public static function migrate_db_bool(mixed $value): bool
 {
     return in_array($value, [true, 1, '1', 't', 'true'], true);
 }
 
-function migrate_index_schema(PDO $db, string $driver, string $table, array $columns): array
+public static function migrate_index_schema(PDO $db, string $driver, string $table, array $columns): array
 {
     $indexes = [];
     if ($driver === 'sqlite') {
@@ -1214,7 +1239,7 @@ function migrate_index_schema(PDO $db, string $driver, string $table, array $col
             if ($name === '') continue;
             $keys = array_values(array_filter(array_map('intval', preg_split('/\s+/', trim((string)$row['index_keys'])) ?: [])));
             $names = array_values(array_filter(array_map(fn(int $key): string => $column_names[$key] ?? '', $keys)));
-            if ($names) $indexes[$name] = ['name' => $name, 'unique' => migrate_db_bool($row['indisunique']), 'primary' => migrate_db_bool($row['indisprimary']), 'columns' => $names];
+            if ($names) $indexes[$name] = ['name' => $name, 'unique' => self::migrate_db_bool($row['indisunique']), 'primary' => self::migrate_db_bool($row['indisprimary']), 'columns' => $names];
         }
     }
     foreach ($indexes as &$index) {
@@ -1225,7 +1250,7 @@ function migrate_index_schema(PDO $db, string $driver, string $table, array $col
     return array_values($indexes);
 }
 
-function migrate_default_sql(PDO $db, string $source_driver, mixed $default, bool $expression = false): string
+public static function migrate_default_sql(PDO $db, string $source_driver, mixed $default, bool $expression = false): string
 {
     if ($default === null) return '';
     $value = trim((string)$default);
@@ -1242,7 +1267,7 @@ function migrate_default_sql(PDO $db, string $source_driver, mixed $default, boo
     return ' DEFAULT ' . ($expression ? '(' . $literal . ')' : $literal);
 }
 
-function migrate_column_type(string $source_type, string $target_driver, bool $indexed, bool $auto): string
+public static function migrate_column_type(string $source_type, string $target_driver, bool $indexed, bool $auto): string
 {
     $type = strtolower($source_type);
     if ($auto) return match ($target_driver) {
@@ -1257,7 +1282,7 @@ function migrate_column_type(string $source_type, string $target_driver, bool $i
     return $target_driver === 'mysql' ? 'LONGTEXT' : 'TEXT';
 }
 
-function migrate_index_name(PDO $db, string $driver, string $table, string $name, array $columns, bool $unique): string
+public static function migrate_index_name(PDO $db, string $driver, string $table, string $name, array $columns, bool $unique): string
 {
     if ($name === 'PRIMARY' || str_starts_with($name, 'sqlite_autoindex_') || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) $name = ($unique ? 'uidx_' : 'idx_') . $table . '_' . implode('_', $columns);
     $name = strlen($name) > 55 ? substr($name, 0, 44) . '_' . substr(hash('sha256', $name), 0, 10) : $name;
@@ -1265,10 +1290,10 @@ function migrate_index_name(PDO $db, string $driver, string $table, string $name
     return substr($name, 0, 44) . '_' . substr(hash('sha256', $table . ':' . $name), 0, 10);
 }
 
-function migrate_install_table(PDO $source, string $source_driver, PDO $target, string $target_driver, string $source_table, string $target_table): void
+public static function migrate_install_table(PDO $source, string $source_driver, PDO $target, string $target_driver, string $source_table, string $target_table): void
 {
-    $columns = migrate_column_schema($source, $source_driver, $source_table);
-    $indexes = migrate_index_schema($source, $source_driver, $source_table, $columns);
+    $columns = self::migrate_column_schema($source, $source_driver, $source_table);
+    $indexes = self::migrate_index_schema($source, $source_driver, $source_table, $columns);
     $primary = [];
     $indexed = [];
     foreach ($indexes as $index) {
@@ -1281,9 +1306,9 @@ function migrate_install_table(PDO $source, string $source_driver, PDO $target, 
     foreach ($columns as $column) {
         $auto = $column['name'] === $auto_column && ($column['auto'] || preg_match('/int|serial/i', $column['type']));
         if ($auto) $auto_primary = true;
-        $type = migrate_column_type($column['type'], $target_driver, isset($indexed[$column['name']]), $auto);
+        $type = self::migrate_column_type($column['type'], $target_driver, isset($indexed[$column['name']]), $auto);
         $definition = app_db_identifier($target_driver, $column['name']) . ' ' . $type;
-        if (!$auto) $definition .= (!$column['nullable'] ? ' NOT NULL' : '') . migrate_default_sql($target, $source_driver, $column['default'], $target_driver === 'mysql' && preg_match('/TEXT|BLOB/', $type));
+        if (!$auto) $definition .= (!$column['nullable'] ? ' NOT NULL' : '') . self::migrate_default_sql($target, $source_driver, $column['default'], $target_driver === 'mysql' && preg_match('/TEXT|BLOB/', $type));
         $definitions[] = $definition;
     }
     if ($primary && !$auto_primary) $definitions[] = 'PRIMARY KEY(' . implode(',', array_map(fn(string $name): string => app_db_identifier($target_driver, $name), $primary)) . ')';
@@ -1292,12 +1317,12 @@ function migrate_install_table(PDO $source, string $source_driver, PDO $target, 
     $target->exec($sql);
     foreach ($indexes as $index) {
         if ($index['primary'] || !$index['columns']) continue;
-        $name = migrate_index_name($target, $target_driver, $target_table, $index['name'], $index['columns'], $index['unique']);
+        $name = self::migrate_index_name($target, $target_driver, $target_table, $index['name'], $index['columns'], $index['unique']);
         $target->exec('CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX ' . app_db_identifier($target_driver, $name) . ' ON ' . app_db_identifier($target_driver, $target_table) . '(' . implode(',', array_map(fn(string $column): string => app_db_identifier($target_driver, $column), $index['columns'])) . ')');
     }
 }
 
-function migrate_database_identity(PDO $db, array $config): string
+public static function migrate_database_identity(PDO $db, array $config): string
 {
     if ($config['driver'] === 'sqlite') return (string)realpath((string)$config['path']);
     try {
@@ -1308,18 +1333,18 @@ function migrate_database_identity(PDO $db, array $config): string
     }
 }
 
-function migrate_same_database(PDO $source_db, array $source, PDO $target_db, array $target): bool
+public static function migrate_same_database(PDO $source_db, array $source, PDO $target_db, array $target): bool
 {
     if ($source['driver'] !== $target['driver']) return false;
-    $source_identity = migrate_database_identity($source_db, $source);
-    $target_identity = migrate_database_identity($target_db, $target);
+    $source_identity = self::migrate_database_identity($source_db, $source);
+    $target_identity = self::migrate_database_identity($target_db, $target);
     if ($source_identity !== '' && $target_identity !== '') return hash_equals($source_identity, $target_identity);
     return strtolower((string)$source['host']) === strtolower((string)$target['host'])
         && (int)$source['port'] === (int)$target['port']
         && (string)$source['database'] === (string)$target['database'];
 }
 
-function migrate_core_table_map(): array
+public static function migrate_core_table_map(): array
 {
     return [
         'groups' => 'app_groups',
@@ -1341,25 +1366,25 @@ function migrate_core_table_map(): array
     ];
 }
 
-function migrate_order_tables(array $tables): array
+public static function migrate_order_tables(array $tables): array
 {
-    $core = array_flip(array_values(migrate_core_table_map()));
-    usort($tables, fn(string $a, string $b): int => (($core[migrate_target_table($a)] ?? PHP_INT_MAX) <=> ($core[migrate_target_table($b)] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
+    $core = array_flip(array_values(self::migrate_core_table_map()));
+    usort($tables, fn(string $a, string $b): int => (($core[self::migrate_target_table($a)] ?? PHP_INT_MAX) <=> ($core[self::migrate_target_table($b)] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
     return $tables;
 }
 
-function migrate_target_table(string $table): string
+public static function migrate_target_table(string $table): string
 {
-    return migrate_core_table_map()[$table] ?? $table;
+    return self::migrate_core_table_map()[$table] ?? $table;
 }
 
-function migrate_value(mixed $value): mixed
+public static function migrate_value(mixed $value): mixed
 {
     if (is_resource($value)) return stream_get_contents($value);
     return is_bool($value) ? (int)$value : $value;
 }
 
-function migrate_rebuild_search(PDO $db, string $driver): void
+public static function migrate_rebuild_search(PDO $db, string $driver): void
 {
     if ($driver !== 'sqlite') return;
     if (app_db_table_exists($db, $driver, 'app_topics_fts')) {
@@ -1372,13 +1397,13 @@ function migrate_rebuild_search(PDO $db, string $driver): void
     }
 }
 
-function migrate_reset_sequences(PDO $db, string $driver, array $tables): void
+public static function migrate_reset_sequences(PDO $db, string $driver, array $tables): void
 {
     if ($driver !== 'pgsql') return;
     $sequence = $db->prepare("SELECT pg_get_serial_sequence(?, 'id')");
     $set = $db->prepare('SELECT setval(CAST(? AS regclass),?,?)');
     foreach ($tables as $table) {
-        if (!in_array('id', migrate_columns($db, $driver, $table), true)) continue;
+        if (!in_array('id', self::migrate_columns($db, $driver, $table), true)) continue;
         $sequence->execute([$table]);
         $name = $sequence->fetchColumn();
         if (!$name) continue;
@@ -1387,27 +1412,27 @@ function migrate_reset_sequences(PDO $db, string $driver, array $tables): void
     }
 }
 
-function migrate_run(PDO $source, array $source_config): array
+public static function migrate_run(PDO $source, array $source_config): array
 {
     $target = db();
     $target_config = db_config();
-    if (migrate_same_database($source, $source_config, $target, $target_config)) throw new RuntimeException('源数据库不能与当前数据库相同。');
-    $tables = migrate_order_tables(migrate_tables($source, $source_config['driver']));
+    if (self::migrate_same_database($source, $source_config, $target, $target_config)) throw new RuntimeException('源数据库不能与当前数据库相同。');
+    $tables = self::migrate_order_tables(self::migrate_tables($source, $source_config['driver']));
     if (!$tables) throw new RuntimeException('源数据库没有可迁入的数据表。');
-    $target_tables = array_fill_keys(migrate_tables($target, $target_config['driver']), true);
+    $target_tables = array_fill_keys(self::migrate_tables($target, $target_config['driver']), true);
     $mapped_tables = [];
     foreach ($tables as $source_table) {
-        $target_table = migrate_target_table($source_table);
+        $target_table = self::migrate_target_table($source_table);
         if (isset($mapped_tables[$target_table])) throw new RuntimeException('多个源表映射到同一目标表：' . $mapped_tables[$target_table] . '、' . $source_table);
         $mapped_tables[$target_table] = $source_table;
         if (isset($target_tables[$target_table])) continue;
-        migrate_install_table($source, $source_config['driver'], $target, $target_config['driver'], $source_table, $target_table);
+        self::migrate_install_table($source, $source_config['driver'], $target, $target_config['driver'], $source_table, $target_table);
         $target_tables[$target_table] = true;
     }
     $plans = [];
     foreach ($tables as $source_table) {
-        $target_table = migrate_target_table($source_table);
-        $columns = array_values(array_intersect(migrate_columns($target, $target_config['driver'], $target_table), migrate_columns($source, $source_config['driver'], $source_table)));
+        $target_table = self::migrate_target_table($source_table);
+        $columns = array_values(array_intersect(self::migrate_columns($target, $target_config['driver'], $target_table), self::migrate_columns($source, $source_config['driver'], $source_table)));
         if ($columns) $plans[] = ['source' => $source_table, 'target' => $target_table, 'columns' => $columns];
     }
     if (!$plans) throw new RuntimeException('没有找到兼容的数据字段。');
@@ -1438,13 +1463,13 @@ function migrate_run(PDO $source, array $source_config): array
                     if (isset($attachment_hashes[$key])) continue;
                     $attachment_hashes[$key] = true;
                 }
-                $write->execute(array_map(fn(string $column) => migrate_value($row[$column]), $columns));
+                $write->execute(array_map(fn(string $column) => self::migrate_value($row[$column]), $columns));
                 if ($write->rowCount() > 0) $count++;
             }
             $counts[$source_table] = $count;
         }
-        migrate_rebuild_search($target, $target_config['driver']);
-        migrate_reset_sequences($target, $target_config['driver'], array_column($plans, 'target'));
+        self::migrate_rebuild_search($target, $target_config['driver']);
+        self::migrate_reset_sequences($target, $target_config['driver'], array_column($plans, 'target'));
         $source->commit();
         $target->commit();
     } catch (Throwable $e) {
@@ -1455,7 +1480,7 @@ function migrate_run(PDO $source, array $source_config): array
     return $counts;
 }
 
-function migrate_refresh_caches(): void
+public static function migrate_refresh_caches(): void
 {
     unset($GLOBALS['__settings_cache'], $GLOBALS['__home_stats_cache']);
     forums_cache(true);
@@ -1463,7 +1488,7 @@ function migrate_refresh_caches(): void
     save_settings_values(['plugin_sync_pending' => '1']);
 }
 
-function migrate_page(): void
+public static function migrate_page(): void
 {
     need_admin();
     set_time_limit(0);
@@ -1473,8 +1498,8 @@ function migrate_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             if (!isset($_POST['confirm_replace'])) throw new RuntimeException('请确认清空当前新数据库。');
-            $source_config = migrate_source_config();
-            $counts = migrate_run(migrate_source_db($source_config), $source_config);
+            $source_config = self::migrate_source_config();
+            $counts = self::migrate_run(self::migrate_source_db($source_config), $source_config);
         } catch (Throwable $e) {
             $error = $e->getMessage();
         }
@@ -1484,8 +1509,8 @@ function migrate_page(): void
     if (is_array($counts)) {
         $rows = '';
         foreach ($counts as $table => $count) $rows .= '<div>' . h($table) . '</div><div>' . (int)$count . '</div>';
-        migrate_refresh_caches();
-        setup_html('迁入完成', '<div class="hero"><h1>迁入完成</h1><p>旧数据库数据已写入当前数据库。</p></div><div class="card"><div class="hd"><h2>迁入结果</h2></div><div class="bd"><div class="note ok">共迁入 ' . array_sum($counts) . ' 条数据。</div><div style="height:14px"></div><div class="kv"><div>目标数据库</div><div class="mono">' . h($target_label) . '</div>' . $rows . '</div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="' . h(route_url('update')) . '">返回升级</a><a class="btn" href="' . h(route_url('home')) . '">进入首页</a></div></div></div>');
+        self::migrate_refresh_caches();
+        self::setup_html('迁入完成', '<div class="hero"><h1>迁入完成</h1><p>旧数据库数据已写入当前数据库。</p></div><div class="card"><div class="hd"><h2>迁入结果</h2></div><div class="bd"><div class="note ok">共迁入 ' . array_sum($counts) . ' 条数据。</div><div style="height:14px"></div><div class="kv"><div>目标数据库</div><div class="mono">' . h($target_label) . '</div>' . $rows . '</div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="' . h(route_url('update')) . '">返回升级</a><a class="btn" href="' . h(route_url('home')) . '">进入首页</a></div></div></div>');
     }
     $driver = in_array((string)($_POST['source_driver'] ?? 'sqlite'), ['sqlite', 'mysql', 'pgsql'], true) ? (string)($_POST['source_driver'] ?? 'sqlite') : 'sqlite';
     $v = fn(string $name, string $default = ''): string => (string)($_POST[$name] ?? $default);
@@ -1495,5 +1520,6 @@ function migrate_page(): void
     $server_fields = '<div class="db-fields" id="server-fields"><div class="row compact"><div class="field"><label>数据库地址</label><input type="text" name="source_host" value="' . h($v('source_host', '127.0.0.1')) . '"></div><div class="field"><label>端口</label><input type="text" name="source_port" value="' . h($v('source_port', $driver === 'pgsql' ? '5432' : '3306')) . '"></div></div><div class="row"><label>数据库名</label><input type="text" name="source_database" value="' . h($v('source_database')) . '"></div><div class="row compact"><div class="field"><label>用户名</label><input type="text" name="source_username" value="' . h($v('source_username')) . '"></div><div class="field"><label>密码</label><input type="password" name="source_password"></div></div></div>';
     $form = '<form class="form" method="post" action="' . h(route_url('migrate')) . '" autocomplete="off">' . form_token() . '<div class="row"><label>旧数据库类型</label><select name="source_driver" id="source-driver">' . $options . '</select></div>' . $sqlite_fields . $server_fields . '<div class="checks"><label class="check"><input type="checkbox" name="confirm_replace" value="1" required><span>确认清空当前数据库中的同名数据表。</span></label></div><div class="actions"><a class="btn alt" href="' . h(route_url('update')) . '">取消</a><button class="btn" type="submit">开始迁入</button></div></form>';
     $body = '<div class="hero"><h1>数据迁入</h1><p>从旧数据库迁入当前已安装数据库。</p></div>' . $message . '<div class="grid"><section class="card"><div class="hd"><h2>旧数据库配置</h2></div><div class="bd">' . $form . '</div></section><aside class="card"><div class="hd"><h2>迁入说明</h2></div><div class="bd"><ul class="list"><li>目标数据库：' . h($target_label) . '</li><li>迁入旧库全部普通数据表</li><li>缺少的数据表会自动创建</li><li>同名数据表将清空后替换</li><li>附件、头像和插件文件需单独复制</li></ul></div></aside></div><script>const type=document.getElementById("source-driver"),sqlite=document.getElementById("sqlite-fields"),server=document.getElementById("server-fields"),port=document.querySelector("[name=source_port]");function toggle(change){sqlite.hidden=type.value!=="sqlite";server.hidden=type.value==="sqlite";if(change)port.value=type.value==="pgsql"?"5432":"3306"}type.addEventListener("change",()=>toggle(true));toggle(false);</script>';
-    setup_html('数据迁入', $body);
+    self::setup_html('数据迁入', $body);
+}
 }

@@ -2,18 +2,25 @@
 
 declare(strict_types=1);
 
+namespace app\optional;
+
+use RuntimeException;
+use Throwable;
+
 if (!defined('APP_ROOT')) {
     exit;
 }
 
-function plugin_cron_sync(array $plugin): void
+final class Cron
+{
+public static function plugin_cron_sync(array $plugin): void
 {
     $plugin_id = (string)$plugin['id'];
     $names = [];
     foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
         $name = (string)$name;
         $names[] = $name;
-        $interval = cron_task_interval($plugin, $task);
+        $interval = self::cron_task_interval($plugin, $task);
         $callback = (string)$task['callback'];
         $enabled = plugin_enabled($plugin) ? 1 : 0;
         app_db_insert_ignore('app_cron_tasks', [
@@ -36,29 +43,29 @@ function plugin_cron_sync(array $plugin): void
     q("DELETE FROM app_cron_tasks WHERE plugin_id=? AND task_name NOT IN ($marks)", array_merge([$plugin_id], $names));
 }
 
-function cron_task_interval(array $plugin, array $task): int
+public static function cron_task_interval(array $plugin, array $task): int
 {
     $interval = $task['interval'] ?? 0;
     if (is_string($interval) && !is_numeric($interval)) {
         plugin_load($plugin);
-        $interval = function_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
+        $interval = plugin_callback_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
     }
     return min(31536000, max(60, (int)$interval));
 }
 
-function cron_log_start(string $plugin_id, string $task_name, int $started_at): int
+public static function cron_log_start(string $plugin_id, string $task_name, int $started_at): int
 {
     q("INSERT INTO app_cron_logs(plugin_id,task_name,status,message,started_at,finished_at) VALUES(?,?,?,?,?,0)", [$plugin_id, $task_name, 'running', '', $started_at]);
     return app_db_last_insert_id('app_cron_logs');
 }
 
-function cron_log_finish(int $id, string $status, string $message, int $finished_at): void
+public static function cron_log_finish(int $id, string $status, string $message, int $finished_at): void
 {
     if ($id <= 0) return;
     q("UPDATE app_cron_logs SET status=?,message=?,finished_at=? WHERE id=?", [$status, $message, $finished_at, $id]);
 }
 
-function cron_log_prune(): void
+public static function cron_log_prune(): void
 {
     $now = time();
     if ($now - (int)setting('cron_logs_pruned_at', '0') < 86400) return;
@@ -66,7 +73,7 @@ function cron_log_prune(): void
     save_settings_values(['cron_logs_pruned_at' => (string)$now]);
 }
 
-function cron_task_claim(int $now): ?array
+public static function cron_task_claim(int $now): ?array
 {
     for ($attempt = 0; $attempt < 3; $attempt++) {
         $claimed = tx(function () use ($now): ?array {
@@ -97,7 +104,7 @@ function cron_task_claim(int $now): ?array
     return null;
 }
 
-function cron_lease_touch(): void
+public static function cron_lease_touch(): void
 {
     $lease = $GLOBALS['__cron_active_lease'] ?? null;
     if (!is_array($lease)) return;
@@ -110,7 +117,7 @@ function cron_lease_touch(): void
     if ($updated === 1) $GLOBALS['__cron_active_lease']['touched_at'] = $now;
 }
 
-function cron_task_finish(array $task, string $status, string $error, int $finished_at): bool
+public static function cron_task_finish(array $task, string $status, string $error, int $finished_at): bool
 {
     $interval = max(60, (int)(val('SELECT interval_seconds FROM app_cron_tasks WHERE plugin_id=? AND task_name=?', [(string)$task['plugin_id'], (string)$task['task_name']]) ?: $task['interval_seconds']));
     $failure_count = (int)$task['failure_count'];
@@ -140,13 +147,13 @@ function cron_task_finish(array $task, string $status, string $error, int $finis
     ])->rowCount() === 1;
 }
 
-function cron_run(): array
+public static function cron_run(): array
 {
     $result = ['due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
     try {
-        try { cron_log_prune(); } catch (Throwable $e) { debug_log_write('[cron] log prune failed', $e); }
+        try { self::cron_log_prune(); } catch (Throwable $e) { debug_log_write('[cron] log prune failed', $e); }
         $plugins = plugins();
-        while ($task = cron_task_claim(time())) {
+        while ($task = self::cron_task_claim(time())) {
             $plugin_id = (string)$task['plugin_id'];
             $task_name = (string)$task['task_name'];
             $key = $plugin_id . ':' . $task_name;
@@ -157,13 +164,13 @@ function cron_run(): array
             $log_id = 0;
             $result['due']++;
             $GLOBALS['__cron_active_lease'] = $task;
-            try { $log_id = cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
+            try { $log_id = self::cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
             catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
             try {
                 if (!$plugin || !plugin_enabled($plugin)) throw new RuntimeException('插件未启用或不存在');
                 plugin_load($plugin);
                 $callback = (string)$task['callback'];
-                if (!function_exists($callback)) throw new RuntimeException('计划任务函数不存在');
+                if (!plugin_callback_exists($callback)) throw new RuntimeException('计划任务函数不存在');
                 $definition = (array)($plugin['cron'][$task_name] ?? []);
                 $definition['interval'] = (int)$task['interval_seconds'];
                 $value = $callback($plugin, $definition);
@@ -176,7 +183,7 @@ function cron_run(): array
             } finally {
                 $finished_at = time();
                 try {
-                    if (!cron_task_finish($task, $status, $error, $finished_at)) {
+                    if (!self::cron_task_finish($task, $status, $error, $finished_at)) {
                         $status = 'failed';
                         $error = '任务租约已失效，运行结果未写入';
                     }
@@ -187,7 +194,7 @@ function cron_run(): array
                 }
                 $result[$status === 'success' ? 'success' : 'failed']++;
                 $result['tasks'][$key] = $status;
-                try { cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, $finished_at); }
+                try { self::cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, $finished_at); }
                 catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
                 unset($GLOBALS['__cron_active_lease']);
             }
@@ -196,13 +203,14 @@ function cron_run(): array
     } finally { unset($GLOBALS['__cron_active_lease']); }
 }
 
-function cron_route(): void
+public static function cron_route(): void
 {
     set_time_limit(0);
     ignore_user_abort(true);
     header('Content-Type: text/plain; charset=utf-8');
     header('Cache-Control: no-store');
-    $result = cron_run();
+    $result = self::cron_run();
     echo 'cron finished: due ' . (int)$result['due'] . ', success ' . (int)$result['success'] . ', failed ' . (int)$result['failed'] . "\n";
     foreach ($result['tasks'] as $task => $status) echo $task . ': ' . $status . "\n";
+}
 }
