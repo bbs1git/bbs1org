@@ -1634,8 +1634,8 @@ function need_speak(): void
 {
     need_login();
     $allowed = hook('user.can_speak', true, ['user' => me()]);
-    if ($allowed !== true) ajax_request() ? ajax_error(is_string($allowed) ? $allowed : '禁止发言') : err(is_string($allowed) ? $allowed : '禁止发言');
-    if (is_muted()) ajax_request() ? ajax_error('禁止发言') : err('禁止发言');
+    if ($allowed !== true) err(is_string($allowed) ? $allowed : '禁止发言');
+    if (is_muted()) err('禁止发言');
 }
 function need_admin(): void
 {
@@ -1664,7 +1664,7 @@ function check(): void
     $action = (string)($_GET['a'] ?? '');
     if ($is_post && (hook('request.csrf_exempt', false, ['action' => $action]) === true || ($action === 'attachment_upload' && ajax_request()))) return;
     if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
-        ajax_request() ? ajax_error('请求已过期') : err('请求已过期');
+        err('请求已过期');
     }
 }
 function ajax_request(): bool
@@ -1675,28 +1675,53 @@ function set_flash(string $message): void
 {
     app_cookie('__flash', $message, time() + 30, true, false);
 }
+function error_response(string $message, int $status = 200, string $mode = 'auto', bool $log = true, string $url = ''): never
+{
+    $status = $status > 0 ? $status : 200;
+    $is_not_found = $status === 404;
+    if ($log) debug_log_write($message);
+    if ($status !== 200) http_response_code($status);
+
+    if ($mode === 'auto') {
+        if (ajax_request()) $mode = 'ajax';
+        elseif (!is_file(INSTALL_LOCK_FILE)) $mode = 'simple';
+        elseif (!$is_not_found && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') $mode = 'form';
+        else $mode = 'page';
+    }
+
+    if ($mode === 'ajax') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => 0, 'message' => $message], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($mode === 'form') {
+        $value = base64_encode(json_encode([
+            'message' => $message,
+            'created_at' => time(),
+        ], JSON_UNESCAPED_UNICODE));
+        app_cookie('__form_error', $value, time() + 30);
+        go(route_url('form_error'));
+    }
+    if ($mode === 'simple') {
+        header('Content-Type: text/html; charset=utf-8');
+        $content = $url !== '' ? '<a href="' . h($url) . '">' . h($message) . '</a>' : h($message);
+        echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
+        exit;
+    }
+
+    error_page($is_not_found ? '404' : '错误', $message, $status);
+}
 function form_error_redirect(string $message): never
 {
-    $value = base64_encode(json_encode([
-        'message' => $message,
-        'created_at' => time(),
-    ], JSON_UNESCAPED_UNICODE));
-    app_cookie('__form_error', $value, time() + 30);
-    go(route_url('form_error'));
+    error_response($message, 200, 'form', false);
 }
 function ajax_error(string $m, bool $log = true): never
 {
-    if ($log) debug_log_write($m);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => 0, 'message' => $m], JSON_UNESCAPED_UNICODE);
-    exit;
+    error_response($m, 200, 'ajax', $log);
 }
 function simple_error_page(string $m, string $url = ''): never
 {
-    header('Content-Type: text/html; charset=utf-8');
-    $content = $url !== '' ? '<a href="' . h($url) . '">' . h($m) . '</a>' : h($m);
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
-    exit;
+    error_response($m, 200, 'simple', false, $url);
 }
 function go(string $u): never
 {
@@ -1748,13 +1773,7 @@ function database_error_message(Throwable $e): string
 function err(string $m, int $status = 200): never
 {
     $status = $status > 0 ? $status : 200;
-    $is_not_found = $status === 404;
-    if (!$is_not_found) debug_log_write($m);
-    if ($status !== 200) http_response_code($status);
-    if (ajax_request()) ajax_error($m, false);
-    if (!is_file(INSTALL_LOCK_FILE)) simple_error_page($m);
-    if (!$is_not_found && $_SERVER['REQUEST_METHOD'] === 'POST') form_error_redirect($m);
-    error_page($is_not_found ? '404' : '错误', $m, $status);
+    error_response($m, $status, 'auto', $status !== 404);
 }
 function cut(string $v, int $max): string
 {
@@ -3194,9 +3213,7 @@ function user_notify_page(): void
         $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
         $body = post('content', 500);
         $content = trim(($quote !== '' ? '> ' . $quote . "\n\n" : '') . $body);
-        if ($content === '') {
-            ajax_request() ? ajax_error('通知内容不能为空') : err('通知内容不能为空');
-        }
+        if ($content === '') err('通知内容不能为空');
         create_notification((int)$target['id'], uid(), 'direct', $content);
         if (ajax_request()) {
             header('Content-Type: application/json; charset=utf-8');
@@ -3449,22 +3466,21 @@ function save_reply(): array
     if (!id()) {
         check_post_interval();
     }
-    $ajax = ajax_request();
     $r = null;
     if (id()) {
         $r = row('app_replies', 'id', id()) ?: err('回复不存在');
-        if (!can_manage_reply($r)) $ajax ? ajax_error('无权限') : err('无权限');
+        if (!can_manage_reply($r)) err('无权限');
         $tid = (int)$r['topic_id'];
     } else {
         $tid = max(1, (int)$_POST['topic_id']);
     }
-    $topic = row('app_topics', 'id', $tid) ?: ($ajax ? ajax_error('主题不存在') : err('主题不存在'));
+    $topic = row('app_topics', 'id', $tid) ?: err('主题不存在');
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
-    if (!forum_group_allowed($forum, 'allow_reply_groups')) $ajax ? ajax_error('无权限') : err('无权限');
+    if (!forum_group_allowed($forum, 'allow_reply_groups')) err('无权限');
     $body = post('body', 10000);
     $filtered = hook('reply.before_save', ['body' => $body, 'topic_id' => $tid], ['id' => id()]);
     if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), 10000);
-    if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
+    if ($body === '') err('回复不能为空');
     if (id()) {
         tx(function () use ($body, $tid) {
             q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
@@ -3476,7 +3492,7 @@ function save_reply(): array
     }
     $author = apply_puppet_author($body);
     $body = (string)$author['body'];
-    if ($body === '') $ajax ? ajax_error('回复不能为空') : err('回复不能为空');
+    if ($body === '') err('回复不能为空');
     $ts = now();
     $rid = tx(function () use ($tid, $author, $body, $ts) {
         q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
