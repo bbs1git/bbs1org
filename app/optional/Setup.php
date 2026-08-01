@@ -849,7 +849,7 @@ public static function us_migrate_legacy_plugin_settings(): int
     $settings = settings_cache();
     $registered = array_fill_keys(array_map('strval', q("SELECT id FROM app_plugins")->fetchAll(PDO::FETCH_COLUMN)), true);
     $files = [];
-    foreach (plugin_files() as $file) {
+    foreach (Plugin::plugin_files() as $file) {
         $id = basename(dirname($file));
         if ($id !== 'plugin_market') $files[$id] = $file;
     }
