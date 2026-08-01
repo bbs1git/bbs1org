@@ -2414,6 +2414,8 @@ function markdown_html(string $text, int $quote_depth = 0, int $topic_id = 0): s
     $text = (string)hook('markdown.before', $text);
     $text = str_replace(["\r\n", "\r"], "\n", trim($text));
     if ($text === '') return '';
+    $rendered = hook('markdown.render', null, ['text' => $text, 'quote_depth' => $quote_depth, 'topic_id' => $topic_id]);
+    if (is_string($rendered)) return (string)hook('markdown.after', $rendered, ['text' => $text]);
     $html = [];
     $buffer = [];
     $state = 'text';
