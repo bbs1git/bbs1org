@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v6.31');
+define('APP_VERSION', 'v6.32');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -578,7 +578,6 @@ function plugin_normalize(array $plugin, string $file = ''): ?array
         'version' => (string)($plugin['version'] ?? ''),
         'description' => (string)($plugin['description'] ?? ''),
         'author' => (string)($plugin['author'] ?? ''),
-        'default_enabled' => !empty($plugin['default_enabled']) && $id === 'plugin_market' && $file === PLUGIN_DIR . '/plugin_market/plugin.php',
         'enabled' => !empty($plugin['enabled']),
         'hooks' => is_array($plugin['hooks'] ?? null) ? $plugin['hooks'] : [],
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
@@ -754,14 +753,14 @@ function plugin_registry_sync(): array
             'feature_links' => (string)($settings['plugin_' . $id . '_entry_feature_links'] ?? '1') === '1',
             'sidebar_cards' => (string)($settings['plugin_' . $id . '_entry_sidebar_cards'] ?? '1') === '1',
         ], JSON_UNESCAPED_UNICODE));
-        $enabled = isset($old['enabled']) ? (int)$old['enabled'] : (!empty($plugin['default_enabled']) || (string)($settings['plugin_' . $id . '_enabled'] ?? '0') === '1' ? 1 : 0);
+        $enabled = isset($old['enabled']) ? (int)$old['enabled'] : ((string)($settings['plugin_' . $id . '_enabled'] ?? '0') === '1' ? 1 : 0);
         app_db_upsert('app_plugins', [
             'id' => $id,
             'name' => (string)$plugin['name'],
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
-            'manifest_json' => json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'default_enabled', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall'])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'manifest_json' => json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall'])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'config_json' => $config_json,
             'entries_json' => $entries_json,
             'enabled' => $enabled,
