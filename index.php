@@ -1,11 +1,8 @@
 <?php
-
 declare(strict_types=1);
-
 use app\optional\Cron;
 use app\optional\Plugin;
 use app\optional\Setup;
-
 ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
@@ -40,12 +37,10 @@ define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
 define('ATTACHMENT_DEFAULT_QUOTA_MB', 200);
 define('ATTACHMENT_MAX_IMAGE_DIMENSION', 8192);
 define('ATTACHMENT_MAX_IMAGE_PIXELS', 20000000);
-
 spl_autoload_register(static function (string $class_name): void {
     $class_file = APP_ROOT . '/' . str_replace('\\', '/', $class_name) . '.php';
     if (is_file($class_file)) require_once $class_file;
 });
-
 function app_db_config(string $file, string $data_dir): array
 {
     $config = is_file($file) ? include $file : [];
@@ -66,7 +61,6 @@ function app_db_config(string $file, string $data_dir): array
         'password' => (string)($config['password'] ?? ''),
     ];
 }
-
 function app_db_connect(array $config): PDO
 {
     $driver = (string)$config['driver'];
@@ -101,18 +95,15 @@ function app_db_connect(array $config): PDO
     }
     return $db;
 }
-
 function app_db_identifier(string $driver, string $name): string
 {
     if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) throw new InvalidArgumentException('无效的数据库标识符。');
     return $driver === 'mysql' ? '`' . $name . '`' : '"' . $name . '"';
 }
-
 function sql_marks(int $count): string
 {
     return implode(',', array_fill(0, $count, '?'));
 }
-
 function app_db_types(?string $driver = null): array
 {
     $driver ??= db_driver();
@@ -128,7 +119,6 @@ function app_db_types(?string $driver = null): array
         'text' => $driver === 'mysql' ? 'LONGTEXT' : 'TEXT',
     ];
 }
-
 function app_db_columns(PDO $db, string $driver, string $table): array
 {
     if ($driver === 'sqlite') $rows = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll();
@@ -144,7 +134,6 @@ function app_db_columns(PDO $db, string $driver, string $table): array
     }
     return $columns;
 }
-
 function app_db_table_exists(PDO $db, string $driver, string $table): bool
 {
     $sql = match ($driver) {
@@ -154,7 +143,6 @@ function app_db_table_exists(PDO $db, string $driver, string $table): bool
     };
     $stmt = $db->prepare($sql); $stmt->execute([$table]); return (bool)$stmt->fetchColumn();
 }
-
 function app_db_index_exists(PDO $db, string $driver, string $index, string $table = ''): bool
 {
     $sql = match ($driver) {
@@ -164,7 +152,6 @@ function app_db_index_exists(PDO $db, string $driver, string $index, string $tab
     };
     $stmt = $db->prepare($sql); $stmt->execute($table !== '' ? [$index, $table] : [$index]); return (bool)$stmt->fetchColumn();
 }
-
 function app_db_upsert_sql(string $driver, string $table, array $columns, array $keys): string
 {
     $marks = sql_marks(count($columns));
@@ -174,7 +161,6 @@ function app_db_upsert_sql(string $driver, string $table, array $columns, array 
     if ($driver === 'mysql') return $base . ' ON DUPLICATE KEY UPDATE ' . implode(',', array_map(fn($c) => $c . '=VALUES(' . $c . ')', $updates));
     return $base . ' ON CONFLICT(' . implode(',', $keys) . ') DO UPDATE SET ' . implode(',', array_map(fn($c) => $c . '=excluded.' . $c, $updates));
 }
-
 function app_db_write(string $table, array $data, array $keys, bool $ignore = false): void
 {
     if (!$data || !$keys) throw new InvalidArgumentException('数据库写入参数不能为空。');
@@ -187,24 +173,20 @@ function app_db_write(string $table, array $data, array $keys, bool $ignore = fa
     db()->prepare($sql)->execute(array_values($data));
     db_row_cache_clear();
 }
-
 function app_db_upsert(string $table, array $data, array $keys): void
 {
     app_db_write($table, $data, $keys);
 }
-
 function app_db_insert_ignore(string $table, array $data, array $keys): void
 {
     app_db_write($table, $data, $keys, true);
 }
-
 function app_db_create_index(string $name, string $target): void
 {
     $table = trim((string)strstr($target, '(', true));
     if (app_db_index_exists(db(), db_driver(), $name, $table)) return;
     db()->exec('CREATE INDEX ' . app_db_identifier(db_driver(), $name) . ' ON ' . $target);
 }
-
 function app_db_drop_index(string $name, string $table): void
 {
     if (!app_db_index_exists(db(), db_driver(), $name, $table)) return;
@@ -212,14 +194,12 @@ function app_db_drop_index(string $name, string $table): void
     if (db_driver() === 'mysql') $sql .= ' ON ' . app_db_identifier(db_driver(), $table);
     db()->exec($sql);
 }
-
 function app_db_create_table(string $table, string $definition): void
 {
     $sql = 'CREATE TABLE IF NOT EXISTS ' . app_db_identifier(db_driver(), $table) . '(' . $definition . ')';
     if (db_driver() === 'mysql') $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     db()->exec($sql);
 }
-
 function app_db_create_fts5_table(PDO $db, string $table, string $columns, bool $if_not_exists = true): bool
 {
     $create = 'CREATE VIRTUAL TABLE ' . ($if_not_exists ? 'IF NOT EXISTS ' : '') . app_db_identifier('sqlite', $table) . ' USING fts5(' . $columns;
@@ -232,12 +212,10 @@ function app_db_create_fts5_table(PDO $db, string $table, string $columns, bool 
         return false;
     }
 }
-
 function app_db_drop_table(string $table): void
 {
     db()->exec('DROP TABLE IF EXISTS ' . app_db_identifier(db_driver(), $table));
 }
-
 function app_db_ensure_columns(string $table, array $definitions): void
 {
     $columns = app_db_columns(db(), db_driver(), $table);
@@ -246,7 +224,6 @@ function app_db_ensure_columns(string $table, array $definitions): void
         db()->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $table) . ' ADD COLUMN ' . app_db_identifier(db_driver(), $name) . ' ' . $definition);
     }
 }
-
 function app_db_last_insert_id(string $table): int
 {
     if (db_driver() === 'pgsql') {
@@ -258,12 +235,10 @@ function app_db_last_insert_id(string $table): int
     }
     return $id;
 }
-
 function app_db_greatest(string ...$expressions): string
 {
     return (db_driver() === 'sqlite' ? 'MAX' : 'GREATEST') . '(' . implode(',', $expressions) . ')';
 }
-
 function db_config(): array
 {
     static $config;
@@ -1681,14 +1656,12 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
     $is_not_found = $status === 404;
     if ($log ?? !$is_not_found) debug_log_write($message);
     if ($status !== 200) http_response_code($status);
-
     if ($mode === 'auto') {
         if (ajax_request()) $mode = 'ajax';
         elseif (!is_file(INSTALL_LOCK_FILE)) $mode = 'simple';
         elseif (!$is_not_found && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') $mode = 'form';
         else $mode = 'page';
     }
-
     if ($mode === 'ajax') {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => 0, 'message' => $message], JSON_UNESCAPED_UNICODE);
@@ -1708,7 +1681,6 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
         echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
         exit;
     }
-
     error_page($is_not_found ? '404' : '错误', $message, $status);
 }
 function go(string $u): never
@@ -3978,7 +3950,6 @@ function reply_edit_page(): void
     $reply_form_extra = (string)hook('reply.form_extra', '', ['reply' => $r, 'editing' => (int)$r['id'] > 0]);
     page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . attachment_uploader_html(true) . $reply_form_extra . '<button>保存</button></form></div>'));
 }
-
 function admin_nav(string $tab): string
 {
     return sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => $tab]);
@@ -4295,7 +4266,6 @@ function core_routes(): array
         'plugin_market_install'=>'plugin_market_install_route', 'plugin_market_share'=>'plugin_market_share_route',
     ];
 }
-
 if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {
     $_GET['a'] = 'cron';
     $_SERVER['REQUEST_METHOD'] = 'GET';
