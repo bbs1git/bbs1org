@@ -22,7 +22,6 @@ define('UPDATE_BRANCH', 'main');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
-define('UPDATE_CODE_FILES', ['index.php', 'app/assets/index.js', 'app/assets/index.css', 'app/assets/index.svg', 'app/optional/Setup.php', 'app/optional/Cron.php', 'app/optional/Plugin.php']);
 
 final class Setup
 {
@@ -461,7 +460,7 @@ public static function us_remote_release(): array
     foreach ($tree['tree'] as $item) {
         if (($item['type'] ?? '') !== 'blob') continue;
         $path = (string)($item['path'] ?? '');
-        if (in_array($path, UPDATE_CODE_FILES, true)) $files[$path] = (string)($item['sha'] ?? '');
+        if (!self::us_update_ignored_path($path)) $files[$path] = (string)($item['sha'] ?? '');
     }
     return [
         'sha' => $sha,
@@ -599,6 +598,14 @@ public static function us_protected_path(string $path): bool
     return false;
 }
 
+public static function us_update_ignored_path(string $path): bool
+{
+    $path = trim(str_replace('\\', '/', $path), '/');
+    if ($path === '' || str_contains($path, "\0") || preg_match('#(^|/)\.\.(/|$)#', $path)) return true;
+    foreach (explode('/', $path) as $name) if (str_starts_with($name, '.')) return true;
+    return str_ends_with(strtolower($path), '.md');
+}
+
 public static function us_remove_dir(string $dir): void
 {
     if (!is_dir($dir)) return;
@@ -670,7 +677,7 @@ public static function us_install_files(string $sha, array $remote_files, array 
     try {
         $files = [];
         foreach ($remote_files as $path => $expected_sha) {
-            if (!in_array($path, UPDATE_CODE_FILES, true)) continue;
+            if (!is_string($path) || self::us_update_ignored_path($path)) continue;
             if (!in_array($path, $selected, true)) continue;
             $content = self::us_http('https://raw.githubusercontent.com/' . UPDATE_REPOSITORY . '/' . $sha . '/' . $path);
             if (strlen($content) > UPDATE_MAX_ARCHIVE_BYTES || !hash_equals($expected_sha, sha1('blob ' . strlen($content) . "\0" . $content))) throw new RuntimeException('远端文件校验失败：' . $path);
@@ -1064,7 +1071,7 @@ public static function setup_update_run(): never
             $remote = self::us_remote_release();
             $requested_sha = (string)($_POST['sha'] ?? '');
             if (!hash_equals($remote['sha'], $requested_sha)) throw new RuntimeException('远端版本已变化，请重新检测后再升级。');
-            $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => in_array((string)$path, UPDATE_CODE_FILES, true))));
+            $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => is_string($path) && isset($remote['files'][$path]))));
             if (in_array('index.php', $selected, true)) {
                 foreach (['app/optional/Cron.php', 'app/optional/Plugin.php'] as $dependency) {
                     if (isset($remote['files'][$dependency]) && !in_array($dependency, $selected, true)) $selected[] = $dependency;
