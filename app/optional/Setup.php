@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace app\optional;
 
 use PDO;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -197,6 +198,15 @@ public static function i_install_error(string $title, string $message): void
     }
     self::setup_html($title, '<div class="hero"><h1>' . h($title) . '</h1><p>安装环境检查未通过。</p></div><div class="card"><div class="bd"><div class="note warn">' . h($message) . '</div></div></div>');
 }
+public static function i_db_connection_retryable(Throwable $e): bool
+{
+    if (!$e instanceof PDOException) return false;
+    $info = is_array($e->errorInfo ?? null) ? $e->errorInfo : [];
+    $state = strtoupper((string)($info[0] ?? $e->getCode()));
+    $native = (int)($info[1] ?? (is_numeric($e->getCode()) ? $e->getCode() : 0));
+    if (in_array($native, [1045, 1049], true) || in_array($state, ['28000', '3D000'], true)) return false;
+    return str_starts_with($state, '08') || in_array($native, [2002, 2003, 2006], true);
+}
 public static function i_db(array $config): PDO
 {
     $attempts = defined('AUTO_INSTALL_RUNNING') ? 30 : 1;
@@ -206,6 +216,7 @@ public static function i_db(array $config): PDO
             return app_db_connect($config);
         } catch (Throwable $e) {
             $last_error = $e;
+            if (!self::i_db_connection_retryable($e)) break;
             if ($attempt + 1 < $attempts) sleep(2);
         }
     }
