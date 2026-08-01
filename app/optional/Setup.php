@@ -129,6 +129,23 @@ public static function app_db_prepare_search(PDO $db, string $driver): void
     if ($driver === 'pgsql') $db->exec('CREATE EXTENSION IF NOT EXISTS pg_trgm');
 }
 
+public static function app_db_create_schema_index(PDO $db, string $driver, string $index, string $sql): bool
+{
+    try {
+        $db->exec($sql);
+        return true;
+    } catch (Throwable $e) {
+        $optional = array_keys(mysql_search_index_definitions());
+        if ($driver === 'mysql' && in_array($index, $optional, true)) return false;
+        throw $e;
+    }
+}
+
+public static function app_db_search_fallback_notice(): string
+{
+    return '当前 MySQL 环境无法创建 ngram 全文索引，已自动跳过；站内搜索将使用 LIKE，功能可用，但数据量较大时速度可能较慢。';
+}
+
 public static function app_db_index_table(string $sql): string
 {
     return preg_match('/\bON\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)/i', $sql, $match) ? $match[1] : '';
@@ -208,9 +225,10 @@ public static function i_restore_existing_install(array $config): never
     header('Location: index.php?a=login', true, 303);
     exit;
 }
-public static function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $database): void
+public static function i_result(string $title, string $admin_user, string $admin_pass, string $admin_email, string $site_name, string $database, string $notice = ''): void
 {
-    self::setup_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div><div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . h($site_name) . '</div><div>数据库</div><div class="mono">' . h($database) . '</div><div>管理员用户名</div><div class="mono">' . h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建数据库结构和索引</li><li>创建默认版块</li><li>创建第一个管理员</li><li>生成缓存文件</li><li>数据库密码仅保存在 app/data/db.php</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
+    $warning = $notice === '' ? '' : '<div class="note warn">' . h($notice) . '</div>';
+    self::setup_html($title, '<div class="hero"><h1>安装完成</h1><p>站点已初始化，管理员账号已创建。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装结果</h2></div><div class="bd"><div class="note ok">可以直接进入论坛使用，建议立即登录后台修改密码。</div>' . $warning . '<div style="height:12px"></div><div class="kv"><div>站点名</div><div>' . h($site_name) . '</div><div>数据库</div><div class="mono">' . h($database) . '</div><div>管理员用户名</div><div class="mono">' . h($admin_user) . '</div><div>管理员邮箱</div><div class="mono">' . h($admin_email) . '</div><div>管理员密码</div><div class="admin-pass mono">' . h($admin_pass) . '</div></div><div style="height:14px"></div><div class="actions"><a class="btn alt" href="index.php">进入首页</a><a class="btn" href="index.php?a=admin">进入后台</a></div></div></section><aside class="card"><div class="hd"><h2>已完成内容</h2></div><div class="bd"><ul class="list"><li>创建数据库结构和可用索引</li><li>创建默认版块</li><li>创建第一个管理员</li><li>生成缓存文件</li><li>数据库密码仅保存在 app/data/db.php</li></ul></div></aside></div><div class="footer">请立即保存本页显示的管理员密码，离开后无法再次查看。</div>');
 }
 public static function i_locked(): void
 {
@@ -275,7 +293,11 @@ public static function setup_install_run(): never
         app_db_create_fts5_table($db, 'app_replies_fts', 'body');
     }
     self::app_db_prepare_search($db, $driver);
-    foreach ($indexes as $index => $sql) if (!app_db_index_exists($db, $driver, $index, self::app_db_index_table($sql))) $db->exec($sql);
+    $search_fallback = false;
+    foreach ($indexes as $index => $sql) {
+        if (app_db_index_exists($db, $driver, $index, self::app_db_index_table($sql))) continue;
+        if (!self::app_db_create_schema_index($db, $driver, $index, $sql)) $search_fallback = true;
+    }
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin', 'upload_quota_mb'], ['id']));
     $seed->execute([1, '管理员', 1, 1, 0]); $seed->execute([2, '会员', 0, 0, 0]);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_forums', ['id', 'name', 'description', 'sort'], ['id']));
@@ -284,7 +306,7 @@ public static function setup_install_run(): never
         $db->exec("SELECT setval(pg_get_serial_sequence('app_groups','id'), (SELECT MAX(id) FROM app_groups))");
         $db->exec("SELECT setval(pg_get_serial_sequence('app_forums','id'), (SELECT MAX(id) FROM app_forums))");
     }
-    $settings = default_settings();
+    $settings = array_merge(default_settings(), mysql_search_index_settings($db, $driver));
     $settings['site_name'] = $site_name;
     $stmt = $db->prepare(app_db_upsert_sql($driver, 'app_settings', ['name', 'value'], ['name']));
     foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
@@ -298,7 +320,7 @@ public static function setup_install_run(): never
     Plugin::plugin_assets_rebuild();
     if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) self::i_install_error('安装失败', '安装锁文件写入失败。');
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
-    self::i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
+    self::i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label, $search_fallback ? self::app_db_search_fallback_notice() : '');
 }
 
 public static function setup_auto_install_run(): never
@@ -1021,10 +1043,11 @@ public static function us_sync_schema(): array
                     $removed = $db->exec('DELETE FROM app_attachments WHERE id NOT IN (SELECT keep_id FROM (SELECT MIN(id) keep_id FROM app_attachments GROUP BY user_id,hash) attachment_dedup)');
                     if ($removed) $changes[] = '清理重复附件：' . $removed . ' 条';
                 }
-                $db->exec($sql);
-                $changes[] = '新增索引：' . $index;
+                if (self::app_db_create_schema_index($db, db_driver(), $index, $sql)) $changes[] = '新增索引：' . $index;
+                elseif (!in_array(self::app_db_search_fallback_notice(), $changes, true)) $changes[] = self::app_db_search_fallback_notice();
             }
         }
+        save_settings_values(mysql_search_index_settings($db, db_driver()));
         if ($transactional) $db->commit();
         $legacy_plugin_count = self::us_migrate_legacy_plugin_settings();
         if ($legacy_plugin_count > 0) $changes[] = '迁移旧插件配置：' . $legacy_plugin_count . ' 个';

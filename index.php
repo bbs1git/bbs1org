@@ -427,6 +427,9 @@ function default_settings(): array
         'topics_per_page' => '30',
         'replies_per_page' => '50',
         'search_min_chars' => '2',
+        'mysql_search_index_topics_title' => '0',
+        'mysql_search_index_topics_body' => '0',
+        'mysql_search_index_replies_body' => '0',
         'register_per_hour' => '1',
         'login_fail_per_hour' => '5',
         'reset_fail_per_hour' => '5',
@@ -2660,9 +2663,30 @@ function search_like_pattern(string $query): string
 {
     return '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
 }
+function mysql_search_index_definitions(): array
+{
+    return [
+        'idx_topics_search_title' => ['app_topics', 'mysql_search_index_topics_title'],
+        'idx_topics_search_body' => ['app_topics', 'mysql_search_index_topics_body'],
+        'idx_replies_search_body' => ['app_replies', 'mysql_search_index_replies_body'],
+    ];
+}
+function mysql_search_index_settings(PDO $db, string $driver): array
+{
+    $settings = [];
+    foreach (mysql_search_index_definitions() as $index => [$table, $setting]) {
+        $settings[$setting] = $driver === 'mysql' && app_db_index_exists($db, $driver, $index, $table) ? '1' : '0';
+    }
+    return $settings;
+}
+function mysql_search_index_available(string $index): bool
+{
+    $definition = mysql_search_index_definitions()[$index] ?? null;
+    return db_driver() === 'mysql' && $definition !== null && setting($definition[1], '0') === '1';
+}
 function reply_search_condition(string $query): array
 {
-    if (db_driver() === 'mysql') {
+    if (mysql_search_index_available('idx_replies_search_body')) {
         $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
         return ['MATCH(body) AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
@@ -2682,7 +2706,8 @@ function topic_search_condition(string $query, string $field = 'title'): array
         [$condition, $params] = reply_search_condition($query);
         return ['id IN (SELECT topic_id FROM app_replies WHERE ' . $condition . ')', $params];
     }
-    if (db_driver() === 'mysql') {
+    $mysql_index = 'idx_topics_search_' . $field;
+    if (mysql_search_index_available($mysql_index)) {
         $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
         return ['MATCH(' . $field . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
