@@ -4297,9 +4297,6 @@ if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {
     $_GET['a'] = 'cron';
     $_SERVER['REQUEST_METHOD'] = 'GET';
 }
-if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'auto-install') {
-    Setup::setup_auto_install_run();
-}
 parse_path_route();
 $setup_action = (string)($_GET['a'] ?? '');
 if ($setup_action === 'install') {

@@ -23,36 +23,34 @@ https://bbs1.org
 
 ## Docker 源码部署
 
-服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。
-以部署到 `/opt` 目录为范例。
+服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。源码仓库和 Docker 配置仓库应放在同一目录下。
 
 ```bash
-cd /opt
 git clone https://github.com/bbs1org/bbs1org.git
 git clone https://github.com/bbs1org/bbs1org_docker.git
 cd bbs1org_docker
-mv .env.example .env
+cp .env.example .env
+# 如需修改端口或数据库模式，请先编辑 .env
 docker compose up -d
 ```
 
-安装完成访问：
+容器启动后访问：
 
 ```text
 http://服务器地址:8080
 ```
 
-默认管理员账号和密码均为 `admin`，登录后请及时修改密码。
+首次访问会进入网页安装程序，请在页面中设置站点、默认版块和管理员账号。使用 MySQL 或 PostgreSQL 时，先通过 `docker compose ps` 确认数据库状态为 `healthy`。
 
-注意：默认使用 `SQLite`。
-如需修改`8080`端口，或者使用 `MySQL` 或 `PostgreSQL`，务必启动前修改 `.env`。
+默认使用 `SQLite`。如需修改 `8080` 端口，或者启用 `MySQL`、`PostgreSQL`，请在启动前修改 `.env`。数据库容器会按 `.env` 中的 `DB_NAME`、`DB_USER`、`DB_PASSWORD` 初始化；网页安装时填写同样的数据库名、用户名和密码。
 
-| 数据库 | 配置值 | 容器内默认地址 |
-| --- | --- | --- |
-| SQLite | `sqlite` | 无需端口 |
-| MySQL | `mysql` | `mysql:3306` |
-| PostgreSQL | `pgsql` | `postgres:5432` |
+| 数据库 | `COMPOSE_PROFILES` | 数据库地址 | 端口 |
+| --- | --- | --- | --- |
+| SQLite | `sqlite` | 无需填写 | 无需填写 |
+| MySQL | `mysql` | `mysql` | `3306` |
+| PostgreSQL | `pgsql` | `postgres` | `5432` |
 
-常用操作（均在 `/opt/bbs1org_docker` 执行）：
+常用操作（均在 `bbs1org_docker` 目录执行）：
 
 ```bash
 docker compose ps                 # 查看状态
