@@ -276,15 +276,6 @@ document.addEventListener("click", e => {
         refreshAvatarPicker(p);
     }
 });
-document.addEventListener("change", e => {
-    const all = e.target.closest("[data-select-all]");
-    if (!all) return;
-    const form = all.closest("form");
-    const root = form || document;
-    root.querySelectorAll('input[type="checkbox"][name="ids[]"]').forEach(box => {
-        box.checked = all.checked;
-    });
-});
 document.addEventListener("change", async e => {
     const input = e.target.closest("[data-auto-submit]");
     if (!input) return;
@@ -313,11 +304,6 @@ document.addEventListener("change", async e => {
     }
 });
 document.addEventListener("change", e => {
-    const action = e.target.closest("[data-bulk-action]");
-    if (!action) return;
-    toggleBulkForum(action);
-});
-document.addEventListener("change", e => {
     const action = e.target.closest("[data-topic-action]");
     if (!action) return;
     const form = action.closest("form");
@@ -335,19 +321,10 @@ document.addEventListener("click", e => {
     wrap.querySelectorAll("[data-topic-color]").forEach(btn => btn.classList.toggle("active", btn === swatch));
 });
 window.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll("[data-bulk-action]").forEach(action => {
-        toggleBulkForum(action);
-    });
     document.querySelectorAll("[data-topic-action]").forEach(action => {
         action.dispatchEvent(new Event("change", {bubbles: true}));
     });
 });
-window.toggleBulkForum = function (action) {
-    const wrap = action?.closest(".bulk-action-group")?.querySelector("[data-bulk-forum-wrap]");
-    if (!wrap) return;
-    const show = action.value === "move";
-    wrap.classList.toggle("is-hidden", !show);
-};
 document.addEventListener("click", e => {
     if (e.target?.closest("[data-modal-close]") || e.target === modal) closeModal();
 });

@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.4');
+define('APP_VERSION', 'v7.7');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1058,160 +1058,6 @@ function notification_row_html(array $n): string
     $sender_title = $sender_id > 0 ? '<a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a>' : '<span class="post-title">' . h($sender_name) . '</span>';
     return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
 }
-function admin_search_like(string $q): string
-{
-    return '%' . strtr($q, ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
-}
-function admin_topic_field(string $field): string
-{
-    return in_array($field, ['title', 'body', 'author'], true) ? $field : 'title';
-}
-function admin_reply_field(string $field): string
-{
-    return in_array($field, ['body', 'author'], true) ? $field : 'body';
-}
-function admin_filter_sql(string $type, string $query = '', string $field = 'title', int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1, int $forum_id = 0): ?array
-{
-    $where = [];
-    $params = [];
-    $like = $query !== '' ? admin_search_like($query) : '';
-    if ($type === 'users') {
-        if ($query !== '') {
-            $where[] = "(username LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR bio LIKE ? ESCAPE '!')";
-            $params = [$like, $like, $like];
-        }
-        if ($group_id > 0) {
-            $where[] = 'group_id=?';
-            $params[] = $group_id;
-        }
-        if ($banned_filter >= 0) {
-            $where[] = 'is_banned=?';
-            $params[] = $banned_filter;
-        }
-        if ($muted_filter >= 0) {
-            $where[] = 'is_muted=?';
-            $params[] = $muted_filter;
-        }
-    } elseif ($type === 'topics') {
-        if ($forum_id > 0) {
-            $where[] = 'forum_id=?';
-            $params[] = $forum_id;
-        }
-        if ($query !== '') {
-            $field = admin_topic_field($field);
-            if ($field === 'author') {
-                $uids = array_column(q("SELECT id FROM app_users WHERE username LIKE ? ESCAPE '!'", [$like])->fetchAll(), 'id');
-                if (!$uids) return null;
-                $where[] = 'user_id IN (' . sql_marks(count($uids)) . ')';
-                $params = array_merge($params, $uids);
-            } else {
-                [$condition, $search_params] = topic_search_condition($query, $field);
-                $where[] = '(' . $condition . ')';
-                $params = array_merge($params, $search_params);
-            }
-        }
-    } elseif ($type === 'replies') {
-        if ($query !== '') {
-            $field = admin_reply_field($field);
-            if ($field === 'author') {
-                $uids = array_column(q("SELECT id FROM app_users WHERE username LIKE ? ESCAPE '!'", [$like])->fetchAll(), 'id');
-                if (!$uids) return null;
-                $where[] = 'user_id IN (' . sql_marks(count($uids)) . ')';
-                $params = array_merge($params, $uids);
-            } else {
-                [$condition, $search_params] = reply_search_condition($query);
-                $where[] = '(' . $condition . ')';
-                $params = array_merge($params, $search_params);
-            }
-        }
-    } else {
-        return null;
-    }
-    return ['where' => $where ? ' WHERE ' . implode(' AND ', $where) : '', 'params' => $params];
-}
-function admin_count(string $type, int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1, int $forum_id = 0): int
-{
-    $filter = admin_filter_sql($type, '', 'title', $group_id, $banned_filter, $muted_filter, $forum_id);
-    if (!$filter) return 0;
-    $sql = match ($type) {
-        'users' => 'SELECT COUNT(*) FROM app_users',
-        'topics' => 'SELECT COUNT(*) FROM app_topics',
-        'replies' => 'SELECT COUNT(*) FROM app_replies',
-        default => throw new InvalidArgumentException('无效的后台数据类型。'),
-    };
-    return (int)val($sql . $filter['where'], $filter['params']);
-}
-function admin_list(string $type, string $query = '', int $size = 50, int $offset = 0, array $filters = []): array
-{
-    [$table, $columns] = match ($type) {
-        'users' => ['app_users', '*'],
-        'topics' => ['app_topics', 'id,forum_id,title,highlight_style,user_id,created_at'],
-        'replies' => ['app_replies', 'id,body,topic_id,user_id,created_at'],
-        default => throw new InvalidArgumentException('无效的后台数据类型。'),
-    };
-    $field = (string)($filters['field'] ?? ($type === 'replies' ? 'body' : 'title'));
-    $filter = admin_filter_sql($type, $query, $field, (int)($filters['group_id'] ?? 0), (int)($filters['banned_filter'] ?? -1), (int)($filters['muted_filter'] ?? -1), (int)($filters['forum_id'] ?? 0));
-    if (!$filter) return [];
-    $rows = q("SELECT $columns FROM $table" . $filter['where'] . ' ORDER BY id DESC LIMIT ? OFFSET ?', array_merge($filter['params'], [$size, $offset]))->fetchAll();
-    if ($type !== 'users') $rows = attach_users($rows);
-    return $type === 'replies' ? attach_topics($rows) : $rows;
-}
-function admin_search_form(string $tab, string $query): string
-{
-    $field = admin_topic_field((string)($_GET['field'] ?? 'title'));
-    $select = $tab === 'topics' ? '<select class="admin-search-select" name="field"><option value="title"' . ($field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($field === 'body' ? ' selected' : '') . '>内容</option><option value="author"' . ($field === 'author' ? ' selected' : '') . '>作者</option></select>' : '';
-    if ($tab === 'topics') {
-        $forum_id = max(0, (int)($_GET['forum_id'] ?? 0));
-        $select .= '<select class="admin-search-select" name="forum_id"><option value="0">全部版块</option>';
-        foreach (forums_cache() as $f) $select .= '<option value="' . (int)$f['id'] . '"' . ($forum_id === (int)$f['id'] ? ' selected' : '') . '>' . h($f['name']) . '</option>';
-        $select .= '</select>';
-    }
-    $group_id = (int)($_GET['group_id'] ?? 0);
-    if ($tab === 'users') {
-        $banned_filter = isset($_GET['is_banned']) && $_GET['is_banned'] !== '' ? (int)$_GET['is_banned'] : -1;
-        $muted_filter = isset($_GET['is_muted']) && $_GET['is_muted'] !== '' ? (int)$_GET['is_muted'] : -1;
-        $select = '<select class="admin-search-select" name="group_id"><option value="0">全部用户组</option>';
-        foreach (groups_cache() as $g) $select .= '<option value="' . (int)$g['id'] . '"' . ($group_id === (int)$g['id'] ? ' selected' : '') . '>' . h($g['name']) . '</option>';
-        $select .= '</select><select class="admin-search-select" name="is_muted"><option value="">发言状态</option><option value="1"' . ($muted_filter === 1 ? ' selected' : '') . '>禁止发言</option><option value="0"' . ($muted_filter === 0 ? ' selected' : '') . '>允许发言</option></select><select class="admin-search-select" name="is_banned"><option value="">访问状态</option><option value="1"' . ($banned_filter === 1 ? ' selected' : '') . '>禁止访问</option><option value="0"' . ($banned_filter === 0 ? ' selected' : '') . '>允许访问</option></select>';
-    } elseif ($tab === 'replies') {
-        $reply_field = admin_reply_field((string)($_GET['reply_field'] ?? 'body'));
-        $select = '<select class="admin-search-select" name="reply_field"><option value="body"' . ($reply_field === 'body' ? ' selected' : '') . '>内容</option><option value="author"' . ($reply_field === 'author' ? ' selected' : '') . '>作者</option></select>';
-    }
-    $has_clear = $query !== '';
-    if ($tab === 'users') $has_clear = $has_clear || $group_id > 0 || ($_GET['is_banned'] ?? '') !== '' || ($_GET['is_muted'] ?? '') !== '';
-    if ($tab === 'topics') $has_clear = $has_clear || (int)($_GET['forum_id'] ?? 0) > 0 || $field !== 'title';
-    $base = '<input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="' . h($tab) . '">';
-    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $base . $select . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索" minlength="' . search_min_chars() . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . ($has_clear ? '<a class="admin-search-clear" href="' . h(admin_url(['tab' => $tab])) . '">清空</a>' : '') . '</form>';
-}
-function admin_bulk_delete_form_open(string $tab, string $query): string
-{
-    return '<form id="admin-bulk-form" method="post" action="' . h(admin_url(['do' => 'batch_action'])) . '" data-confirm="确定执行批量操作？">' . form_token() . '<input type="hidden" name="tab" value="' . h($tab) . '"><input type="hidden" name="q" value="' . h($query) . '"></form>';
-}
-function admin_rebuild_fts_form(string $type = 'topics'): string
-{
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return '';
-    $is_reply = $type === 'replies';
-    $label = $is_reply ? '回帖' : '主题';
-    return '<form class="admin-rebuild-fts-form" method="post" action="' . h(admin_url(['do' => 'rebuild_fts'])) . '" data-prompt-title="重建' . $label . '索引" data-prompt-message="请输入起始' . $label . ' ID，将重建该 ID 及之后的' . $label . '搜索索引。" data-prompt-field="start_id" data-prompt-value="1">' . form_token() . '<input type="hidden" name="fts_type" value="' . h($type) . '"><input type="hidden" name="start_id" value="1"><button class="admin-search-link" type="submit">重建索引</button></form>';
-}
-function admin_topics_tools_html(): string
-{
-    return '<div class="admin-topic-tools">' . admin_rebuild_fts_form('topics') . '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a></div>';
-}
-function admin_pagination(string $tab, string $query, int $total, int $page, int $size, string $field = '', int $group_id = 0, int $banned_filter = -1, int $muted_filter = -1, bool $simple = false, bool $has_next = false): string
-{
-    $params = ['tab' => $tab];
-    if ($query !== '') $params['q'] = $query;
-    if ($tab === 'topics' && $field !== '') $params['field'] = admin_topic_field($field);
-    if ($tab === 'replies' && $field !== '') $params['reply_field'] = admin_reply_field($field);
-    if ($tab === 'topics' && (int)($_GET['forum_id'] ?? 0) > 0) $params['forum_id'] = (int)$_GET['forum_id'];
-    if ($tab === 'users' && $group_id > 0) $params['group_id'] = $group_id;
-    if ($tab === 'users' && $banned_filter >= 0) $params['is_banned'] = $banned_filter;
-    if ($tab === 'users' && $muted_filter >= 0) $params['is_muted'] = $muted_filter;
-    $url = admin_url($params);
-    $html = $simple ? simple_paginate($page > 1, $has_next, $page, $url) : paginate($total, $page, $size, $url);
-    return $html === '' ? '' : '<div class="pagination-bar">' . $html . '</div>';
-}
 function admin_flag(int $yes, bool $danger = false): string
 {
     return '<span class="admin-flag' . ($yes ? ($danger ? ' danger' : ' on') : '') . '">' . ($yes ? '是' : '否') . '</span>';
@@ -1220,66 +1066,12 @@ function admin_list_head(string $left = '', string $right = ''): string
 {
     return '<div class="admin-list-head"><div class="admin-head-inline"><div class="admin-head-left-slot">' . $left . '</div><div class="admin-head-right-slot">' . $right . '</div></div></div>';
 }
-function admin_object_list_html(string $tab, string $query, bool $manageable, int $size, callable $count_rows, callable $load_rows, callable $render_pagination, string $head_right = ''): string
-{
-    $render_row = ['users' => 'admin_user_row', 'topics' => 'admin_topic_row', 'replies' => 'admin_reply_row'][$tab] ?? throw new InvalidArgumentException('不支持的后台列表类型');
-    $simple = $query !== '';
-    $total = $simple ? 0 : (int)$count_rows();
-    $rows = $load_rows();
-    $has_next = $simple && count($rows) > $size;
-    if ($has_next) $rows = array_slice($rows, 0, $size);
-    $html = $manageable ? admin_bulk_delete_form_open($tab, $query) : '';
-    $html .= '<div class="admin-list-panel">' . admin_list_head(admin_search_form($tab, $query), $head_right) . '<ul class="admin-manage-list">';
-    foreach ($rows as $row) $html .= $render_row($row, $manageable);
-    $html .= '</ul></div>';
-    if ($manageable) $html .= admin_bulk_delete_bar($tab);
-    return $html . $render_pagination($total, $simple, $has_next);
-}
-function admin_bulk_delete_bar(string $tab = ''): string
-{
-    if ($tab === 'users') $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option><option value="mute">禁止发言</option><option value="unmute">取消禁止发言</option><option value="ban">禁止访问</option><option value="unban">取消禁止访问</option></select>';
-    elseif ($tab === 'topics') {
-        $forum_select = '<span class="bulk-forum-wrap is-hidden" data-bulk-forum-wrap><select class="bulk-action-select" name="forum_id" form="admin-bulk-form" data-bulk-forum>';
-        foreach (forums_cache() as $f) $forum_select .= '<option value="' . (int)$f['id'] . '">' . h($f['name']) . '</option>';
-        $forum_select .= '</select></span>';
-        $actions = '<div class="bulk-action-group"><select class="bulk-action-select" name="batch_action" form="admin-bulk-form" data-bulk-action onchange="toggleBulkForum(this)"><option value="delete">删除</option><option value="move">批量转移</option></select>' . $forum_select . '</div>';
-    } elseif ($tab === 'trash') $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="restore">恢复</option></select>';
-    else $actions = '<select class="bulk-action-select" name="batch_action" form="admin-bulk-form"><option value="delete">删除</option></select>';
-    return '<div class="bulk-bar"><label class="bulk-select-all"><input type="checkbox" data-select-all><span>全选</span></label>' . $actions . '<button class="danger bulk-delete" type="submit" form="admin-bulk-form">执行</button></div>';
-}
-function admin_row_check_html(int $id): string
-{
-    return '<input class="admin-row-check" type="checkbox" name="ids[]" value="' . $id . '" form="admin-bulk-form" aria-label="选择">';
-}
-function admin_user_row(array $u, bool $manageable = true): string
-{
-    $g = group_by_id((int)$u['group_id']) ?: ['name' => ''];
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'user', 'id' => (int)$u['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'users', 'id' => (int)$u['id'], 'tab' => 'users'], 'danger', '确定删除？') . admin_row_check_html((int)$u['id']) . '</div>' : '';
-    $states = array_filter([h($g['name']), '积分 ' . (int)($u['points'] ?? 0), (int)($u['is_banned'] ?? 0) ? '禁访' : '', (int)($u['is_muted'] ?? 0) ? '禁言' : '']);
-    return '<li class="admin-list-item admin-object-row admin-user-row"><div class="admin-row-main"><div class="admin-user-cell">' . avatar_tag((int)$u['id'], (string)$u['username'], (string)($u['avatar_style'] ?? ''), 'table-avatar', (string)($u['avatar_seed'] ?? '')) . '<div class="admin-user-text"><strong>' . h($u['username']) . '</strong><span>' . implode(' / ', $states) . ' · ID ' . (int)$u['id'] . '</span></div></div></div>' . $ops . '</li>';
-}
 function user_state_tag_html(array $u): string
 {
     $tags = [];
     if ((int)($u['is_banned'] ?? 0) === 1) $tags[] = '<span class="user-state-tag danger">禁访</span>';
     if ((int)($u['is_muted'] ?? 0) === 1) $tags[] = '<span class="user-state-tag danger">禁言</span>';
     return $tags ? '<span class="user-state-tags">' . implode('', $tags) . '</span>' : '';
-}
-function admin_topic_row(array $t, bool $manageable = true): string
-{
-    $url = route_url('topic', ['id' => (int)$t['id']]);
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'topics', 'id' => (int)$t['id'], 'tab' => 'topics'], 'danger', '确定删除？') . admin_row_check_html((int)$t['id']) . '</div>' : '';
-    $forum = forum_by_id((int)($t['forum_id'] ?? 0)) ?: ['name' => ''];
-    $forum_tag = $forum['name'] !== '' ? '<span class="admin-forum-name">' . h($forum['name']) . '</span>' : '';
-    return '<li class="admin-list-item admin-object-row admin-topic-row"><div class="admin-row-main"><a class="admin-content-title" href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['title']) . '</a><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), 'table-avatar', (string)($t['avatar_seed'] ?? '')) . h($t['username']) . '</span><span>ID ' . (int)$t['id'] . '</span><span>' . date('Y-m-d H:i', (int)$t['created_at']) . '</span>' . $forum_tag . '</div></div>' . $ops . '</li>';
-}
-function admin_reply_row(array $r, bool $manageable = true): string
-{
-    $topic_url = route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]);
-    $topic_title = (string)($r['topic_title'] ?? '主题已删除');
-    $ops = $manageable ? '<div class="admin-inline-ops"><a href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'tab' => 'replies'], 'danger', '确定删除？') . admin_row_check_html((int)$r['id']) . '</div>' : '';
-    $excerpt = content_excerpt(markdown_without_code_blocks((string)$r['body']), 150);
-    return '<li class="admin-list-item admin-object-row admin-reply-row"><div class="admin-row-main"><a class="admin-reply-topic-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . h($topic_title) . '</a><div class="admin-content-text">' . h($excerpt) . '</div><div class="admin-row-meta"><span class="admin-author-mini">' . avatar_tag((int)$r['user_id'], (string)$r['username'], (string)($r['avatar_style'] ?? ''), 'table-avatar', (string)($r['avatar_seed'] ?? '')) . h($r['username']) . '</span><span>回帖 #' . (int)$r['id'] . '</span><span>主题 #' . (int)$r['topic_id'] . '</span><span>' . date('Y-m-d H:i', (int)$r['created_at']) . '</span></div></div>' . $ops . '</li>';
 }
 function deletable_post_row(string $type, int $id): ?array
 {
@@ -2612,7 +2404,7 @@ function topic_search_field(string $field): string
 }
 function search_like_pattern(string $query): string
 {
-    return '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($query)) . '%';
+    return '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($query)) . '%';
 }
 function mysql_search_index_definitions(): array
 {
@@ -2642,9 +2434,9 @@ function reply_search_condition(string $query): array
         return ['MATCH(body) AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
     if (db_driver() === 'pgsql') {
-        return ["body ILIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
+        return ["body ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
     }
-    if (!sqlite_search_uses_fts($query)) return ["body LIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
+    if (!sqlite_search_uses_fts($query)) return ["body LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
     return [
         "id IN (SELECT rowid FROM app_replies_fts WHERE app_replies_fts MATCH ?)",
         [topic_fts_query($query)],
@@ -2663,9 +2455,9 @@ function topic_search_condition(string $query, string $field = 'title'): array
         return ['MATCH(' . $field . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
     if (db_driver() === 'pgsql') {
-        return [$field . " ILIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
+        return [$field . " ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
     }
-    if (!sqlite_search_uses_fts($query)) return [$field . " LIKE ? ESCAPE '\\'", [search_like_pattern($query)]];
+    if (!sqlite_search_uses_fts($query)) return [$field . " LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
     return [
         "id IN (SELECT rowid FROM app_topics_fts WHERE app_topics_fts MATCH ?)",
         [topic_fts_query($query, $field)],
@@ -2961,62 +2753,6 @@ function can_admin_delete(string $type, int $id): bool
 function trash_rows_copy(string $table, array $row): void
 {
     q("INSERT INTO app_trash(table_name,row_id,row_data,deleted_by,created_at) VALUES(?,?,?,?,?)", [$table, (int)$row['id'], json_encode($row, JSON_UNESCAPED_UNICODE), uid(), now()]);
-}
-function trash_restore_row(int $id): string
-{
-    $trash = one('SELECT * FROM app_trash WHERE id=?', [$id]) ?: err('记录不存在');
-    $table = (string)$trash['table_name'];
-    if (!in_array($table, ['users', 'topics', 'replies'], true)) err('参数错误');
-    $physical_table = match ($table) {
-        'users' => 'app_users',
-        'topics' => 'app_topics',
-        'replies' => 'app_replies',
-    };
-    $row = json_decode((string)$trash['row_data'], true);
-    if (!is_array($row)) err('数据错误');
-    $cols = array_keys(app_db_columns(db(), db_driver(), $physical_table));
-    $fields = [];
-    $values = [];
-    foreach ($cols as $col) {
-        $name = (string)$col;
-        $fields[] = $name;
-        $values[] = $row[$name] ?? null;
-    }
-    q('DELETE FROM ' . $physical_table . ' WHERE id=?', [(int)$row['id']]);
-    q('INSERT INTO ' . $physical_table . ' (' . implode(',', $fields) . ') VALUES(' . sql_marks(count($fields)) . ')', $values);
-    if ($table === 'topics') topic_fts_sync((int)$row['id'], (string)($row['title'] ?? ''), (string)($row['body'] ?? ''));
-    if ($table === 'replies') {
-        reply_fts_sync((int)$row['id'], (string)($row['body'] ?? ''));
-        refresh_topic_stats((int)($row['topic_id'] ?? 0));
-    }
-    q('DELETE FROM app_trash WHERE id=?', [$id]);
-    return $table;
-}
-function admin_trash_count(string $table = ''): int
-{
-    return $table !== '' ? (int)val('SELECT COUNT(*) FROM app_trash WHERE table_name=?', [$table]) : (int)val('SELECT COUNT(*) FROM app_trash');
-}
-function admin_trash_list(string $table = '', int $size = 50, int $offset = 0): array
-{
-    $rows = $table !== '' ? q('SELECT * FROM app_trash WHERE table_name=? ORDER BY id DESC LIMIT ? OFFSET ?', [$table, $size, $offset])->fetchAll() : q('SELECT * FROM app_trash ORDER BY id DESC LIMIT ? OFFSET ?', [$size, $offset])->fetchAll();
-    $users = rows_by_ids('app_users', array_column($rows, 'deleted_by'), 'id,username');
-    foreach ($rows as &$row) $row['deleted_username'] = (string)($users[(int)($row['deleted_by'] ?? 0)]['username'] ?? '用户删除');
-    unset($row);
-    return $rows;
-}
-function admin_trash_search_form(string $table): string
-{
-    $html = '<form class="admin-table-search" method="get" action="' . h(index_url()) . '"><input type="hidden" name="a" value="admin"><input type="hidden" name="tab" value="trash"><select class="admin-search-select" name="table">';
-    $html .= '<option value="">全部</option>';
-    foreach (['users' => '用户', 'topics' => '主题', 'replies' => '回帖'] as $k => $v) $html .= '<option value="' . $k . '"' . ($table === $k ? ' selected' : '') . '>' . $v . '</option>';
-    return $html . '</select><button class="admin-search-link" type="submit">筛选</button></form>';
-}
-function admin_trash_row(array $row): string
-{
-    $data = json_decode((string)$row['row_data'], true);
-    $title = (['users' => '用户', 'topics' => '主题', 'replies' => '回帖'][(string)$row['table_name']] ?? (string)$row['table_name']) . ' #' . (int)$row['row_id'];
-    $summary = is_array($data) ? json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : (string)$row['row_data'];
-    return '<li class="admin-list-item admin-object-row admin-trash-row"><input class="admin-row-check" type="checkbox" name="ids[]" value="' . (int)$row['id'] . '" form="admin-bulk-form"><div class="admin-row-main"><div class="admin-topic-user"><span class="admin-group-pill">' . h($title) . '</span><span class="admin-dot">·</span>删除人：' . h((string)$row['deleted_username']) . '<span class="admin-dot">·</span>删除时间：' . date('Y-m-d H:i', (int)$row['created_at']) . '</div><pre class="admin-trash-data">' . h($summary) . '</pre></div><div class="admin-inline-ops">' . post_action_form(admin_url(['do' => 'restore']), '恢复', ['id' => (int)$row['id']], '', '确定恢复？') . '</div></li>';
 }
 function refresh_topic_stats(int $tid): void
 {
@@ -3932,10 +3668,12 @@ function admin_nav(string $tab): string
 }
 function admin_tabs(string $tab): string
 {
-    $items = ['settings' => '设置', 'forums' => '版块', 'groups' => '用户组', 'topics' => '主题', 'replies' => '回帖', 'users' => '用户', 'plugins' => '插件'];
-    $h = '<div class="tab-bar admin-tabs">';
-    foreach ($items as $k => $v) $h .= '<a class="tab' . ($tab === $k ? ' active' : '') . '" href="' . h(admin_url(['tab' => $k])) . '">' . $v . '</a>';
-    return $h . '</div>';
+    $items = [];
+    foreach (['settings' => '设置', 'forums' => '版块', 'groups' => '用户组', 'plugins' => '插件'] as $key => $label) {
+        $items[$key] = ['label' => $label, 'href' => admin_url(['tab' => $key])];
+    }
+    $hook_items = hook('admin.tabs', $items, ['active' => $tab]);
+    return tab_bar_html(is_array($hook_items) ? $hook_items : $items, $tab, 'admin-tabs');
 }
 function admin_layout(string $tab, string $body): string
 {
@@ -3945,18 +3683,6 @@ function admin_page(): void
 {
     need_admin();
     $tab = $_GET['tab'] ?? 'settings';
-    $q = trim((string)($_GET['q'] ?? ''));
-    require_search_min_chars($q);
-    $topic_field = admin_topic_field((string)($_GET['field'] ?? 'title'));
-    $reply_field = admin_reply_field((string)($_GET['reply_field'] ?? 'body'));
-    $topic_forum_id = max(0, (int)($_GET['forum_id'] ?? 0));
-    $user_group_id = max(0, (int)($_GET['group_id'] ?? 0));
-    $user_banned_filter = isset($_GET['is_banned']) && $_GET['is_banned'] !== '' ? (int)$_GET['is_banned'] : -1;
-    $user_muted_filter = isset($_GET['is_muted']) && $_GET['is_muted'] !== '' ? (int)$_GET['is_muted'] : -1;
-    $manageable = can_manage();
-    $admin_size = 50;
-    $admin_page = max(1, (int)($_GET['p'] ?? 1));
-    $admin_offset = ($admin_page - 1) * $admin_size;
     if ($tab === 'settings' && (string)($_GET['debug_log'] ?? '') === 'view') {
         header('Content-Type: text/plain; charset=utf-8');
         echo is_file(DEBUG_LOG_FILE) ? (string)file_get_contents(DEBUG_LOG_FILE) : '';
@@ -4030,12 +3756,6 @@ function admin_page(): void
         $update_dot = $has_update_notice ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
         $debug_cards .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
         $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $debug_cards . '</div></div>';
-    } elseif ($tab === 'users') {
-        $html .= admin_object_list_html('users', $q, $manageable, $admin_size,
-            fn(): int => admin_count('users', $user_group_id, $user_banned_filter, $user_muted_filter),
-            fn(): array => admin_list('users', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['group_id' => $user_group_id, 'banned_filter' => $user_banned_filter, 'muted_filter' => $user_muted_filter]),
-            fn(int $total, bool $simple, bool $has_next): string => admin_pagination('users', $q, $total, $admin_page, $admin_size, '', $user_group_id, $user_banned_filter, $user_muted_filter, $simple, $has_next)
-        );
     } elseif ($tab === 'groups') {
         $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>上传空间</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (groups_cache() as $g) {
@@ -4054,32 +3774,6 @@ function admin_page(): void
             $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
         }
         $html .= '</table>';
-    } elseif ($tab === 'topics') {
-        $html .= admin_object_list_html('topics', $q, $manageable, $admin_size,
-            fn(): int => admin_count('topics', 0, -1, -1, $topic_forum_id),
-            fn(): array => admin_list('topics', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['field' => $topic_field, 'forum_id' => $topic_forum_id]),
-            fn(int $total, bool $simple, bool $has_next): string => admin_pagination('topics', $q, $total, $admin_page, $admin_size, $topic_field, 0, -1, -1, $simple, $has_next),
-            $manageable ? admin_topics_tools_html() : '<a class="admin-search-link" href="' . h(admin_url(['tab' => 'trash'])) . '">回收站</a>'
-        );
-    } elseif ($tab === 'replies') {
-        $html .= admin_object_list_html('replies', $q, $manageable, $admin_size,
-            fn(): int => admin_count('replies'),
-            fn(): array => admin_list('replies', $q, $q !== '' ? $admin_size + 1 : $admin_size, $admin_offset, ['field' => $reply_field]),
-            fn(int $total, bool $simple, bool $has_next): string => admin_pagination('replies', $q, $total, $admin_page, $admin_size, $reply_field, 0, -1, -1, $simple, $has_next),
-            $manageable ? admin_rebuild_fts_form('replies') : ''
-        );
-    } elseif ($tab === 'trash') {
-        $trash_table = in_array((string)($_GET['table'] ?? ''), ['users', 'topics', 'replies'], true) ? (string)$_GET['table'] : '';
-        $total = admin_trash_count($trash_table);
-        $url = admin_url(['tab' => 'trash', 'table' => $trash_table]);
-        if ($manageable) $html .= admin_bulk_delete_form_open('trash', '');
-        $html .= '<div class="admin-list-panel">' . admin_list_head(admin_trash_search_form($trash_table), '') . '<ul class="admin-manage-list">';
-        foreach (admin_trash_list($trash_table, $admin_size, $admin_offset) as $row) $html .= admin_trash_row($row);
-        if ($total === 0) $html .= '<li class="empty-state">暂无数据</li>';
-        $html .= '</ul></div>';
-        if ($manageable) $html .= admin_bulk_delete_bar('trash');
-        $phtml = paginate($total, $admin_page, $admin_size, $url);
-        $html .= $phtml === '' ? '' : '<div class="pagination-bar">' . $phtml . '</div>';
     } elseif ($tab === 'plugins') {
         $view = (string)($_GET['view'] ?? '');
         if ($view === '') $html .= Plugin::admin_plugins_page_html();
@@ -4101,21 +3795,13 @@ function admin_edit_page(): void
 {
     need_admin();
     $type = $_GET['type'] ?? $_POST['type'] ?? '';
-    if ($type === 'user') need_manage();
-    if ($type === 'user' && id() === 1 && !is_super_user()) err('无权限');
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if ($type === 'user') save_user(true);
-        elseif ($type === 'group') save_group();
+        if ($type === 'group') save_group();
         elseif ($type === 'forum') save_forum();
         else err('参数错误');
-        go(admin_url(['tab' => $type === 'user' ? 'users' : $type . 's']));
+        go(admin_url(['tab' => $type . 's']));
     }
-    if ($type === 'user') {
-        $u = id() ? (user_by_id(id()) ?: err('用户不存在')) : ['id' => 0, 'username' => '', 'email' => '', 'bio' => '', 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => (int)setting('default_group_id', '2'), 'points' => 0];
-        $tab = 'users';
-        $is_new = id() === 0;
-        $body = input('用户名', 'username', $u['username'], 'text', true) . input('邮箱', 'email', $u['email'], 'email') . input($is_new ? '密码' : '新密码', 'password', '', 'password', $is_new) . input('确认密码', 'password2', '', 'password', $is_new) . avatar_picker_html($u) . select_group((int)$u['group_id']) . number_input('积分', 'points', (int)($u['points'] ?? 0)) . checkbox('禁止访问', 'is_banned', (bool)(int)($u['is_banned'] ?? 0)) . checkbox('禁止发言', 'is_muted', (bool)(int)($u['is_muted'] ?? 0)) . textarea('简介', 'bio', $u['bio']);
-    } elseif ($type === 'group') {
+    if ($type === 'group') {
         $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0, 'upload_quota_mb' => 0];
         $tab = 'groups';
         $body = input('名称', 'name', $g['name'], 'text', true) . number_input('上传空间（MB）', 'upload_quota_mb', (int)($g['upload_quota_mb'] ?? 0), 0, null, true, '0 表示使用系统默认的 ' . ATTACHMENT_DEFAULT_QUOTA_MB . ' MB。') . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
@@ -4173,59 +3859,14 @@ function admin_route(): void
 {
     $do = (string)($_GET['do'] ?? '');
     if ($do === 'edit') { admin_edit_page(); return; }
-    if (!in_array($do, ['delete', 'restore', 'rebuild_fts', 'batch_action'], true)) { admin_page(); return; }
+    if ($do === '') { admin_page(); return; }
+    if ($do !== 'delete') err('你访问的页面不存在', 404);
     require_post(); need_admin();
-    if ($do === 'delete') {
-        $type = ['user' => 'users', 'group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? ($_POST['type'] ?? '');
-        if (!in_array($type, ['users', 'groups', 'forums', 'topics', 'replies'], true)) err('参数错误');
-        if (!can_admin_delete($type, id())) err('无权限');
-        del($type, id());
-        go(admin_url(['tab' => $_POST['tab'] ?? 'settings']));
-    }
-    need_manage();
-    if ($do === 'restore') {
-        if (trash_restore_row(id()) === 'topics') home_stats_refresh_topics();
-        go(admin_url(['tab' => 'trash']));
-    }
-    if ($do === 'rebuild_fts') {
-        $fts_type = (string)($_POST['fts_type'] ?? 'topics') === 'replies' ? 'replies' : 'topics';
-        if (db_driver() !== 'sqlite') {
-            set_flash('当前数据库的搜索索引由数据库自动维护，无需重建');
-            go(admin_url(['tab' => $fts_type]));
-        }
-        if (!sqlite_fts_uses_trigram()) {
-            set_flash('当前 SQLite 不支持 trigram，搜索使用 LIKE，无需重建索引');
-            go(admin_url(['tab' => $fts_type]));
-        }
-        $start_id = max(1, (int)($_POST['start_id'] ?? 1));
-        $count = $fts_type === 'replies' ? reply_fts_rebuild_from($start_id) : topic_fts_rebuild_from($start_id);
-        set_flash('已重建' . ($fts_type === 'replies' ? '回帖' : '主题') . '索引：' . $count . ' 条');
-        go(admin_url(['tab' => $fts_type]));
-    }
-    $tab = $_POST['tab'] ?? ''; $action = (string)($_POST['batch_action'] ?? 'delete');
-    if (!in_array($tab, ['users', 'topics', 'replies', 'trash'], true)) err('参数错误');
-    $ids = array_values(array_unique(array_filter(array_map('intval', $_POST['ids'] ?? []))));
-    if ($tab === 'trash' && $action === 'restore') {
-        $topics_changed = false;
-        foreach ($ids as $trash_id) if (trash_restore_row($trash_id) === 'topics') $topics_changed = true;
-        if ($topics_changed) home_stats_refresh_topics();
-    } elseif ($tab === 'users' && in_array($action, ['mute', 'unmute', 'ban', 'unban'], true)) {
-        $field = in_array($action, ['ban', 'unban'], true) ? 'is_banned' : 'is_muted'; $value = in_array($action, ['ban', 'mute'], true) ? 1 : 0;
-        $ids = array_values(array_diff($ids, [1, uid()]));
-        if ($ids) q("UPDATE app_users SET $field=? WHERE id IN (" . sql_marks(count($ids)) . ')', array_merge([$value], $ids));
-    } elseif ($tab === 'topics' && $action === 'move') {
-        $forum_id = max(1, (int)($_POST['forum_id'] ?? 0)); if (!forum_by_id($forum_id)) err('版块不存在');
-        if ($ids) {
-            $marks = sql_marks(count($ids));
-            q("UPDATE app_topics SET forum_id=?,last_reply_at=? WHERE id IN ($marks)", array_merge([$forum_id, now()], $ids));
-        }
-    } elseif ($action === 'delete') {
-        foreach ($ids as $rid) {
-            if (!can_admin_delete($tab, $rid)) continue;
-            del($tab, $rid);
-        }
-    }
-    go(admin_url(['tab' => $tab]));
+    $type = ['group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? '';
+    if (!in_array($type, ['groups', 'forums'], true)) err('参数错误');
+    if (!can_admin_delete($type, id())) err('无权限');
+    del($type, id());
+    go(admin_url(['tab' => $type]));
 }
 function core_routes(): array
 {
