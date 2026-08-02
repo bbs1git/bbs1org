@@ -25,7 +25,7 @@ define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/av
 
 final class Setup
 {
-public static function setup_html(string $title, string $body): never
+public static function setup_html(string $title, string $body, bool $project_modal = false): never
 {
     if (PHP_SAPI === 'cli') {
         $text = preg_replace('#<(?:style|script)\b[^>]*>.*?</(?:style|script)>#is', '', $body) ?? $body;
@@ -39,8 +39,10 @@ public static function setup_html(string $title, string $body): never
         exit;
     }
     $meta = '<meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8">';
-    echo '<!doctype html><html lang="zh-CN"><head>' . $meta . '<title>' . h($title) . '</title><link rel="icon" type="image/svg+xml" href="app/assets/index.svg"><style>
-    :root{--bg:#eef2f7;--panel:#fff;--line:#dfe6ee;--line2:#edf1f5;--text:#1f2937;--muted:#6b7280;--brand:#2563eb;--brand2:#1d4ed8;--ok:#059669;--warn:#b45309;--danger:#dc2626;--radius:10px}
+    $project_assets = $project_modal ? '<link rel="stylesheet" href="' . h(app_url('app/assets/index.css')) . '?v=' . h(APP_VERSION) . '">' : '';
+    $project_scripts = $project_modal ? \project_modal_html() . '<script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' : '';
+    echo '<!doctype html><html lang="zh-CN"><head>' . $meta . '<title>' . h($title) . '</title><link rel="icon" type="image/svg+xml" href="app/assets/index.svg">' . $project_assets . '<style>
+    :root{--bg:#eef2f7;--panel:#fff;--line:#dfe6ee;--line2:#edf1f5;--text:#1f2937;--muted:#6b7280;--brand:#2563eb;--brand2:#1d4ed8;--ok:#059669;--warn:#b45309;--danger:#dc2626;--line-soft:var(--line2);--text-muted:var(--muted);--text-subtle:var(--muted);--text-disabled:var(--muted);--brand-hover:var(--brand2);--brand-soft:#eff6ff;--inverse:#111827;--inverse-text:#fff;--color-dark-rgb:31,41,55;--backdrop:rgba(var(--color-dark-rgb),.42);--shadow-medium:rgba(15,23,42,.18);--font-size-sm:12px;--font-size-md:14px;--font-size-lg:15px;--radius:10px;--radius-sm:8px;--focus-ring:rgba(37,99,235,.2)}
     *{box-sizing:border-box}body{margin:0;color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
     a{color:var(--brand);text-decoration:none}a:hover{color:var(--brand2)}.wrap{max-width:1060px;margin:0 auto;padding:24px 16px 40px}
     .hero{display:grid;gap:8px;margin-bottom:18px}.hero h1{margin:0;font-size:28px;line-height:1.2}.hero p{margin:0;color:var(--muted)}
@@ -52,7 +54,7 @@ public static function setup_html(string $title, string $body): never
     .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border:0;border-radius:8px;background:var(--brand);color:#fff;cursor:pointer;font:inherit;font-weight:600}.btn:hover{background:var(--brand2);color:#fff}.btn.alt{background:#fff;color:#374151;border:1px solid #d1d5db}.btn.alt:hover{background:#f8fafc;color:#111;border-color:#cbd5e1}
     .list{margin:0;padding-left:18px;color:#374151}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;word-break:break-word}.kv{display:grid;width:100%;min-width:0;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;font-size:13px}.kv div{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}.kv div:nth-child(odd){color:var(--muted)}.admin-pass{padding:14px;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:8px;word-break:break-all}.footer{margin-top:16px;color:var(--muted);font-size:12px;text-align:center}
     @media (max-width:860px){.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.wrap{padding:18px 12px 30px}}
-    </style></head><body><main class="wrap">' . $body . '</main></body></html>';
+    </style></head><body><main class="wrap">' . $body . '</main>' . $project_scripts . '</body></html>';
     exit;
 }
 
@@ -607,11 +609,11 @@ public static function us_update_page(?array $release = null, string $error = ''
         $body .= '<div class="update-notice">点击“检测更新”连接 GitHub 并逐文件核对当前程序。</div>';
     }
     $body .= '<div class="update-actions"><a href="index.php">返回首页</a><a href="index.php?a=migrate">数据迁入</a><a href="index.php?a=update&amp;check=1">检测更新</a>';
-    if (!$release || !$changes) $body .= '<form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
-    if ($release && $changes) $body .= '<form id="online-update-form" method="post" onsubmit="return confirm(\'确定下载并覆盖已勾选的程序文件？\')"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="online"><input type="hidden" name="sha" value="' . h($release['sha']) . '"><button class="primary" type="submit">在线升级</button></form>';
+    if (!$release || !$changes) $body .= '<form method="post" data-no-ajax="1"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
+    if ($release && $changes) $body .= '<form id="online-update-form" method="post" data-no-ajax="1" data-confirm="确定下载并覆盖已勾选的程序文件？"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="online"><input type="hidden" name="sha" value="' . h($release['sha']) . '"><button class="primary" type="submit">在线升级</button></form>';
     $body .= '</div>';
     self::us_unlock();
-    self::setup_html('系统升级', '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>');
+    self::setup_html('系统升级', '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>', true);
 }
 
 public static function us_protected_path(string $path): bool

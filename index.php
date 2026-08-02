@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.1');
+define('APP_VERSION', 'v7.2');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2895,7 +2895,11 @@ function page_footer_html(array $settings, string $title, string $flash): string
         $footer_html .= '<div class="runtime-info">' . number_format((microtime(true) - APP_START_TIME) * 1000, 2) . ' ms · ' . h($engine) . ' ' . sql_query_count() . ' queries · OPcache ' . ($opcache ? 'On' : 'Off') . ' · <a href="' . h(APP_PROJECT_URL) . '" target="_blank">' . h(APP_VERSION) . '</a></div>';
     }
     $footer_html .= sql_debug_html();
-    return '<footer class="footer">' . $footer_html . '</footer><div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div><script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
+    return '<footer class="footer">' . $footer_html . '</footer>' . project_modal_html() . '<script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
+}
+function project_modal_html(): string
+{
+    return '<div class="modal-backdrop" id="notify-modal" hidden><div class="modal-panel"><div class="modal-head"><strong id="notify-modal-title">提示</strong><button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button></div><div class="modal-body" id="notify-modal-body"></div></div></div><div class="toast" id="toast" hidden></div>';
 }
 function sql_debug_html(): string
 {
