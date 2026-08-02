@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.0');
+define('APP_VERSION', 'v7.1');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2379,8 +2379,17 @@ function markdown_plain_block_html(array $lines, int $topic_id = 0): string
     if ($table !== '') return $table;
     if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
         $items = '';
-        foreach ($lines as $line) if (preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) $items .= '<li>' . markdown_inline($m[1], $topic_id) . '</li>';
-        if ($items !== '') return '<ul>' . $items . '</ul>';
+        $tail = [];
+        $list_open = true;
+        foreach ($lines as $line) {
+            if ($list_open && preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) {
+                $items .= '<li>' . markdown_inline($m[1], $topic_id) . '</li>';
+                continue;
+            }
+            $list_open = false;
+            $tail[] = $line;
+        }
+        if ($items !== '') return '<ul>' . $items . '</ul>' . ($tail ? markdown_plain_block_html($tail, $topic_id) : '');
     }
     return '<p>' . str_replace("\n", '<br>', markdown_inline($block, $topic_id)) . '</p>';
 }
