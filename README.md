@@ -23,7 +23,8 @@ https://bbs1.org
 
 ## Docker 源码部署
 
-服务器需先安装 Docker Engine，并确保 `8080` 端口未被占用。源码仓库和 Docker 配置仓库应放在同一目录下。
+服务器需先安装 Docker `curl -fsSL https://get.docker.com -o install-docker.sh && sudo sh install-docker.sh`
+源码仓库和 Docker 配置仓库应放在同一目录下。
 
 ```bash
 git clone https://github.com/bbs1org/bbs1org.git
@@ -34,7 +35,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-容器启动后访问：
+容器启动后访问默认8080端口：
 
 ```text
 http://服务器地址:8080
