@@ -771,6 +771,10 @@ document.addEventListener("submit", async e => {
             e.stopPropagation();
             e.stopImmediatePropagation();
             if (!await openConfirm(confirmMessage)) return;
+            if (e.target?.dataset?.noAjax === "1") {
+                e.target.submit();
+                return;
+            }
         }
     }
     const replyForm = e.target.closest(".ajax-reply-form");
