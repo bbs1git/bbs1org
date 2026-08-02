@@ -24,6 +24,7 @@ https://bbs1.org
 ## Docker 源码部署
 
 服务器需先安装 Docker `curl -fsSL https://get.docker.com -o install-docker.sh && sudo sh install-docker.sh`
+
 源码仓库和 Docker 配置仓库应放在同一目录下。
 
 ```bash
