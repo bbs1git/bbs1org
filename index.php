@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.2');
+define('APP_VERSION', 'v7.3');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -829,7 +829,6 @@ function save_settings(): void
     $values = [
         'site_name' => $site_name,
         'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')),
-        'avatar_mirror_styles' => avatar_mirror_styles_text((string)($_POST['avatar_mirror_styles'] ?? '')),
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
         'default_group_id' => (string)$gid,
     ];
@@ -1892,69 +1891,12 @@ function avatar_remote_url(string $style, string $seed): string
 {
     return 'https://api.dicebear.com/10.x/' . rawurlencode($style) . '/svg?seed=' . rawurlencode($seed);
 }
-function avatar_file_name(string $style, string $seed): string
-{
-    $seed = preg_replace('/[^A-Za-z0-9._-]/', '_', $seed) ?? '';
-    return $style . '_' . ($seed === '' ? '0' : $seed) . '.svg';
-}
-function avatar_mirror_styles(?string $text = null): array
-{
-    static $cache = null;
-    if ($text === null && $cache !== null) return $cache;
-    $styles = [];
-    foreach (preg_split('/[\s,，]+/u', (string)($text ?? setting('avatar_mirror_styles', '')), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $style) {
-        $style = avatar_style(trim($style));
-        if ($style !== '') $styles[$style] = true;
-    }
-    $styles = array_values(array_filter(array_keys(avatar_styles()), fn($style) => !empty($styles[$style])));
-    return $text === null ? $cache = $styles : $styles;
-}
-function avatar_mirror_styles_text(?string $text = null, ?string $add_style = null): string
-{
-    $styles = array_fill_keys(avatar_mirror_styles($text), true);
-    if ($add_style !== null) {
-        $style = avatar_style($add_style);
-        if ($style !== '') $styles[$style] = true;
-    }
-    return implode(',', array_values(array_filter(array_keys(avatar_styles()), fn($style) => !empty($styles[$style]))));
-}
-function avatar_style_mirrored(string $style): bool
-{
-    return in_array($style, avatar_mirror_styles(), true);
-}
-function local_avatar_url(string $style, string $seed, string $remote): string
-{
-    return avatar_style_mirrored($style) ? asset_url('app/avatars/' . avatar_file_name($style, $seed)) : $remote;
-}
-function avatar_mirror_page(): void
-{
-    need_admin();
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 0, 'message' => '只允许POST'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    $style = avatar_style((string)($_REQUEST['style'] ?? '')) ?: 'dylan';
-    $seed = avatar_seed($style, (string)($_REQUEST['seed'] ?? ''));
-    if (($_POST['complete'] ?? '') === '1') {
-        $text = avatar_mirror_styles_text(setting('avatar_mirror_styles', ''), $style);
-        save_settings_values(['avatar_mirror_styles' => $text]);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 1, 'style' => $style, 'styles' => setting('avatar_mirror_styles', '')], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    $url = Setup::cache_avatar_url($style, $seed);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => str_starts_with($url, asset_url('app/avatars/')) ? 1 : 0, 'url' => $url, 'style' => $style, 'seed' => $seed], JSON_UNESCAPED_UNICODE);
-    exit;
-}
 function avatar_tag(int $uid, string $name, string $style = '', string $class = '', string $seed = ''): string
 {
     $classes = trim('avatar-img ' . $class);
     $style = avatar_style($style) ?: 'dylan';
     $seed = avatar_seed($style, $seed, $uid);
-    $remote = avatar_remote_url($style, $seed);
-    $src = local_avatar_url($style, $seed, $remote);
+    $src = (string)hook('avatar.url', avatar_remote_url($style, $seed), ['style' => $style, 'seed' => $seed, 'uid' => $uid]);
     return '<img class="' . h($classes) . '" src="' . h($src) . '" alt="' . h($name) . '" loading="lazy">';
 }
 function app_url(string $path = ''): string
@@ -2479,16 +2421,16 @@ function avatar_picker_html(array $u): string
     $seed = (string)($u['avatar_seed'] ?? '');
     if ($seed !== '') $seed = avatar_seed($style ?: 'dylan', $seed, $uid);
     $name = (string)($u['username'] ?? '');
-    $mirror_styles = avatar_mirror_styles();
-    $local_only = !empty($mirror_styles);
-    $styles = avatar_styles();
-    if ($local_only) {
-        $styles = array_filter($styles, fn($v, $k) => in_array($k, $mirror_styles, true), ARRAY_FILTER_USE_BOTH);
-        if (!isset($styles[$style])) $style = (string)array_key_first($styles);
-        if ($seed === '') $seed = avatar_seed($style ?: 'dylan', (string)$uid, $uid);
-    }
+    $picker = hook('avatar.picker', ['style' => $style, 'seed' => $seed, 'styles' => avatar_styles(), 'local_only' => false, 'base_url' => ''], ['user' => $u]);
+    if (!is_array($picker)) $picker = [];
+    $styles = is_array($picker['styles'] ?? null) ? array_intersect_key(avatar_styles(), $picker['styles']) : avatar_styles();
+    if (!$styles) $styles = avatar_styles();
+    $style = avatar_style((string)($picker['style'] ?? $style));
+    $seed = (string)($picker['seed'] ?? $seed);
+    $local_only = !empty($picker['local_only']);
+    $base_url = (string)($picker['base_url'] ?? '');
     $seeds = array_map('strval', range(1, avatar_seed_count($style ?: 'dylan')));
-    $html = '<div class="grid avatar-field"><div class="avatar-picker profile-disclosure" data-profile-disclosure data-seed="' . $uid . '" data-avatar-base="' . h(asset_url('app/avatars/')) . '" data-avatar-mirror-styles="' . h(setting('avatar_mirror_styles', '')) . '" data-avatar-local-only="' . ($local_only ? '1' : '0') . '"><div class="profile-disclosure-summary"><div class="profile-disclosure-main"><span class="profile-avatar-summary">' . avatar_tag($uid, $name, $style, '', $seed) . '</span><span class="profile-disclosure-heading"><span>头像</span><small>当前头像</small></span></div><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style">';
+    $html = '<div class="grid avatar-field"><div class="avatar-picker profile-disclosure" data-profile-disclosure data-seed="' . $uid . '" data-avatar-base="' . h($base_url) . '" data-avatar-local-only="' . ($local_only ? '1' : '0') . '"><div class="profile-disclosure-summary"><div class="profile-disclosure-main"><span class="profile-avatar-summary">' . avatar_tag($uid, $name, $style, '', $seed) . '</span><span class="profile-disclosure-heading"><span>头像</span><small>当前头像</small></span></div><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit><div class="avatar-picker-head"><div class="avatar-picker-preview">' . avatar_tag($uid, $name, $style, '', $seed) . '</div><select name="avatar_style">';
     if (!$local_only) $html .= '<option value=""' . ($style === '' ? ' selected' : '') . '>默认 Dylan</option>';
     foreach ($styles as $k => $v) $html .= '<option value="' . h($k) . '"' . ($k === $style ? ' selected' : '') . '>' . h($v) . '</option>';
     $html .= '</select></div><input type="hidden" name="avatar_seed" value="' . h($seed) . '"><div class="avatar-options">';
@@ -3099,12 +3041,6 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     $avatar_style = avatar_style(post('avatar_style', 40));
     $avatar_seed = post('avatar_seed', 80);
     if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
-    $avatar_mirror_styles = avatar_mirror_styles();
-    if ($avatar_mirror_styles && (isset($_POST['avatar_style']) || isset($_POST['avatar_seed']))) {
-        if ($avatar_style === '') $avatar_style = (string)$avatar_mirror_styles[0];
-        if (!in_array($avatar_style, $avatar_mirror_styles, true)) err('头像目录不在本地镜像设置中');
-        if ($avatar_seed === '') $avatar_seed = avatar_seed($avatar_style, (string)$user_id);
-    }
     if ($username === '') err('用户名不能为空');
     $old_user = $user_id ? row('app_users', 'id', $user_id) : null;
     if ($user_id && !$old_user) err('用户不存在');
@@ -4051,7 +3987,6 @@ function admin_page(): void
         Setup::deliver_update_notice();
         $html .= '<span hidden data-settings-update-check-url="' . h(route_url('update', ['notice_check' => 1])) . '"></span>';
         $s = settings_cache();
-        $avatar_mirror_field = '<label class="grid avatar-mirror-field"><span>头像目录设置<small>记录已完成本地镜像的 style 目录，多个用逗号隔开。</small></span><div class="avatar-mirror-box"><textarea name="avatar_mirror_styles" data-avatar-mirror-styles-input>' . h($s['avatar_mirror_styles'] ?? '') . '</textarea><div class="row avatar-mirror-actions"><button type="button" class="btn alt" data-avatar-mirror-button data-url="' . h(route_url('avatar_mirror')) . '" data-styles="' . h(implode(',', array_keys(avatar_styles()))) . '" data-seed-count="' . avatar_seed_count('dylan') . '">镜像远程目录</button><span class="avatar-mirror-status" data-avatar-mirror-status></span></div></div></label>';
         $fields = [
             'site_name' => ['label' => '网站名', 'required' => true],
             'site_name_title' => ['label' => '网站名title', 'help' => '为空时使用网站名。'],
@@ -4069,7 +4004,6 @@ function admin_page(): void
             'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
             'mail_virtual' => ['label' => '是否虚拟发送邮件', 'type' => 'checkbox'],
             'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
-            'avatar_mirror' => ['html' => $avatar_mirror_field],
             'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
             'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
             'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
@@ -4301,7 +4235,7 @@ function core_routes(): array
         'search'=>'search_page', 'forum'=>'forum_page', 'topic'=>'topic_page', 'user'=>'user_page', 'favorite'=>'favorite_page',
         'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'forgot_password'=>'forgot_password_page', 'reset_password'=>'reset_password_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
         'topic_edit'=>'topic_edit_page', 'reply_edit'=>'reply_edit_page', 'delete'=>'delete_route',
-        'attachment'=>'attachment_page', 'attachment_upload'=>'attachment_upload_page', 'avatar_mirror'=>'avatar_mirror_page',
+        'attachment'=>'attachment_page', 'attachment_upload'=>'attachment_upload_page',
         'migrate'=>'migration_route', 'admin'=>'admin_route', 'cron'=>'cron_dispatch_route', 'opcache_refresh'=>'opcache_refresh_route',
         'plugin_market_install'=>'plugin_market_install_route', 'plugin_market_share'=>'plugin_market_share_route',
     ];

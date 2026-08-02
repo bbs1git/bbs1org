@@ -211,24 +211,10 @@ function avatarPickerStyle(p) {
 function avatarRemoteUrl(style, seed) {
     return "https://api.dicebear.com/10.x/" + encodeURIComponent(style) + "/svg?seed=" + encodeURIComponent(seed);
 }
-function avatarMirrorStyles(text) {
-    return String(text || "").split(/[\s,，]+/).map(s => s.trim()).filter(Boolean);
-}
-function avatarMirrorStylesText(styles, addStyle = "") {
-    const set = new Set(avatarMirrorStyles(styles));
-    if (addStyle) set.add(addStyle);
-    return [...set].join(",");
-}
-function avatarStyleMirrored(p, style) {
-    return avatarMirrorStyles(p?.dataset.avatarMirrorStyles || "").includes(style);
-}
 function avatarPickerUrl(p, seed) {
     const style = avatarPickerStyle(p);
     const normalizedSeed = avatarSeed(seed || p.dataset.seed || "0");
     if (p?.dataset.avatarLocalOnly === "1" && p.dataset.avatarBase) {
-        return p.dataset.avatarBase + encodeURIComponent(style + "_" + normalizedSeed + ".svg");
-    }
-    if (p?.dataset.avatarBase && avatarStyleMirrored(p, style)) {
         return p.dataset.avatarBase + encodeURIComponent(style + "_" + normalizedSeed + ".svg");
     }
     return avatarRemoteUrl(style, normalizedSeed);
@@ -273,50 +259,6 @@ function rebuildLocalAvatarPicker(p) {
         options.appendChild(button);
     }
 }
-async function runAvatarMirror(btn) {
-    const form = btn.closest("form");
-    const input = form?.querySelector("[data-avatar-mirror-styles-input]");
-    const status = form?.querySelector("[data-avatar-mirror-status]");
-    const styles = avatarMirrorStyles(btn.dataset.styles || "");
-    const seedCount = Number(btn.dataset.seedCount || 48);
-    const csrf = form?.querySelector("input[name=_csrf]")?.value || "";
-    if (!input || !btn.dataset.url || !styles.length) return;
-    btn.disabled = true;
-    try {
-        const completed = new Set(avatarMirrorStyles(input.value));
-        let doneStyles = completed.size;
-        for (const style of styles) {
-            if (completed.has(style)) continue;
-            for (let i = 1; i <= seedCount; i++) {
-                if (status) status.textContent = "正在镜像 " + style + "_" + i + ".svg";
-                const body = new FormData();
-                body.append("_csrf", csrf);
-                body.append("style", style);
-                body.append("seed", String(i));
-                const response = await fetch(btn.dataset.url, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
-                const data = await response.json();
-                if (!data?.ok) throw new Error(data?.message || style + " 镜像失败");
-                if (status) status.textContent = style + " 已完成 " + i + " / " + seedCount;
-            }
-            const body = new FormData();
-            body.append("_csrf", csrf);
-            body.append("style", style);
-            body.append("seed", "1");
-            body.append("complete", "1");
-            const response = await fetch(btn.dataset.url, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
-            const data = await response.json();
-            if (!data?.ok) throw new Error(style + " 目录记录失败");
-            input.value = data.styles || avatarMirrorStylesText(input.value, style);
-            completed.add(style);
-            doneStyles++;
-            if (status) status.textContent = "已完成目录 " + doneStyles + " / " + styles.length;
-        }
-        if (status) status.textContent = "全部远程目录镜像完成";
-    } catch (e) {
-        if (status) status.textContent = e.message || "远程目录镜像失败";
-    }
-    btn.disabled = false;
-}
 document.addEventListener("change", e => {
     const p = e.target.closest(".avatar-picker");
     if (p) {
@@ -325,11 +267,6 @@ document.addEventListener("change", e => {
     }
 });
 document.addEventListener("click", e => {
-    const mirrorBtn = e.target.closest("[data-avatar-mirror-button]");
-    if (mirrorBtn) {
-        runAvatarMirror(mirrorBtn);
-        return;
-    }
     const b = e.target.closest(".avatar-option");
     if (!b) return;
     const p = b.closest(".avatar-picker");

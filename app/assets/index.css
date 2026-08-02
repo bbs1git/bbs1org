@@ -324,7 +324,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0
 input.readonly-input:disabled{border-color:var(--line-soft);background:var(--bg);color:var(--text-disabled);opacity:1;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--brand)}
 textarea{min-height:120px;resize:vertical;line-height:1.6}
-.attachment-uploader,.avatar-mirror-box{display:grid;gap:8px}
+.attachment-uploader{display:grid;gap:8px}
 .attachment-input{position:absolute;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
 .attachment-drop{display:grid;justify-items:start;gap:2px;padding:0;border:0;background:transparent;color:var(--text-muted);text-align:left;cursor:pointer}
 .attachment-drop strong{color:var(--text);font-size:var(--font-size-md);line-height:1.4}
@@ -407,10 +407,6 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .reply-edit-panel textarea[name=body]{min-height:220px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:var(--font-mono);font-size:var(--font-size-sm)}
-.avatar-mirror-box textarea{min-height:150px;font-family:var(--font-mono);font-size:var(--font-size-sm)}
-.avatar-mirror-actions{margin:0}
-.avatar-mirror-status{color:var(--text-muted);font-size:var(--font-size-sm)}
-.avatar-mirror-status:empty{display:none}
 .settings-help-field span{display:grid;gap:3px}
 .settings-help-field small{color:var(--text-subtle);font-size:11px;font-weight:400;line-height:1.4}
 .settings-opcache-box{display:grid;gap:6px;align-items:start;margin-top:12px;padding-top:10px}

@@ -465,27 +465,6 @@ public static function us_git_blob_sha(string $file): string
     return sha1('blob ' . strlen($content) . "\0" . $content);
 }
 
-public static function cache_avatar_url(string $style, string $seed): string
-{
-    $style = avatar_style($style) ?: 'dylan';
-    $seed = avatar_seed($style, $seed);
-    $remote = avatar_remote_url($style, $seed);
-    require_writable_dir(AVATAR_DIR, '头像目录不可写，请检查 app/avatars/ 目录权限');
-    $file = AVATAR_DIR . '/' . avatar_file_name($style, $seed);
-    if (is_file($file)) return asset_url('app/avatars/' . basename($file));
-    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
-    $response = Plugin::remote_http_request($remote, 5, ['Accept: image/svg+xml,image/*;q=0.9,*/*;q=0.1']);
-    if (!$response['ok']) return $remote;
-    $svg = (string)$response['body'];
-    if (!is_string($svg) || $svg === '' || stripos($svg, '<svg') === false) return $remote;
-    if (@file_put_contents($tmp, $svg, LOCK_EX) === false) return $remote;
-    if (!@rename($tmp, $file)) {
-        @unlink($tmp);
-        return $remote;
-    }
-    return asset_url('app/avatars/' . basename($file));
-}
-
 public static function update_state_data(): array
 {
     if (!is_file(UPDATE_STATE_FILE)) return [];
