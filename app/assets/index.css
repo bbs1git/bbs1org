@@ -265,7 +265,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .user-links{display:grid;grid-template-columns:1fr 1fr;font-size:var(--font-size-sm)}
 .user-links a{display:flex;align-items:center;gap:5px;min-height:26px;color:var(--text-muted);white-space:nowrap}
 .user-links a:hover{color:var(--brand)}
-.user-links .notify-badge{margin-left:auto}
+.user-links .notify-badge{margin-left:0}
 .btn-post{display:block;margin:0 14px 14px;padding:8px;border-radius:var(--radius-sm);background:var(--brand);color:var(--inverse-text);text-align:center;font-size:var(--font-size-md);font-weight:500}
 .btn-post:hover{background:var(--brand-hover);color:var(--inverse-text)}
 .quick-wrap{padding:10px 14px}
