@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.2');
+define('APP_VERSION', 'v8.3');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -567,19 +567,11 @@ function plugins(bool $refresh = false): array
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
     $plugins = [];
-    $sql = "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins WHERE enabled=1 ORDER BY id";
-    $rows = settings_rows_cache('cache_plugins', $sql, $refresh);
-    if (!$refresh) {
-        foreach ($rows as $row) {
-            if ((int)($row['enabled'] ?? 0) === 1) continue;
-            $rows = settings_rows_cache('cache_plugins', $sql, true);
-            break;
-        }
-    }
-    foreach ($rows as $row) {
-        if ((string)$row['id'] === 'plugin_market') continue;
-        $plugin = plugin_registry_row($row);
-        if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
+    foreach (Plugin::plugin_runtime_cache_rows($refresh) as $plugin) {
+        $id = (string)$plugin['id'];
+        $plugin['file'] = APP_ROOT . '/' . (string)$plugin['file'];
+        $plugin['enabled'] = true;
+        $plugins[$id] = $plugin;
     }
     plugin_runtime_cache_reset();
     return $plugins;

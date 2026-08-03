@@ -14,6 +14,47 @@ const PLUGIN_MARKET_SHARE_MAX = 200000;
 
 final class Plugin
 {
+private static function plugin_runtime_cache_rows_valid(array $rows): bool
+{
+    $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'], true);
+    foreach ($rows as $row) {
+        if (!is_array($row) || array_diff_key($row, $fields) || array_diff_key($fields, $row)) return false;
+        $id = (string)$row['id'];
+        $file = str_replace('\\', '/', ltrim((string)$row['file'], '/'));
+        if (!plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php') return false;
+        foreach (['config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'] as $field) {
+            if (!is_array($row[$field])) return false;
+        }
+    }
+    return true;
+}
+
+public static function plugin_runtime_cache_rows(bool $refresh = false): array
+{
+    $rows = $refresh ? null : json_decode(setting('cache_plugins'), true);
+    if (is_array($rows) && self::plugin_runtime_cache_rows_valid($rows)) return $rows;
+    $rows = [];
+    foreach (q("SELECT id,file,manifest_json,config_json,entries_json FROM app_plugins WHERE enabled=1 ORDER BY id")->fetchAll() as $row) {
+        $id = (string)($row['id'] ?? '');
+        $file = str_replace('\\', '/', ltrim((string)($row['file'] ?? ''), '/'));
+        $manifest = plugin_json_decode($row['manifest_json'] ?? '', null);
+        if (!plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php' || $manifest === null) continue;
+        $rows[] = [
+            'id' => $id,
+            'file' => $file,
+            'config' => plugin_json_decode($row['config_json'] ?? '') ?? [],
+            'entries' => plugin_json_decode($row['entries_json'] ?? '') ?? [],
+            'hooks' => is_array($manifest['hooks'] ?? null) ? $manifest['hooks'] : [],
+            'routes' => is_array($manifest['routes'] ?? null) ? $manifest['routes'] : [],
+            'admin_tabs' => is_array($manifest['admin_tabs'] ?? null) ? $manifest['admin_tabs'] : [],
+            'assets' => is_array($manifest['assets'] ?? null) ? $manifest['assets'] : [],
+            'cron' => is_array($manifest['cron'] ?? null) ? $manifest['cron'] : [],
+        ];
+    }
+    save_settings_values(['cache_plugins' => plugin_json_encode($rows)]);
+    return $rows;
+}
+
 public static function plugin_registry(?string $id = null): array
 {
     if ($id !== null && !plugin_id_valid($id)) return [];
