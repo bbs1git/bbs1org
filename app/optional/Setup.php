@@ -75,7 +75,7 @@ public static function app_db_schema(string $driver): array
     $key = $types['key'];
     $long = $types['text'];
     $tables = [
-        'app_groups' => "CREATE TABLE app_groups(id $id,name $key NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0,upload_quota_mb $uint NOT NULL DEFAULT 0)",
+        'app_groups' => "CREATE TABLE app_groups(id $id,name $key NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0)",
         'app_users' => "CREATE TABLE app_users(id $id,username $key NOT NULL UNIQUE,password $short NOT NULL,email $short NOT NULL DEFAULT '',bio $long NOT NULL,avatar_style $short NOT NULL DEFAULT '',avatar_seed $short NOT NULL DEFAULT '',group_id $uint NOT NULL DEFAULT 2,points INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications $uint NOT NULL DEFAULT 0,last_post_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_trash' => "CREATE TABLE app_trash(id $id,table_name $short NOT NULL,row_id $uint NOT NULL,row_data $long NOT NULL,deleted_by $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_notifications' => "CREATE TABLE app_notifications(id $id,recipient_id $uint NOT NULL,sender_id $uint DEFAULT NULL,kind $short NOT NULL DEFAULT 'direct',content $long NOT NULL,topic_id $uint DEFAULT NULL,reply_id $uint DEFAULT NULL,read_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
@@ -294,8 +294,8 @@ public static function setup_install_run(): never
         if (app_db_index_exists($db, $driver, $index, self::app_db_index_table($sql))) continue;
         if (!self::app_db_create_schema_index($db, $driver, $index, $sql)) $search_fallback = true;
     }
-    $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin', 'upload_quota_mb'], ['id']));
-    $seed->execute([1, '管理员', 1, 1, 0]); $seed->execute([2, '会员', 0, 0, 0]);
+    $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin'], ['id']));
+    $seed->execute([1, '管理员', 1, 1]); $seed->execute([2, '会员', 0, 0]);
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_forums', ['id', 'name', 'description', 'sort'], ['id']));
     $seed->execute([1, $forum_name, '欢迎发帖', 0]);
     if ($driver === 'pgsql') {
