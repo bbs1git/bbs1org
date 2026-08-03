@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.0');
+define('APP_VERSION', 'v8.1');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -216,6 +216,13 @@ function app_db_ensure_columns(string $table, array $definitions): void
         if (isset($columns[$name])) continue;
         db()->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $table) . ' ADD COLUMN ' . app_db_identifier(db_driver(), $name) . ' ' . $definition);
     }
+}
+function app_db_drop_column(string $table, string $column): void
+{
+    $db = db();
+    $driver = db_driver();
+    if (!isset(app_db_columns($db, $driver, $table)[$column])) return;
+    $db->exec('ALTER TABLE ' . app_db_identifier($driver, $table) . ' DROP COLUMN ' . app_db_identifier($driver, $column));
 }
 function app_db_last_insert_id(string $table): int
 {
