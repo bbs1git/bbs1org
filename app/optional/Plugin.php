@@ -289,7 +289,7 @@ public static function admin_plugin_action_form(string $id, string $action, stri
 }
 public static function admin_plugin_uninstall_form(string $id): string
 {
-    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？插件目录将被永久删除。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
 }
 public static function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
 {
@@ -627,7 +627,7 @@ public static function admin_plugins_handle_post(): void
     } elseif ($plugin_action === 'uninstall') {
         $keep_data = (string)($_POST['keep_plugin_data'] ?? '1') === '1';
         self::plugin_uninstall($plugin_id, $keep_data);
-        $message = $keep_data ? '插件已卸载，数据已保留' : '插件已卸载，数据已清理';
+        $message = $keep_data ? '插件已卸载，目录已删除，数据已保留' : '插件已卸载，目录和数据已删除';
     } elseif ($plugin_action === 'entry_toggle') {
         self::plugin_set_entry_enabled($plugin_id, (string)($_POST['entry'] ?? ''), (string)($_POST['entry_enabled'] ?? '0') === '1');
         $message = '插件入口显示已更新';
@@ -683,6 +683,9 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     if (!plugin_id_valid($id)) err('插件不存在');
     $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
+    $dir = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id;
+    if (str_replace('\\', '/', (string)($plugin['file'] ?? '')) !== $dir . '/plugin.php') err('插件目录无效');
+    if (!self::plugin_directory_removable($dir)) err('插件目录不可删除，请检查目录权限');
     if (!$keep_data) {
         plugin_call($plugin, function () use ($plugin, $id): void {
             $fn = (string)($plugin['uninstall'] ?? '');
@@ -690,10 +693,48 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
             if (plugin_callback_exists($fn)) call_user_func($fn, $plugin);
         });
     }
+    self::plugin_remove_directory($dir);
     q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
     q("DELETE FROM app_plugins WHERE id=?", [$id]);
     plugins(true);
     plugin_runtime_cache_reset();
     self::plugin_assets_mark_dirty();
+}
+
+private static function plugin_directory_removable(string $dir): bool
+{
+    if (!file_exists($dir) && !is_link($dir)) return true;
+    if (is_link($dir)) return is_writable(dirname($dir));
+    if (!is_dir($dir)) return false;
+    if (!is_readable($dir) || !is_writable($dir)) return false;
+    $items = scandir($dir);
+    if ($items === false) return false;
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $path = $dir . '/' . $item;
+        if (is_dir($path) && !is_link($path) && !self::plugin_directory_removable($path)) return false;
+    }
+    return is_writable(dirname($dir));
+}
+
+private static function plugin_remove_directory(string $dir): void
+{
+    if (is_link($dir)) {
+        if (!unlink($dir)) throw new RuntimeException('无法删除插件目录');
+        return;
+    }
+    if (!is_dir($dir)) return;
+    $items = scandir($dir);
+    if ($items === false) throw new RuntimeException('无法读取插件目录');
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $path = $dir . '/' . $item;
+        if (is_dir($path) && !is_link($path)) {
+            self::plugin_remove_directory($path);
+        } elseif (!unlink($path)) {
+            throw new RuntimeException('无法删除插件文件：' . $item);
+        }
+    }
+    if (!rmdir($dir)) throw new RuntimeException('无法删除插件目录');
 }
 }
