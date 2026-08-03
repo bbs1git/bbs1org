@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.1');
+define('APP_VERSION', 'v8.2');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1894,8 +1894,8 @@ function topic_list_rows_for_replies(array $reply_rows): array
     $rows = [];
     foreach ($reply_rows as $reply) {
         $topic_id = (int)$reply['topic_id'];
-        if (!isset($topics[$topic_id])) continue;
-        $rows[] = $topics[$topic_id] + [
+        $topic = $topics[$topic_id] ?? ['id' => $topic_id, 'title' => '已删除'];
+        $rows[] = $topic + [
             'my_reply_at' => (int)$reply['created_at'],
             'my_reply_id' => (int)$reply['id'],
             'my_reply_excerpt' => content_excerpt(content_preview_source_text((string)$reply['body']), 180),
@@ -1908,6 +1908,13 @@ function topic_list_row(array $t, string $sort): string
     $filtered = hook('topic.before_render', ['row' => $t], ['list' => true, 'sort' => $sort]);
     if (is_array($filtered) && isset($filtered['row']) && is_array($filtered['row'])) $t = $filtered['row'];
     $time = (int)($t['time'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
+    if (!empty($t['reply_only'])) {
+        $reply_excerpt = trim((string)($t['my_reply_excerpt'] ?? ''));
+        $reply_excerpt_html = $reply_excerpt !== '' ? '<div class="profile-reply-excerpt">' . h($reply_excerpt) . '</div>' : '';
+        $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
+        $html = '<li class="post-item"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
+        return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
+    }
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
     $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
     $forum_link = '<a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>';
@@ -2536,22 +2543,12 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
         $rows = notifications_list($profile_uid, $size, $offset);
     } elseif ($profile_uid && $profile_tab === 'replies') {
         $total = (int)val("SELECT COUNT(*) FROM app_replies WHERE user_id=?", [$profile_uid]);
-        $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $offset])->fetchAll();
+        $reply_rows = q("SELECT id,topic_id,user_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $offset])->fetchAll();
         $rows = topic_list_rows_for_replies($reply_rows);
     } elseif ($query !== '' && $search_field === 'reply') {
         [$reply_condition, $reply_params] = content_search_condition($query, 'reply');
-        $topic_scope = [];
-        $topic_scope_params = [];
-        if ($fid) {
-            $topic_scope[] = 'forum_id=?';
-            $topic_scope_params[] = $fid;
-        }
-        if ($profile_uid) {
-            $topic_scope[] = 'user_id=?';
-            $topic_scope_params[] = $profile_uid;
-        }
-        $reply_where = '(' . $reply_condition . ') AND topic_id IN (SELECT id FROM app_topics' . ($topic_scope ? ' WHERE ' . implode(' AND ', $topic_scope) : '') . ')';
-        $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE $reply_where ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", array_merge($reply_params, $topic_scope_params, [$size + 1, $offset]))->fetchAll();
+        $reply_where = '(' . $reply_condition . ')' . ($profile_uid ? ' AND user_id=?' : '');
+        $reply_rows = q("SELECT id,topic_id,user_id,body,created_at FROM app_replies WHERE $reply_where ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", array_merge($reply_params, $profile_uid ? [$profile_uid] : [], [$size + 1, $offset]))->fetchAll();
         $total = 0;
         $simple_pagination = true;
         $has_next_page = count($reply_rows) > $size;
