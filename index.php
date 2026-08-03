@@ -776,7 +776,7 @@ function save_settings(): void
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
         'default_group_id' => (string)$gid,
     ];
-    foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'mail_from' => 120] as $key => $max) $values[$key] = post($key, $max);
+    foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500] as $key => $max) $values[$key] = post($key, $max);
     foreach (['site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
     foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'search_min_chars' => [1, 20, 2], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
@@ -2225,20 +2225,6 @@ function page_seo(string $route, array $params = [], string $description = ''): 
     if ($description !== '') $seo['description'] = $description;
     return $seo;
 }
-function send_mail_text(string $to, string $subject, string $body): bool
-{
-    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
-    $site = trim(setting('site_name')) ?: 'FORUM';
-    $from = trim(setting('mail_from'));
-    if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) $from = 'no-reply@' . preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
-    $encoded_site = '=?UTF-8?B?' . base64_encode($site) . '?=';
-    $headers = [
-        'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        'From: ' . $encoded_site . ' <' . $from . '>',
-    ];
-    return mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $body, implode("\r\n", $headers));
-}
 function save_forum(): void
 {
     $name = post('name', 80);
@@ -2887,7 +2873,6 @@ function admin_settings_html(): string
         'site_base_url' => ['label' => '网站固定地址', 'type' => 'url', 'help' => '填写以 https:// 开头的网站域名。'],
         'site_keywords' => ['label' => '关键字'],
         'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
-        'mail_from' => ['label' => '系统发件邮箱', 'type' => 'email'],
         'pinned_topic_ids' => ['label' => '置顶主题ID'],
         'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
         'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
