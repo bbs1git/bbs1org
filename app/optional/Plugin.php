@@ -14,6 +14,20 @@ const PLUGIN_MARKET_SHARE_MAX = 200000;
 
 final class Plugin
 {
+public static function plugin_registry(?string $id = null): array
+{
+    if ($id !== null && !plugin_id_valid($id)) return [];
+    $plugins = [];
+    $sql = "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins";
+    $rows = q($sql . ($id === null ? ' ORDER BY id' : ' WHERE id=?'), $id === null ? [] : [$id])->fetchAll();
+    foreach ($rows as $row) {
+        if ((string)$row['id'] === 'plugin_market') continue;
+        $plugin = plugin_registry_row($row);
+        if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
+    }
+    return $plugins;
+}
+
 public static function plugin_market_url(string $action): string
 {
     return append_url_query(PLUGIN_MARKET_ENDPOINT, ['a' => $action]);
@@ -141,7 +155,7 @@ public static function plugin_market_share_page(): void
     need_admin();
     require_post();
     $id = (string)($_POST['plugin_id'] ?? '');
-    $target = plugin_id_valid($id) ? (plugins()[$id] ?? null) : null;
+    $target = plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
     if (!is_array($target)) err('插件不存在');
     $file = (string)($target['file'] ?? '');
     $code = $file !== '' && is_file($file) ? file_get_contents($file) : false;
@@ -183,7 +197,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
 {
     $market = self::plugin_market_fetch();
     $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
-    $local = plugins();
+    $local = self::plugin_registry();
     $updates = [];
     foreach ($items as $id => $item) if (isset($local[$id]) && is_array($item) && self::plugin_market_update_available($local[$id], $item)) $updates[$id] = true;
     uksort($items, fn(string $a, string $b): int => (int)isset($updates[$b]) <=> (int)isset($updates[$a]));
@@ -245,7 +259,7 @@ public static function admin_plugin_entry_toggle_form(array $plugin, string $ent
 }
 public static function admin_plugins_page_html(bool $with_tabs = true): string
 {
-    $plugins = plugins();
+    $plugins = self::plugin_registry();
     uasort($plugins, function (array $a, array $b): int {
         $a_time = (int)($a['updated_at'] ?? 0);
         $b_time = (int)($b['updated_at'] ?? 0);
@@ -312,7 +326,7 @@ public static function admin_plugins_cron_logs_page_html(): string
     $page = max(1, (int)($_GET['p'] ?? 1));
     $offset = ($page - 1) * $size;
     $names = [];
-    foreach (plugins() as $plugin) {
+    foreach (self::plugin_registry() as $plugin) {
         $names[(string)$plugin['id']] = (string)($plugin['name'] ?? $plugin['id']);
     }
     $rows = q("SELECT plugin_id,task_name,status,message,started_at,finished_at FROM app_cron_logs ORDER BY started_at DESC,id DESC LIMIT ? OFFSET ?", [$size + 1, $offset])->fetchAll();
@@ -547,7 +561,8 @@ public static function plugin_registry_sync(): array
         q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
         q("DELETE FROM app_plugins WHERE id=?", [$id]);
     }
-    $plugins = plugins(true);
+    $plugins = self::plugin_registry();
+    plugins(true);
     foreach ($plugins as $plugin) Cron::plugin_cron_sync($plugin);
     return $plugins;
 }
@@ -595,7 +610,7 @@ public static function admin_plugins_handle_post(): void
 public static function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): void
 {
     if (!plugin_id_valid($id) || plugin_entry_hook_name($entry) === '') err('参数错误');
-    $plugin = plugins()[$id] ?? null;
+    $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
     $entries = (array)($plugin['entries'] ?? []);
     $entries[$entry] = $enabled;
@@ -606,7 +621,7 @@ public static function plugin_set_entry_enabled(string $id, string $entry, bool 
 public static function plugin_set_enabled(string $id, bool $enabled): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
-    $plugin = plugins()[$id] ?? null;
+    $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
     if ($enabled) {
         plugin_call($plugin, function () use ($plugin): void {
@@ -617,14 +632,15 @@ public static function plugin_set_enabled(string $id, bool $enabled): void
     }
     plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => '']);
     q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$enabled ? 1 : 0, $id]);
-    plugins(true);
+    $runtime_plugins = plugins(true);
+    if ($enabled && isset($runtime_plugins[$id])) Cron::plugin_cron_sync($runtime_plugins[$id]);
     self::plugin_assets_mark_dirty();
 }
 
 public static function plugin_uninstall(string $id, bool $keep_data = true): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
-    $plugin = plugins()[$id] ?? null;
+    $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
     if (!$keep_data) {
         plugin_call($plugin, function () use ($plugin, $id): void {

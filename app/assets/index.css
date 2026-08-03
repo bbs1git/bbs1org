@@ -309,6 +309,7 @@ input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--brand)}
 textarea{min-height:120px;resize:vertical;line-height:1.6}
 .grid{display:grid;grid-template-columns:98px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}
 .grid>span{padding-top:6px;color:var(--text-muted);font-size:var(--font-size-sm)}
+.grid>span>small{display:block}
 .form-panel{margin:12px 0}
 .form-panel.auth-panel{margin-top:0}
 .form-panel h2{margin:15px 0}

@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.0');
+define('APP_VERSION', 'v8.2');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -567,7 +567,16 @@ function plugins(bool $refresh = false): array
     static $plugins = null;
     if (!$refresh && $plugins !== null) return $plugins;
     $plugins = [];
-    foreach (settings_rows_cache('cache_plugins', "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins ORDER BY id", $refresh) as $row) {
+    $sql = "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins WHERE enabled=1 ORDER BY id";
+    $rows = settings_rows_cache('cache_plugins', $sql, $refresh);
+    if (!$refresh) {
+        foreach ($rows as $row) {
+            if ((int)($row['enabled'] ?? 0) === 1) continue;
+            $rows = settings_rows_cache('cache_plugins', $sql, true);
+            break;
+        }
+    }
+    foreach ($rows as $row) {
         if ((string)$row['id'] === 'plugin_market') continue;
         $plugin = plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
@@ -620,7 +629,10 @@ function plugin_entry_enabled(array $plugin, string $entry): bool
 function plugin_config(string $id, array $defaults = []): array
 {
     if (!plugin_id_valid($id)) return $defaults;
-    return array_merge($defaults, (array)(plugins()[$id]['config'] ?? []));
+    $plugin = plugins()[$id] ?? null;
+    if ($plugin) return array_merge($defaults, (array)($plugin['config'] ?? []));
+    $row = one("SELECT config_json FROM app_plugins WHERE id=?", [$id]);
+    return array_merge($defaults, $row ? plugin_json_decode($row['config_json'] ?? '') ?? [] : []);
 }
 function plugin_save_config(string $id, array $config): void
 {
