@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.8');
+define('APP_VERSION', 'v7.9');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -33,7 +33,6 @@ define('AUTH_COOKIE_NAME', 'bbs_auth');
 define('AUTH_COOKIE_TTL', COOKIE_TTL);
 define('CSRF_COOKIE_NAME', 'bbs_csrf');
 define('APP_PROJECT_URL', 'https://bbs1.org');
-define('MARKDOWN_MAX_QUOTE_DEPTH', 32);
 spl_autoload_register(static function (string $class_name): void {
     $class_file = APP_ROOT . '/' . str_replace('\\', '/', $class_name) . '.php';
     if (is_file($class_file)) require_once $class_file;
@@ -903,7 +902,7 @@ function content_excerpt(string $body, int $max = 120): string
     $body = trim(preg_replace('/\s+/u', ' ', $body) ?? '');
     return cut($body, $max);
 }
-function markdown_without_code_blocks(string $body): string
+function content_preview_source_text(string $body): string
 {
     $body = str_replace(["\r\n", "\r"], "\n", $body);
     $lines = [];
@@ -915,7 +914,7 @@ function markdown_without_code_blocks(string $body): string
         }
         if ($in_code) continue;
         if (str_contains($line, '|')) {
-            $cells = markdown_table_cells($line);
+            $cells = array_map('trim', preg_split('/(?<!\\\\)\|/', trim($line, " \t|")) ?: []);
             $separator = $cells && count(array_filter($cells, fn(string $cell): bool => preg_match('/^:?-{3,}:?$/', trim($cell)) === 1)) === count($cells);
             if ($separator) continue;
             if (count($cells) > 1) {
@@ -1759,179 +1758,26 @@ function parse_path_route(): void
     if (isset($segments[0]) && $segments[0] !== 'a' && !array_key_exists('a', $_GET)) $_GET['a'] = rawurldecode($segments[0]);
     if (isset($segments[1]) && ctype_digit($segments[1]) && !array_key_exists('id', $_GET)) $_GET['id'] = rawurldecode($segments[1]);
 }
-function markdown_token(array &$tokens, string $html): string
+function content_html_token(array &$tokens, string $html): string
 {
-    $key = "\x1A" . count($tokens) . "\x1A";
+    $key = "\x1B" . count($tokens) . "\x1B";
     $tokens[$key] = $html;
     return $key;
 }
-function markdown_inline(string $text, int $topic_id = 0): string
+function content_special_links_html(string $escaped_text, int $topic_id = 0): string
 {
-    if (strpbrk($text, '`*[@') === false && stripos($text, 'http') === false) return h($text);
-    $has_url = stripos($text, 'http://') !== false || stripos($text, 'https://') !== false;
-    $has_markdown_url = $has_url || str_contains($text, '](/');
-    $text = h($text);
-    $codes = [];
-    if (str_contains($text, '`')) {
-        $text = preg_replace_callback('/`([^`\n]+)`/u', function ($m) use (&$codes) {
-            return markdown_token($codes, '<code>' . $m[1] . '</code>');
-        }, $text) ?? $text;
-    }
-    if (str_contains($text, '*')) {
-        $text = preg_replace_callback('/\*\*\*([^*\n]+)\*\*\*|\*\*([^*\n]+)\*\*|(?<!\*)\*([^*\n]+)\*(?!\*)/u', function ($m) {
-            if (($m[1] ?? '') !== '') return '<em><strong>' . $m[1] . '</strong></em>';
-            if (($m[2] ?? '') !== '') return '<strong>' . $m[2] . '</strong>';
-            return '<em>' . $m[3] . '</em>';
-        }, $text) ?? $text;
-    }
-    if (str_contains($text, '[') && $has_markdown_url) {
-        $text = preg_replace_callback('/!\[((?:\\\\.|[^\]\\\\\n])*)\]\(((?:https?:\/\/|\/)[^\s)<]+)\)|\[((?:\\\\.|[^\]\\\\\n])+)\]\(((?:https?:\/\/|\/)[^\s)<]+)\)/ui', function ($m) use (&$codes) {
-            $image = str_starts_with($m[0], '![');
-            $label = (string)$m[$image ? 1 : 3];
-            $label = str_replace(['\\]', '\\[', '\\\\'], [']', '[', '\\'], $label);
-            $url = html_entity_decode((string)$m[$image ? 2 : 4], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $html = $image
-                ? '<img src="' . h($url) . '" alt="' . $label . '" loading="lazy" referrerpolicy="no-referrer">'
-                : '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . $label . '</a>';
-            return markdown_token($codes, $html);
-        }, $text) ?? $text;
-    }
-    if (str_contains($text, '@')) {
-        $text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$codes, $topic_id) {
-            if ($topic_id <= 0) return $m[0];
-            $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
-            return markdown_token($codes, '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
-        }, $text) ?? $text;
-        $text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
-            $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
-        }, $text) ?? $text;
-    }
-    if ($has_url) {
-        $text = preg_replace_callback('/(?<!["\'>=])(https?:\/\/[^\s<]+)/ui', function ($m) {
-            $raw_url = rtrim($m[1], '.,;:!?');
-            $url = html_entity_decode($raw_url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $tail = substr($m[1], strlen($raw_url));
-            return '<a href="' . h($url) . '" target="_blank" rel="nofollow noopener">' . h($url) . '</a>' . h($tail);
-        }, $text) ?? $text;
-    }
-    return strtr($text, $codes);
-}
-function markdown_table_cells(string $line): array
-{
-    $line = trim($line);
-    if (str_starts_with($line, '|')) $line = substr($line, 1);
-    if (str_ends_with($line, '|')) $line = substr($line, 0, -1);
-    $cells = [];
-    $cell = '';
-    $code = false;
-    $escaped = false;
-    for ($i = 0, $length = strlen($line); $i < $length; $i++) {
-        $char = $line[$i];
-        if ($escaped) {
-            $cell .= $char;
-            $escaped = false;
-            continue;
-        }
-        if ($char === '\\') {
-            $cell .= $char;
-            $escaped = true;
-            continue;
-        }
-        if ($char === '`') $code = !$code;
-        if ($char === '|' && !$code) {
-            $cells[] = trim(str_replace('\\|', '|', $cell));
-            $cell = '';
-            continue;
-        }
-        $cell .= $char;
-    }
-    $cells[] = trim(str_replace('\\|', '|', $cell));
-    return $cells;
-}
-function markdown_table_html(array $lines, int $topic_id = 0): string
-{
-    if (count($lines) < 2) return '';
-    $aligns = [];
-    foreach (markdown_table_cells($lines[1]) as $cell) {
-        $cell = trim($cell);
-        if (!preg_match('/^:?-{3,}:?$/', $cell)) return '';
-        $left = str_starts_with($cell, ':');
-        $right = str_ends_with($cell, ':');
-        $aligns[] = $left && $right ? 'center' : ($right ? 'right' : ($left ? 'left' : ''));
-    }
-    if (!$aligns) return '';
-    $headers = markdown_table_cells($lines[0]);
-    if (!$headers || count($headers) !== count($aligns)) return '';
-    $cell_attr = fn(string $align) => $align !== '' ? ' style="text-align:' . $align . '"' : '';
-    $html = '<div class="markdown-table-wrap"><table><thead><tr>';
-    foreach ($headers as $i => $cell) $html .= '<th' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline($cell, $topic_id) . '</th>';
-    $html .= '</tr></thead><tbody>';
-    foreach (array_slice($lines, 2) as $line) {
-        if (trim($line) === '') continue;
-        $cells = markdown_table_cells($line);
-        if (!$cells) continue;
-        $html .= '<tr>';
-        for ($i = 0, $count = count($headers); $i < $count; $i++) {
-            $html .= '<td' . $cell_attr((string)($aligns[$i] ?? '')) . '>' . markdown_inline((string)($cells[$i] ?? ''), $topic_id) . '</td>';
-        }
-        $html .= '</tr>';
-    }
-    return $html . '</tbody></table></div>';
-}
-function markdown_plain_block_html(array $lines, int $topic_id = 0): string
-{
-    $block = trim(implode("\n", $lines));
-    if ($block === '') return '';
-    $lines = explode("\n", $block);
-    if (count($lines) === 1 && preg_match('/^(#{1,6})\s+(.+)$/u', $lines[0], $m)) {
-        $level = strlen($m[1]); return '<h' . $level . '>' . markdown_inline($m[2], $topic_id) . '</h' . $level . '>';
-    }
-    $table = markdown_table_html($lines, $topic_id);
-    if ($table !== '') return $table;
-    if (count($lines) > 1 && preg_match('/^\s*[-*]\s+/', $lines[0])) {
-        $items = '';
-        $tail = [];
-        $list_open = true;
-        foreach ($lines as $line) {
-            if ($list_open && preg_match('/^\s*[-*]\s+(.+)$/u', $line, $m)) {
-                $items .= '<li>' . markdown_inline($m[1], $topic_id) . '</li>';
-                continue;
-            }
-            $list_open = false;
-            $tail[] = $line;
-        }
-        if ($items !== '') return '<ul>' . $items . '</ul>' . ($tail ? markdown_plain_block_html($tail, $topic_id) : '');
-    }
-    return '<p>' . str_replace("\n", '<br>', markdown_inline($block, $topic_id)) . '</p>';
-}
-function markdown_block_html(array $lines, int $quote_depth, int $topic_id): string
-{
-    $lines = explode("\n", trim(implode("\n", $lines)));
-    $html = '';
-    $chunk = [];
-    $quote = false;
-    $lines[] = null;
-    foreach ($lines as $line) {
-        $is_quote = $line !== null && preg_match('/^\s*>\s?/u', $line) === 1;
-        if ($chunk && ($line === null || $is_quote !== $quote)) {
-            if (!$quote) $html .= markdown_plain_block_html($chunk, $topic_id);
-            else {
-                $inner = trim(implode("\n", array_map(fn($item) => preg_replace('/^\s*>\s?/u', '', $item) ?? $item, $chunk)));
-                $inner_html = $inner === '' ? '' : ($quote_depth + 1 >= MARKDOWN_MAX_QUOTE_DEPTH ? markdown_plain_block_html(explode("\n", $inner), $topic_id) : markdown_html($inner, $quote_depth + 1, $topic_id));
-                $html .= '<blockquote>' . $inner_html . '</blockquote>';
-            }
-            $chunk = [];
-        }
-        if ($line !== null) { $quote = $is_quote; $chunk[] = $line; }
-    }
-    return $html;
-}
-function markdown_code_block_html(array $lines, string $lang): string
-{
-    $lang = strtolower(trim($lang));
-    $class = preg_match('/^[a-z0-9_-]{1,32}$/', $lang) ? ' class="language-' . h($lang) . '"' : '';
-    return '<pre><code' . $class . '>' . h(rtrim(implode("\n", $lines), "\n")) . '</code></pre>';
+    if (!str_contains($escaped_text, '@')) return $escaped_text;
+    $tokens = [];
+    $escaped_text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$tokens, $topic_id) {
+        if ($topic_id <= 0) return $m[0];
+        $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
+        return content_html_token($tokens, '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
+    }, $escaped_text) ?? $escaped_text;
+    $escaped_text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
+        $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
+    }, $escaped_text) ?? $escaped_text;
+    return strtr($escaped_text, $tokens);
 }
 function markdown_html(string $text, int $quote_depth = 0, int $topic_id = 0): string
 {
@@ -1940,49 +1786,8 @@ function markdown_html(string $text, int $quote_depth = 0, int $topic_id = 0): s
     if ($text === '') return '';
     $rendered = hook('markdown.render', null, ['text' => $text, 'quote_depth' => $quote_depth, 'topic_id' => $topic_id]);
     if (is_string($rendered)) return (string)hook('markdown.after', $rendered, ['text' => $text]);
-    $html = [];
-    $buffer = [];
-    $state = 'text';
-    $lang = '';
-    foreach (explode("\n", $text) as $line) {
-        $fence = preg_match('/^\s*```\s*([\w-]*)\s*$/u', $line, $m) === 1;
-        if ($state === 'code') {
-            if ($fence) {
-                $html[] = markdown_code_block_html($buffer, $lang);
-                $buffer = [];
-                $state = 'text';
-            } else $buffer[] = $line;
-            continue;
-        }
-        if ($fence) {
-            if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
-            $buffer = [];
-            $state = 'code';
-            $lang = (string)($m[1] ?? '');
-            continue;
-        }
-        if (trim($line) === '') {
-            if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
-            $buffer = [];
-            continue;
-        }
-        if (preg_match('/^(#{1,6})\s+(.+)$/u', $line)) {
-            if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
-            $html[] = markdown_plain_block_html([$line], $topic_id);
-            $buffer = [];
-            continue;
-        }
-        if (preg_match('/^\s*-{3,}\s*$/u', $line)) {
-            if ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
-            $html[] = '<hr>';
-            $buffer = [];
-            continue;
-        }
-        $buffer[] = $line;
-    }
-    if ($state === 'code') $html[] = markdown_code_block_html($buffer, $lang);
-    elseif ($buffer) $html[] = markdown_block_html($buffer, $quote_depth, $topic_id);
-    return (string)hook('markdown.after', implode('', $html), ['text' => $text]);
+    $html = '<p>' . str_replace("\n", '<br>', content_special_links_html(h($text), $topic_id)) . '</p>';
+    return (string)hook('markdown.after', $html, ['text' => $text]);
 }
 function avatar_picker_html(array $u): string
 {
@@ -2322,7 +2127,7 @@ function topic_list_rows_for_replies(array $reply_rows): array
         $rows[] = $topics[$topic_id] + [
             'my_reply_at' => (int)$reply['created_at'],
             'my_reply_id' => (int)$reply['id'],
-            'my_reply_excerpt' => content_excerpt(markdown_without_code_blocks((string)$reply['body']), 180),
+            'my_reply_excerpt' => content_excerpt(content_preview_source_text((string)$reply['body']), 180),
         ];
     }
     return topic_list_rows(attach_topic_list_users($rows));
@@ -3376,7 +3181,8 @@ function topic_edit_page(): void
     $reply_order = id() ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => id() > 0]);
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html([sidebar_user_card_html(), sidebar_notice_card_html('Markdown 说明', ['**粗体**，*斜体*', '`代码`', '- 列表项', '| 表头 | 表头 | + | --- | --- |', '[链接文字](https://example.com)', '![图片描述](https://example.com/a.jpg)'])])));
+    $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => id() > 0]);
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {
