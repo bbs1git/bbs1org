@@ -1189,7 +1189,8 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
             $url = trim((string)($link['url'] ?? ''));
             if ($text === '' || $url === '') continue;
             $icon = (string)($link['icon'] ?? '');
-            $links .= '<a href="' . h($url) . '">' . ($icon !== '' ? svg_icon($icon) : '') . h($text) . '</a>';
+            $icon_html = (string)($link['icon_html'] ?? '');
+            $links .= '<a href="' . h($url) . '">' . ($icon_html !== '' ? $icon_html : ($icon !== '' ? svg_icon($icon) : '')) . h($text) . '</a>';
         }
     }
     if ($is_self) $links .= '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'notifications'])) . '">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="' . h(route_url('profile')) . '">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">' . svg_icon('admin') . '后台面板</a>' : '');
@@ -1567,8 +1568,6 @@ function svg_icon(string $name): string
         'forum' => '<path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
         'topic' => '<path d="M5 4h14v16H5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
         'view' => '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>',
-        'favorite' => '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
-        'favorite_fill' => '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" fill="currentColor"/>',
         'settings' => '<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
         'admin' => '<path d="M12 3 4 6v6c0 5 3.4 7.8 8 9 4.6-1.2 8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
         'pages' => '<path d="M8 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.5 9h6M9.5 12.5h6M9.5 16h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
