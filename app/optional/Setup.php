@@ -21,7 +21,7 @@ define('UPDATE_REPOSITORY', 'bbs1org/bbs1org');
 define('UPDATE_BRANCH', 'main');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
-define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/cache', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
+define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
 
 final class Setup
 {
@@ -172,7 +172,6 @@ public static function i_require_writable_dirs(): void
 {
     $dirs = [
         INSTALL_DATA_DIR => 'app/data/',
-        CACHE_DIR => 'app/cache/',
     ];
     foreach ($dirs as $dir => $label) {
         if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
@@ -1008,11 +1007,11 @@ public static function us_sync_schema(): array
 public static function us_defer_schema_after_update(array $changes): never
 {
     $nonce = bin2hex(random_bytes(24));
-    cache_write_php(CACHE_DIR . '/update-schema-' . $nonce . '.php', [
+    save_settings_values(['update_schema_pending' => json_encode([
         'nonce' => $nonce,
         'created_at' => time(),
         'changes' => array_values($changes),
-    ]);
+    ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
     self::us_unlock();
     header('Location: index.php?a=update&schema_after_update=' . rawurlencode($nonce), true, 303);
     exit;
@@ -1021,9 +1020,8 @@ public static function us_defer_schema_after_update(array $changes): never
 public static function us_run_deferred_schema(): never
 {
     $nonce = (string)($_GET['schema_after_update'] ?? '');
-    $file = preg_match('/^[a-f0-9]{48}$/D', $nonce) ? CACHE_DIR . '/update-schema-' . $nonce . '.php' : '';
-    $pending = $file !== '' && is_file($file) ? include $file : null;
-    if ($file !== '' && is_file($file)) @unlink($file);
+    $pending = preg_match('/^[a-f0-9]{48}$/D', $nonce) === 1 ? json_decode(setting('update_schema_pending', ''), true) : null;
+    save_settings_values(['update_schema_pending' => '']);
     if (!is_array($pending)
         || $nonce === ''
         || !hash_equals((string)($pending['nonce'] ?? ''), $nonce)

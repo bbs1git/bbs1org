@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.0');
+define('APP_VERSION', 'v8.8');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -15,7 +15,6 @@ define('ASSET_DIR', APP_DIR . '/assets');
 define('DATA_DIR', APP_DIR . '/data');
 define('DB_CONFIG_FILE', DATA_DIR . '/db.php');
 define('INSTALL_LOCK_FILE', DATA_DIR . '/install.lock');
-define('CACHE_DIR', APP_DIR . '/cache');
 define('AVATAR_DIR', APP_DIR . '/avatars');
 define('UPLOAD_DIR', APP_DIR . '/upload');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
@@ -27,8 +26,6 @@ define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('PASSWORD_MIN_LENGTH', 4);
 define('COOKIE_TTL', 15552000);
-define('FAVORITE_COOKIE_LIMIT', 50);
-define('FAVORITE_COOKIE_NAME', '__favorite_topics');
 define('AUTH_COOKIE_NAME', 'bbs_auth');
 define('AUTH_COOKIE_TTL', COOKIE_TTL);
 define('CSRF_COOKIE_NAME', 'bbs_csrf');
@@ -291,21 +288,6 @@ function val(string $sql, array $p = [])
 {
     return q($sql, $p)->fetchColumn();
 }
-function cache_write_php(string $file, mixed $value): void
-{
-    $dir = dirname($file);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) throw new RuntimeException('无法创建缓存目录');
-    $tmp = $file . '.tmp.' . bin2hex(random_bytes(4));
-    $content = "<?php\nif (!defined('APP_ROOT')) exit;\nreturn " . var_export($value, true) . ";\n";
-    try {
-        if (file_put_contents($tmp, $content, LOCK_EX) === false) throw new RuntimeException('无法写入缓存临时文件');
-        if (!@rename($tmp, $file)) throw new RuntimeException('无法原子替换缓存文件');
-    } finally {
-        if (is_file($tmp)) @unlink($tmp);
-    }
-    clearstatcache(true, $file);
-    if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-}
 function tx(callable $fn)
 {
     $db = db();
@@ -398,13 +380,6 @@ function attach_topic_list_users(array $rows): array
         $last_reply_uid = (int)($row['last_reply_user_id'] ?? 0);
         $row['last_reply_username'] = $last_reply_uid > 0 ? (string)($users[$last_reply_uid]['username'] ?? '') : '';
     }
-    unset($row);
-    return $rows;
-}
-function attach_topics(array $rows, string $key = 'topic_id'): array
-{
-    $topics = rows_by_ids('app_topics', array_column($rows, $key), 'id,title');
-    foreach ($rows as &$row) $row['topic_title'] = (string)($topics[(int)($row[$key] ?? 0)]['title'] ?? '主题已删除');
     unset($row);
     return $rows;
 }
@@ -873,15 +848,6 @@ function content_preview_source_text(string $body): string
             continue;
         }
         if ($in_code) continue;
-        if (str_contains($line, '|')) {
-            $cells = array_map('trim', preg_split('/(?<!\\\\)\|/', trim($line, " \t|")) ?: []);
-            $separator = $cells && count(array_filter($cells, fn(string $cell): bool => preg_match('/^:?-{3,}:?$/', trim($cell)) === 1)) === count($cells);
-            if ($separator) continue;
-            if (count($cells) > 1) {
-                $lines[] = implode(' ', array_filter(array_map('trim', $cells), 'strlen'));
-                continue;
-            }
-        }
         $lines[] = $line;
     }
     return implode("\n", $lines);
@@ -1284,7 +1250,6 @@ function is_super_user(): bool
 function clear_auth_cookie(): void
 {
     auth_cookie_clear();
-    favorite_topics_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
 }
@@ -1340,7 +1305,6 @@ function consume_auth_return_url(): string
 function start_cookie_login(int $user_id): void
 {
     $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
-    favorite_topics_cookie_clear();
     auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
@@ -1460,24 +1424,9 @@ function database_error(Throwable $e): bool
     } while ($e);
     return false;
 }
-function database_error_code(Throwable $e): string
+function database_error_message(): string
 {
-    do {
-        if ($e instanceof PDOException) {
-            $sqlstate = (string)$e->getCode();
-            $error_info = is_array($e->errorInfo ?? null) ? $e->errorInfo : [];
-            $driver_code = trim((string)($error_info[1] ?? ''));
-            if ($sqlstate !== '' && $driver_code !== '') return $sqlstate . ' / ' . $driver_code;
-            if ($sqlstate !== '') return $sqlstate;
-            if ($driver_code !== '') return $driver_code;
-        }
-        $e = $e->getPrevious();
-    } while ($e);
-    return '未知';
-}
-function database_error_message(Throwable $e): string
-{
-    return '数据库出了点小问题（错误代码：' . database_error_code($e) . '）';
+    return '数据库出了点小问题';
 }
 function cut(string $v, int $max): string
 {
@@ -1700,12 +1649,6 @@ function upload_hash_dir(string $hash): string
 {
     return substr($hash, 0, 2);
 }
-function upload_url(string $hash = '', string $file = ''): string
-{
-    $path = 'app/upload/';
-    if ($hash !== '' && $file !== '') $path .= rawurlencode(upload_hash_dir($hash)) . '/' . rawurlencode(basename($file));
-    return asset_url($path);
-}
 function parse_path_route(): void
 {
     $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
@@ -1808,94 +1751,9 @@ function topic_list_select_columns(): string
     $extra = array_values(array_intersect($allowed, array_filter($extra, 'is_string')));
     return $cached = implode(',', array_values(array_unique(array_merge(explode(',', $columns), $extra))));
 }
-function topic_list_rows(array $rows): array
+function favorite_topic_state(int $topic_id): bool
 {
-    $filtered = hook('topic.list_rows', $rows, ['user_id' => uid()]);
-    return is_array($filtered) ? $filtered : $rows;
-}
-function favorite_topic_states(array $topic_ids): array
-{
-    $uid = uid();
-    $topic_ids = array_values(array_unique(array_filter(array_map('intval', $topic_ids))));
-    if (!$uid || !$topic_ids) return [];
-    $cookie = favorite_topics_cookie();
-    if ($cookie === null) $cookie = favorite_topics_cookie_load();
-    if ($cookie !== false) {
-        $favorites = array_fill_keys($cookie, true);
-        $states = [];
-        foreach ($topic_ids as $topic_id) $states[$topic_id] = isset($favorites[$topic_id]);
-        return $states;
-    }
-    $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
-    $items = (int)($state['uid'] ?? 0) === $uid && is_array($state['items'] ?? null) ? $state['items'] : [];
-    $missing = [];
-    foreach ($topic_ids as $topic_id) {
-        if (!is_array($items[$topic_id] ?? null) || (int)($items[$topic_id]['cached_at'] ?? 0) < now() - 300) $missing[] = $topic_id;
-    }
-    if ($missing) {
-        $marks = sql_marks(count($missing));
-        $favorite_ids = array_fill_keys(array_map('intval', array_column(q("SELECT topic_id FROM app_favorites WHERE user_id=? AND topic_id IN ($marks)", array_merge([$uid], $missing))->fetchAll(), 'topic_id')), true);
-        foreach ($missing as $topic_id) {
-            unset($items[$topic_id]);
-            $items[$topic_id] = ['favorite' => isset($favorite_ids[$topic_id]), 'cached_at' => now()];
-        }
-        $items = array_slice($items, -500, null, true);
-        $GLOBALS['__favorite_topic_states'] = ['uid' => $uid, 'items' => $items];
-    }
-    $states = [];
-    foreach ($topic_ids as $topic_id) $states[$topic_id] = !empty($items[$topic_id]['favorite']);
-    return $states;
-}
-function favorite_topics_cookie_clear(): void
-{
-    app_cookie(FAVORITE_COOKIE_NAME, '', time() - 3600);
-    unset($_COOKIE[FAVORITE_COOKIE_NAME]);
-}
-function favorite_topics_cookie(): array|false|null
-{
-    $raw = $_COOKIE[FAVORITE_COOKIE_NAME] ?? null;
-    if (!is_string($raw)) return null;
-    if ($raw === '-1') return false;
-    if ($raw === '0') return [];
-    if (preg_match('/^\d+(?:\.\d+)*$/D', $raw) !== 1) return null;
-    $ids = array_values(array_unique(array_filter(array_map('intval', explode('.', $raw)))));
-    return count($ids) <= FAVORITE_COOKIE_LIMIT ? $ids : null;
-}
-function favorite_topics_cookie_write(array|false $ids): void
-{
-    $value = '-1';
-    if (is_array($ids)) {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
-        sort($ids, SORT_NUMERIC);
-        $value = $ids ? implode('.', $ids) : '0';
-    }
-    app_cookie(FAVORITE_COOKIE_NAME, $value, time() + COOKIE_TTL);
-    $_COOKIE[FAVORITE_COOKIE_NAME] = $value;
-}
-function favorite_topics_cookie_load(): array|false
-{
-    $ids = array_map('intval', array_column(q("SELECT topic_id FROM app_favorites WHERE user_id=? ORDER BY topic_id LIMIT " . (FAVORITE_COOKIE_LIMIT + 1), [uid()])->fetchAll(), 'topic_id'));
-    $value = count($ids) > FAVORITE_COOKIE_LIMIT ? false : $ids;
-    favorite_topics_cookie_write($value);
-    return $value;
-}
-function favorite_topic_state_set(int $topic_id, bool $favorite): void
-{
-    if (!uid() || $topic_id <= 0) return;
-    $cookie = favorite_topics_cookie();
-    if ($cookie === null || $cookie === false) {
-        favorite_topics_cookie_load();
-    } else {
-        $favorites = array_fill_keys($cookie, true);
-        if ($favorite) $favorites[$topic_id] = true;
-        else unset($favorites[$topic_id]);
-        favorite_topics_cookie_write(count($favorites) > FAVORITE_COOKIE_LIMIT ? false : array_keys($favorites));
-    }
-    $state = is_array($GLOBALS['__favorite_topic_states'] ?? null) ? $GLOBALS['__favorite_topic_states'] : [];
-    $items = (int)($state['uid'] ?? 0) === uid() && is_array($state['items'] ?? null) ? $state['items'] : [];
-    unset($items[$topic_id]);
-    $items[$topic_id] = ['favorite' => $favorite, 'cached_at' => now()];
-    $GLOBALS['__favorite_topic_states'] = ['uid' => uid(), 'items' => array_slice($items, -500, null, true)];
+    return uid() > 0 && $topic_id > 0 && (bool)val("SELECT 1 FROM app_favorites WHERE user_id=? AND topic_id=? LIMIT 1", [uid(), $topic_id]);
 }
 function topic_fts_query(string $query, string $field = ''): string
 {
@@ -1904,14 +1762,6 @@ function topic_fts_query(string $query, string $field = ''): string
     $quoted = '"' . str_replace('"', '""', $query) . '"';
     $field = in_array($field, ['title', 'body'], true) ? $field : '';
     return $field !== '' ? $field . ':' . $quoted : $quoted;
-}
-function topic_fts_create(): void
-{
-    if (db_driver() === 'sqlite') app_db_create_fts5_table(db(), 'app_topics_fts', 'title, body');
-}
-function reply_fts_create(): void
-{
-    if (db_driver() === 'sqlite') app_db_create_fts5_table(db(), 'app_replies_fts', 'body');
 }
 function sqlite_fts_uses_trigram(): bool
 {
@@ -1970,40 +1820,24 @@ function mysql_search_index_available(string $index): bool
     $definition = mysql_search_index_definitions()[$index] ?? null;
     return db_driver() === 'mysql' && $definition !== null && setting($definition[1], '0') === '1';
 }
-function reply_search_condition(string $query): array
+function content_search_condition(string $query, string $field = 'title'): array
 {
-    if (mysql_search_index_available('idx_replies_search_body')) {
-        $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
-        return ['MATCH(body) AGAINST(? IN BOOLEAN MODE)', [$value]];
-    }
-    if (db_driver() === 'pgsql') {
-        return ["body ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
-    }
-    if (!sqlite_search_uses_fts($query)) return ["body LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
-    return [
-        "id IN (SELECT rowid FROM app_replies_fts WHERE app_replies_fts MATCH ?)",
-        [topic_fts_query($query)],
-    ];
-}
-function topic_search_condition(string $query, string $field = 'title'): array
-{
-    $field = topic_search_field($field);
-    if ($field === 'reply') {
-        [$condition, $params] = reply_search_condition($query);
-        return ['id IN (SELECT topic_id FROM app_replies WHERE ' . $condition . ')', $params];
-    }
-    $mysql_index = 'idx_topics_search_' . $field;
+    $field = in_array($field, ['title', 'body', 'reply'], true) ? $field : 'title';
+    $reply = $field === 'reply';
+    $column = $field === 'title' ? 'title' : 'body';
+    $mysql_index = $reply ? 'idx_replies_search_body' : 'idx_topics_search_' . $field;
     if (mysql_search_index_available($mysql_index)) {
         $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
-        return ['MATCH(' . $field . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
+        return ['MATCH(' . $column . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
     }
     if (db_driver() === 'pgsql') {
-        return [$field . " ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
+        return [$column . " ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
     }
-    if (!sqlite_search_uses_fts($query)) return [$field . " LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
+    if (!sqlite_search_uses_fts($query)) return [$column . " LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
+    $fts_table = $reply ? 'app_replies_fts' : 'app_topics_fts';
     return [
-        "id IN (SELECT rowid FROM app_topics_fts WHERE app_topics_fts MATCH ?)",
-        [topic_fts_query($query, $field)],
+        "id IN (SELECT rowid FROM $fts_table WHERE $fts_table MATCH ?)",
+        [topic_fts_query($query, $reply ? '' : $field)],
     ];
 }
 function topic_fts_sync(int $id, string $title, string $body): void
@@ -2028,54 +1862,6 @@ function reply_fts_delete(int $id): void
     if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
     q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
 }
-function topic_fts_rebuild_from(int $start_id): int
-{
-    $start_id = max(1, $start_id);
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return (int)val('SELECT COUNT(*) FROM app_topics WHERE id>=?', [$start_id]);
-    $db = db();
-    $db->beginTransaction();
-    try {
-        if ($start_id === 1) {
-            q("DROP TABLE IF EXISTS app_topics_fts");
-            topic_fts_create();
-        } else {
-            topic_fts_create();
-        }
-        q("DELETE FROM app_topics_fts WHERE rowid>=?", [$start_id]);
-        $rows = q("SELECT id,title,body FROM app_topics WHERE id>=? ORDER BY id", [$start_id])->fetchAll();
-        $stmt = $db->prepare("INSERT INTO app_topics_fts(rowid,title,body) VALUES(?,?,?)");
-        foreach ($rows as $row) $stmt->execute([(int)$row['id'], (string)$row['title'], (string)$row['body']]);
-        $db->commit();
-        return count($rows);
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
-        throw $e;
-    }
-}
-function reply_fts_rebuild_from(int $start_id): int
-{
-    $start_id = max(1, $start_id);
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return (int)val('SELECT COUNT(*) FROM app_replies WHERE id>=?', [$start_id]);
-    $db = db();
-    $db->beginTransaction();
-    try {
-        if ($start_id === 1) {
-            q("DROP TABLE IF EXISTS app_replies_fts");
-            reply_fts_create();
-        } else {
-            reply_fts_create();
-        }
-        q("DELETE FROM app_replies_fts WHERE rowid>=?", [$start_id]);
-        $rows = q("SELECT id,body FROM app_replies WHERE id>=? ORDER BY id", [$start_id])->fetchAll();
-        $stmt = $db->prepare("INSERT INTO app_replies_fts(rowid,body) VALUES(?,?)");
-        foreach ($rows as $row) $stmt->execute([(int)$row['id'], (string)$row['body']]);
-        $db->commit();
-        return count($rows);
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
-        throw $e;
-    }
-}
 function topic_list_rows_for_replies(array $reply_rows): array
 {
     if (!$reply_rows) return [];
@@ -2090,7 +1876,7 @@ function topic_list_rows_for_replies(array $reply_rows): array
             'my_reply_excerpt' => content_excerpt(content_preview_source_text((string)$reply['body']), 180),
         ];
     }
-    return topic_list_rows(attach_topic_list_users($rows));
+    return attach_topic_list_users($rows);
 }
 function topic_list_row(array $t, string $sort): string
 {
@@ -2257,10 +2043,6 @@ function render_form_fields(array $fields, array $values = []): string
         else $html .= input($label, (string)$name, $value, $type, !empty($field['required']), $help, $class);
     }
     return $html;
-}
-function select_group(int $gid): string
-{
-    return select_input('用户组', 'group_id', $gid, array_column(groups_cache(), 'name', 'id'));
 }
 function select_forum(int $fid): string
 {
@@ -2834,7 +2616,6 @@ function favorite_page(): void
     row('app_topics', 'id', $tid) ?: err('主题不存在');
     $favorite = q("DELETE FROM app_favorites WHERE user_id=? AND topic_id=?", [uid(), $tid])->rowCount() === 0;
     if ($favorite) q("INSERT INTO app_favorites(user_id,topic_id,created_at) VALUES(?,?,?)", [uid(), $tid, now()]);
-    favorite_topic_state_set($tid, $favorite);
     go(route_url('topic', ['id' => $tid]));
 }
 function topic_index_page(?array $filter_forum = null, ?array $filter_user = null): void
@@ -2886,7 +2667,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $params[] = $fid;
     }
     if ($q !== '' && $search_field !== 'reply') {
-        [$condition, $search_params] = topic_search_condition($q, $search_field);
+        [$condition, $search_params] = content_search_condition($q, $search_field);
         $where_parts[] = '(' . $condition . ')';
         $params = array_merge($params, $search_params);
     }
@@ -2910,10 +2691,9 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         unset($row);
         usort($rows, fn($a, $b) => (int)$b['favorite_at'] <=> (int)$a['favorite_at']);
         $rows = attach_topic_list_users($rows);
-        $rows = topic_list_rows($rows);
     } else {
         if ($q !== '' && $search_field === 'reply') {
-            [$reply_condition, $reply_params] = reply_search_condition($q);
+            [$reply_condition, $reply_params] = content_search_condition($q, 'reply');
             $topic_scope = [];
             $topic_scope_params = [];
             if ($fid) {
@@ -2957,7 +2737,6 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
                 $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !isset($by_id[(int)$r['id']]))));
             }
             $rows = attach_topic_list_users($rows);
-            $rows = topic_list_rows($rows);
         }
     }
     $main = '';
@@ -3082,7 +2861,7 @@ function topic_page(): void
     $t = array_shift($posts);
     $replies = $posts;
     fire('topic.after_view', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
-    $fav = uid() ? !empty(favorite_topic_states([(int)$t['id']])[(int)$t['id']]) : false;
+    $fav = favorite_topic_state((int)$t['id']);
     $t['is_favorite'] = $fav;
     $topic_ops = '';
     if (uid()) $topic_ops .= quote_reply_action($t);
@@ -3348,7 +3127,6 @@ function logout_route(): void
 {
     require_post();
     auth_cookie_clear();
-    favorite_topics_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
     go(route_url('home'));
@@ -3427,7 +3205,7 @@ try {
     if (uid() === 1) {
         $message = exception_detail($e);
     } elseif (database_error($e)) {
-        $message = database_error_message($e);
+        $message = database_error_message();
     } else {
         $message = '操作失败';
     }

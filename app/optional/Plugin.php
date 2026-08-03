@@ -100,7 +100,7 @@ public static function plugin_market_install(string $id): void
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('插件目录创建失败');
     require_writable_dir($dir, '插件目录不可写，请检查 app/plugins/ 目录权限');
     if (is_file($file)) {
-        $backup_dir = CACHE_DIR . '/plugin-backups';
+        $backup_dir = DATA_DIR . '/plugin-backups';
         if (!is_dir($backup_dir) && !mkdir($backup_dir, 0755, true)) err('插件备份目录创建失败');
         if (!copy($file, $backup_dir . '/' . $id . '-' . date('YmdHis') . '.php')) err('现有插件备份失败');
     }
