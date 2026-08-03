@@ -1005,6 +1005,7 @@ public static function us_defer_schema_after_update(array $changes): never
     save_settings_values(['update_schema_pending' => json_encode([
         'nonce' => $nonce,
         'created_at' => time(),
+        'status' => 'pending',
         'changes' => array_values($changes),
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
     self::us_unlock();
@@ -1016,20 +1017,30 @@ public static function us_run_deferred_schema(): never
 {
     $nonce = (string)($_GET['schema_after_update'] ?? '');
     $pending = preg_match('/^[a-f0-9]{48}$/D', $nonce) === 1 ? json_decode(setting('update_schema_pending', ''), true) : null;
-    save_settings_values(['update_schema_pending' => '']);
+    $created_at = (int)($pending['created_at'] ?? 0);
+    $status = (string)($pending['status'] ?? 'pending');
     if (!is_array($pending)
         || $nonce === ''
         || !hash_equals((string)($pending['nonce'] ?? ''), $nonce)
-        || time() - (int)($pending['created_at'] ?? 0) > 300
+        || $created_at <= 0
+        || time() - $created_at > 300
+        || !in_array($status, ['pending', 'completed'], true)
     ) {
         self::us_result_page('升级失败', [], '数据库同步请求无效或已过期，请返回升级页重试。');
     }
 
     $changes = array_values(array_filter((array)($pending['changes'] ?? []), 'is_string'));
+    if ($status === 'completed') self::us_result_page('升级完成', $changes);
     self::us_acquire_lock();
     try {
         $schema_changes = self::us_sync_schema();
         $changes = array_merge($changes, $schema_changes ?: ['数据库结构同步完成，当前结构无需调整']);
+        save_settings_values(['update_schema_pending' => json_encode([
+            'nonce' => $nonce,
+            'created_at' => $created_at,
+            'status' => 'completed',
+            'changes' => $changes,
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
         self::us_result_page('升级完成', $changes);
     } catch (Throwable $e) {
         $prefix = $changes ? implode('；', $changes) . '；' : '';
