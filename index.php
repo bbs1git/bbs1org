@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.9');
+define('APP_VERSION', 'v9.0');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -284,11 +284,11 @@ function one(string $sql, array $p = []): ?array
     $r = q($sql, $p)->fetch();
     return $r ?: null;
 }
-function val(string $sql, array $p = [])
+function val(string $sql, array $p = []): mixed
 {
     return q($sql, $p)->fetchColumn();
 }
-function tx(callable $fn)
+function tx(callable $fn): mixed
 {
     $db = db();
     if ($db->inTransaction()) return $fn();
@@ -321,13 +321,12 @@ function auth_cookie_clear(): void
     app_cookie(AUTH_COOKIE_NAME, '', time() - 3600);
     unset($_COOKIE[AUTH_COOKIE_NAME]);
 }
-function auth_cookie_set(array $user): void
+function auth_cookie_set(int $user_id, string $password_hash): void
 {
-    $id = (int)($user['id'] ?? 0);
     $expire = time() + AUTH_COOKIE_TTL;
-    $payload = $id . '|' . $expire;
-    $signature = hash_hmac('sha256', $payload, (string)($user['password'] ?? ''));
-    app_cookie(AUTH_COOKIE_NAME, $id . '.' . $expire . '.' . $signature, $expire);
+    $payload = $user_id . '|' . $expire;
+    $signature = hash_hmac('sha256', $payload, $password_hash);
+    app_cookie(AUTH_COOKIE_NAME, $user_id . '.' . $expire . '.' . $signature, $expire);
 }
 function auth_cookie_parts(): ?array
 {
@@ -364,10 +363,14 @@ function rows_by_ids(string $table, array $ids, string $cols = '*'): array
     foreach ($rows as $row) $map[(int)$row['id']] = $row;
     return $map;
 }
+function user_summary_defaults(string $username = ''): array
+{
+    return ['username' => $username, 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => 0, 'points' => 0, 'is_banned' => 0, 'is_muted' => 0];
+}
 function attach_users(array $rows, string $key = 'user_id', string $fallback = '用户删除'): array
 {
     $users = rows_by_ids('app_users', array_column($rows, $key), 'id,username,avatar_style,avatar_seed,group_id,points,is_banned,is_muted');
-    foreach ($rows as &$row) $row += ($users[(int)($row[$key] ?? 0)] ?? ['username' => $fallback, 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => 0, 'points' => 0, 'is_banned' => 0, 'is_muted' => 0]);
+    foreach ($rows as &$row) $row += ($users[(int)($row[$key] ?? 0)] ?? user_summary_defaults($fallback));
     unset($row);
     return $rows;
 }
@@ -376,7 +379,7 @@ function attach_topic_list_users(array $rows): array
     $user_ids = array_merge(array_column($rows, 'user_id'), array_column($rows, 'last_reply_user_id'));
     $users = rows_by_ids('app_users', $user_ids, 'id,username,avatar_style,avatar_seed,group_id,points,is_banned,is_muted');
     foreach ($rows as &$row) {
-        $row += ($users[(int)($row['user_id'] ?? 0)] ?? ['username' => '', 'avatar_style' => '', 'avatar_seed' => '', 'group_id' => 0, 'points' => 0, 'is_banned' => 0, 'is_muted' => 0]);
+        $row += ($users[(int)($row['user_id'] ?? 0)] ?? user_summary_defaults());
         $last_reply_uid = (int)($row['last_reply_user_id'] ?? 0);
         $row['last_reply_username'] = $last_reply_uid > 0 ? (string)($users[$last_reply_uid]['username'] ?? '') : '';
     }
@@ -782,7 +785,7 @@ function forum_by_id(int $id): ?array
     }
     return $GLOBALS['__forum_by_id_map'][$id] ?? null;
 }
-function forum_group_select_options(?array $forum = null, string $field = '', string $label = '', int $size = 5): string
+function forum_group_select_options(?array $forum = null, string $field = '', string $label = ''): string
 {
     $selected = [];
     if ($forum && $field !== '') $selected = forum_group_ids($forum, $field);
@@ -1317,7 +1320,7 @@ function consume_auth_return_url(): string
 function start_cookie_login(int $user_id): void
 {
     $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
-    auth_cookie_set(['id' => $user_id, 'password' => $user['password']]);
+    auth_cookie_set($user_id, (string)$user['password']);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
 }
@@ -1360,7 +1363,7 @@ function need_site_access(): void
 function check(): void
 {
     if (uid()) me();
-    $is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+    $is_post = is_post_request();
     $action = (string)($_GET['a'] ?? '');
     if ($is_post && hook('request.csrf_exempt', false, ['action' => $action]) === true) return;
     if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
@@ -1370,6 +1373,16 @@ function check(): void
 function ajax_request(): bool
 {
     return ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest';
+}
+function is_post_request(): bool
+{
+    return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
+}
+function json_response(array $data): never
+{
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
 }
 function set_flash(string $message): void
 {
@@ -1384,13 +1397,11 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
     if ($mode === 'auto') {
         if (ajax_request()) $mode = 'ajax';
         elseif (!is_file(INSTALL_LOCK_FILE)) $mode = 'simple';
-        elseif (!$is_not_found && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') $mode = 'form';
+        elseif (!$is_not_found && is_post_request()) $mode = 'form';
         else $mode = 'page';
     }
     if ($mode === 'ajax') {
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 0, 'message' => $message], JSON_UNESCAPED_UNICODE);
-        exit;
+        json_response(['ok' => 0, 'message' => $message]);
     }
     if ($mode === 'form') {
         $value = base64_encode(json_encode([
@@ -1410,11 +1421,7 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
 }
 function go(string $u): never
 {
-    if (ajax_request()) {
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 1, 'redirect' => $u], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
+    if (ajax_request()) json_response(['ok' => 1, 'redirect' => $u]);
     header("Location: $u");
     exit;
 }
@@ -1538,7 +1545,7 @@ function post_action_form(string $action, string $label, array $fields = [], str
 }
 function require_post(): void
 {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') err('请求方式错误');
+    if (!is_post_request()) err('请求方式错误');
 }
 function svg_icon(string $name): string
 {
@@ -2002,11 +2009,11 @@ function form_field_caption(string $label, string $help = ''): string
 {
     return '<span>' . h($label) . ($help !== '' ? '<small>' . h($help) . '</small>' : '') . '</span>';
 }
-function input(string $label, string $name, $value = '', string $type = 'text', bool $required = false, string $help = '', string $class = ''): string
+function input(string $label, string $name, mixed $value = '', string $type = 'text', bool $required = false, string $help = '', string $class = ''): string
 {
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
 }
-function textarea(string $label, string $name, $value = '', bool $required = false, string $help = '', string $class = ''): string
+function textarea(string $label, string $name, mixed $value = '', bool $required = false, string $help = '', string $class = ''): string
 {
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
 }
@@ -2014,12 +2021,12 @@ function checkbox(string $label, string $name, bool $checked = false, string $he
 {
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input type="checkbox" name="' . h($name) . '" value="1"' . ($checked ? ' checked' : '') . '></label>';
 }
-function number_input(string $label, string $name, $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = ''): string
+function number_input(string $label, string $name, mixed $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = ''): string
 {
     $limits = ($min !== null ? ' min="' . h($min) . '"' : '') . ($max !== null ? ' max="' . h($max) . '"' : '');
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="number" value="' . h($value) . '"' . $limits . ($required ? ' required' : '') . '></label>';
 }
-function select_input(string $label, string $name, $value, array $options, string $help = '', string $class = ''): string
+function select_input(string $label, string $name, mixed $value, array $options, string $help = '', string $class = ''): string
 {
     $html = '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<select name="' . h($name) . '">';
     foreach ($options as $option_value => $option_label) $html .= '<option value="' . h($option_value) . '"' . ((string)$option_value === (string)$value ? ' selected' : '') . '>' . h($option_label) . '</option>';
@@ -2158,17 +2165,13 @@ function user_notify_page(): void
     need_login();
     $target = row('app_users', 'id', id()) ?: err('用户不存在');
     if ((int)$target['id'] === uid()) err('不能通知自己');
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_post_request()) {
         $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
         $body = post('content', 500);
         $content = trim(($quote !== '' ? '> ' . $quote . "\n\n" : '') . $body);
         if ($content === '') err('通知内容不能为空');
         create_notification((int)$target['id'], uid(), 'direct', $content);
-        if (ajax_request()) {
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'message' => '已发送'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
+        if (ajax_request()) json_response(['ok' => 1, 'message' => '已发送']);
         go(route_url('user', ['id' => (int)$target['id'], 'tab' => 'notifications']));
     }
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
@@ -2185,9 +2188,8 @@ function base_url(): string
 {
     $configured = clean_site_base_url(setting('site_base_url', ''));
     if ($configured !== '') return $configured;
-    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
-    return ($https ? 'https' : 'http') . '://' . $host;
+    return (auth_cookie_secure() ? 'https' : 'http') . '://' . $host;
 }
 function absolute_url(string $url): string
 {
@@ -2226,12 +2228,13 @@ function save_forum(): void
     if ($name === '') err('版块名不能为空');
     $description = post('description', 300);
     $sort = (int)$_POST['sort'];
-    $allow_view_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_view_groups'] ?? []))))));
-    $allow_post_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_post_groups'] ?? []))))));
-    $allow_reply_groups = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST['allow_reply_groups'] ?? []))))));
+    $permissions = [];
+    foreach (['allow_view_groups', 'allow_post_groups', 'allow_reply_groups'] as $field) {
+        $permissions[$field] = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST[$field] ?? []))))));
+    }
     id()
-        ? q("UPDATE app_forums SET name=?,description=?,sort=?,allow_view_groups=?,allow_post_groups=?,allow_reply_groups=? WHERE id=?", [$name, $description, $sort, $allow_view_groups, $allow_post_groups, $allow_reply_groups, id()])
-        : q("INSERT INTO app_forums(name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups) VALUES(?,?,?,?,?,?)", [$name, $description, $sort, $allow_view_groups, $allow_post_groups, $allow_reply_groups]);
+        ? q("UPDATE app_forums SET name=?,description=?,sort=?,allow_view_groups=?,allow_post_groups=?,allow_reply_groups=? WHERE id=?", [$name, $description, $sort, ...array_values($permissions), id()])
+        : q("INSERT INTO app_forums(name,description,sort,allow_view_groups,allow_post_groups,allow_reply_groups) VALUES(?,?,?,?,?,?)", [$name, $description, $sort, ...array_values($permissions)]);
     forums_cache(true);
 }
 function save_group(): void
@@ -2243,18 +2246,26 @@ function save_group(): void
     id() ? q("UPDATE app_groups SET name=?,allow_manage=?,allow_admin=? WHERE id=?", [$name, $allow_manage, $allow_admin, id()]) : q("INSERT INTO app_groups(name,allow_manage,allow_admin) VALUES(?,?,?)", [$name, $allow_manage, $allow_admin]);
     groups_cache(true);
 }
+function content_create_author(string $hook_name, array $content, array $context, array $limits): array
+{
+    $defaults = ['user_id' => uid()] + $content;
+    $author = hook($hook_name, $defaults, $context);
+    $author = is_array($author) ? $author + $defaults : $defaults;
+    $author['user_id'] = max(1, (int)$author['user_id']);
+    foreach ($limits as $field => $max) $author[$field] = cut((string)$author[$field], $max);
+    return $author;
+}
 function save_topic(): int
 {
     need_speak();
-    if (!id()) {
-        check_post_interval();
-    }
+    $topic_id = id();
+    if (!$topic_id) check_post_interval();
     $action = (string)($_POST['topic_action'] ?? '');
     $fid = max(1, (int)$_POST['forum_id']);
     $forum = forum_by_id($fid) ?: err('版块不存在');
     $title = post('title', 120);
     $body = post('body', 20000);
-    $filtered = hook('topic.before_save', ['title' => $title, 'body' => $body, 'forum_id' => $fid], ['id' => id(), 'action' => $action]);
+    $filtered = hook('topic.before_save', ['title' => $title, 'body' => $body, 'forum_id' => $fid], ['id' => $topic_id, 'action' => $action]);
     if (is_array($filtered)) {
         $title = cut((string)($filtered['title'] ?? $title), 120);
         $body = cut((string)($filtered['body'] ?? $body), 20000);
@@ -2264,20 +2275,16 @@ function save_topic(): int
             $forum = forum_by_id($fid) ?: err('版块不存在');
         }
     }
-    if (id()) {
-        $t = row('app_topics', 'id', id()) ?: err('主题不存在');
+    if ($topic_id) {
+        $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
         if ($action !== '' && !can_manage()) err('无权限');
         if ($action === 'delete') {
             del('topics', (int)$t['id']);
             go(route_url('home'));
         }
-        if ($action === 'pin') {
-            set_pinned_topic((int)$t['id'], true);
-            go(route_url('topic', ['id' => (int)$t['id']]));
-        }
-        if ($action === 'unpin') {
-            set_pinned_topic((int)$t['id'], false);
+        if (in_array($action, ['pin', 'unpin'], true)) {
+            set_pinned_topic((int)$t['id'], $action === 'pin');
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
         if ($action === 'highlight') {
@@ -2298,7 +2305,6 @@ function save_topic(): int
             $title = (string)($t['title'] ?? '');
             $body = (string)($t['body'] ?? '');
         }
-        $topic_id = id();
         $reply_order = (int)($_POST['reply_order'] ?? 0) === 1 ? 1 : 0;
         tx(function () use ($topic_id, $fid, $title, $body, $reply_order) {
             q("UPDATE app_topics SET forum_id=?,title=?,body=?,reply_order=?,last_reply_at=? WHERE id=?", [$fid, $title, $body, $reply_order, now(), $topic_id]);
@@ -2309,34 +2315,32 @@ function save_topic(): int
     }
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
     if ($title === '' || $body === '') err('标题和内容不能为空');
-    $author = hook('topic.create_author', ['user_id' => uid(), 'title' => $title, 'body' => $body], ['forum_id' => $fid]);
-    if (!is_array($author)) $author = ['user_id' => uid(), 'title' => $title, 'body' => $body];
-    $author['user_id'] = max(1, (int)($author['user_id'] ?? uid()));
-    $title = cut((string)($author['title'] ?? $title), 120);
-    $body = cut((string)($author['body'] ?? $body), 20000);
+    $author = content_create_author('topic.create_author', ['title' => $title, 'body' => $body], ['forum_id' => $fid], ['title' => 120, 'body' => 20000]);
+    $author_id = (int)$author['user_id'];
+    $title = $author['title'];
+    $body = $author['body'];
     if ($title === '' || $body === '') err('标题和内容不能为空');
     $ts = now();
-    $tid = tx(function () use ($fid, $author, $title, $body, $ts) {
-        q("INSERT INTO app_topics(forum_id,user_id,title,body,created_at,last_reply_at) VALUES(?,?,?,?,?,?)", [$fid, (int)$author['user_id'], $title, $body, $ts, $ts]);
+    $tid = tx(function () use ($fid, $author_id, $title, $body, $ts) {
+        q("INSERT INTO app_topics(forum_id,user_id,title,body,created_at,last_reply_at) VALUES(?,?,?,?,?,?)", [$fid, $author_id, $title, $body, $ts, $ts]);
         $tid = app_db_last_insert_id('app_topics');
         topic_fts_sync($tid, $title, $body);
-        q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-        create_topic_notifications($tid, $body, (int)$author['user_id']);
+        q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, $author_id]);
+        create_topic_notifications($tid, $body, $author_id);
         return $tid;
     });
     home_stats_refresh_topics();
-    fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
+    fire('topic.after_save', ['id' => $tid, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'user_id' => $author_id, 'editing' => false]);
     return $tid;
 }
 function save_reply(): array
 {
     need_speak();
-    if (!id()) {
-        check_post_interval();
-    }
+    $reply_id = id();
+    if (!$reply_id) check_post_interval();
     $r = null;
-    if (id()) {
-        $r = row('app_replies', 'id', id()) ?: err('回复不存在');
+    if ($reply_id) {
+        $r = row('app_replies', 'id', $reply_id) ?: err('回复不存在');
         if (!can_manage_reply($r)) err('无权限');
         $tid = (int)$r['topic_id'];
     } else {
@@ -2346,90 +2350,75 @@ function save_reply(): array
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
     if (!forum_group_allowed($forum, 'allow_reply_groups')) err('无权限');
     $body = post('body', 10000);
-    $filtered = hook('reply.before_save', ['body' => $body, 'topic_id' => $tid], ['id' => id()]);
+    $filtered = hook('reply.before_save', ['body' => $body, 'topic_id' => $tid], ['id' => $reply_id]);
     if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), 10000);
     if ($body === '') err('回复不能为空');
-    if (id()) {
-        tx(function () use ($body, $tid) {
-            q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), id(), $tid]);
-            reply_fts_sync(id(), $body);
+    if ($reply_id) {
+        tx(function () use ($body, $tid, $reply_id) {
+            q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), $reply_id, $tid]);
+            reply_fts_sync($reply_id, $body);
         });
         fire('reply.after_save', ['id' => (int)$r['id'], 'topic_id' => (int)$r['topic_id'], 'body' => $body, 'editing' => true]);
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
     }
-    $author = hook('reply.create_author', ['user_id' => uid(), 'body' => $body], ['topic_id' => $tid]);
-    if (!is_array($author)) $author = ['user_id' => uid(), 'body' => $body];
-    $author['user_id'] = max(1, (int)($author['user_id'] ?? uid()));
-    $body = cut((string)($author['body'] ?? $body), 10000);
+    $author = content_create_author('reply.create_author', ['body' => $body], ['topic_id' => $tid], ['body' => 10000]);
+    $author_id = (int)$author['user_id'];
+    $body = $author['body'];
     if ($body === '') err('回复不能为空');
     $ts = now();
-    $rid = tx(function () use ($tid, $author, $body, $ts) {
-        q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, (int)$author['user_id'], $body, $ts, $ts]);
+    $rid = tx(function () use ($tid, $author_id, $body, $ts) {
+        q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, $author_id, $body, $ts, $ts]);
         $rid = app_db_last_insert_id('app_replies');
         reply_fts_sync($rid, $body);
-        q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, (int)$author['user_id']]);
-        q("UPDATE app_topics SET reply_count=reply_count+1,last_reply_at=?,last_reply_user_id=? WHERE id=?", [$ts, (int)$author['user_id'], $tid]);
-        create_reply_notifications($tid, $rid, $body, (int)$author['user_id']);
+        q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, $author_id]);
+        q("UPDATE app_topics SET reply_count=reply_count+1,last_reply_at=?,last_reply_user_id=? WHERE id=?", [$ts, $author_id, $tid]);
+        create_reply_notifications($tid, $rid, $body, $author_id);
         return $rid;
     });
     home_stats_record_insert('replies', $rid);
-    fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => (int)$author['user_id'], 'editing' => false]);
+    fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => $author_id, 'editing' => false]);
     return ['topic_id' => $tid, 'reply_id' => $rid];
 }
 function del(string $table, int $id): void
 {
-    $allow = ['users', 'groups', 'forums', 'topics', 'replies'];
-    if (!in_array($table, $allow, true)) err('参数错误');
+    $tables = [
+        'users' => 'app_users',
+        'groups' => 'app_groups',
+        'forums' => 'app_forums',
+        'topics' => 'app_topics',
+        'replies' => 'app_replies',
+    ];
+    if (!isset($tables[$table])) err('参数错误');
     if (in_array($table, ['users', 'groups', 'forums'], true) && !can_manage()) err('无权限');
     if ($table === 'users' && $id === uid()) err('不能删除自己');
     if ($table === 'groups' && $id <= 2) err('内置用户组不能删除');
     if ($table === 'groups' && $id === (int)setting('default_group_id', '2')) err('默认用户组不能删除');
     if ($table === 'forums' && count(forums_cache()) <= 1) err('至少保留一个版块');
-    if ($table === 'replies') {
-        $r = row('app_replies', 'id', $id);
-        if (!$r) err('记录不存在');
-        tx(function () use ($id, $r) {
-            fire('content.before_delete', ['table' => 'replies', 'row' => $r]);
-            reply_fts_delete($id);
-            q("DELETE FROM app_replies WHERE id=?", [$id]);
-            refresh_topic_stats((int)$r['topic_id']);
+    if (in_array($table, ['users', 'topics', 'replies'], true)) {
+        $record = row($tables[$table], 'id', $id) ?: err('记录不存在');
+        $affected_topics = $table === 'users' ? q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll() : [];
+        tx(function () use ($table, $tables, $id, $record, $affected_topics) {
+            if ($table === 'topics') fire('topic.before_delete', ['id' => $id, 'row' => $record]);
+            fire('content.before_delete', ['table' => $table, 'row' => $record]);
+            if ($table === 'topics') topic_fts_delete($id);
+            elseif ($table === 'replies') reply_fts_delete($id);
+            q('DELETE FROM ' . $tables[$table] . ' WHERE id=?', [$id]);
+            if ($table === 'replies') refresh_topic_stats((int)$record['topic_id']);
+            elseif ($table === 'users') {
+                foreach ($affected_topics as $topic) refresh_topic_stats((int)$topic['topic_id']);
+            }
         });
+        if ($table === 'topics') home_stats_refresh_topics();
         return;
     }
-    if ($table === 'users') {
-        $r = row('app_users', 'id', $id);
-        if (!$r) err('记录不存在');
-        $tids = q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll();
-        tx(function () use ($id, $r, $tids) {
-            fire('content.before_delete', ['table' => 'users', 'row' => $r]);
-            q("DELETE FROM app_users WHERE id=?", [$id]);
-            foreach ($tids as $row) refresh_topic_stats((int)$row['topic_id']);
-        });
-        return;
-    }
-    if ($table === 'topics') {
-        $r = row('app_topics', 'id', $id);
-        if (!$r) err('记录不存在');
-        tx(function () use ($id, $r) {
-            fire('topic.before_delete', ['id' => $id, 'row' => $r]);
-            fire('content.before_delete', ['table' => 'topics', 'row' => $r]);
-            topic_fts_delete($id);
-            q("DELETE FROM app_topics WHERE id=?", [$id]);
-        });
-        home_stats_refresh_topics();
-        return;
-    }
-    if ($table === 'groups') tx(fn() => q('DELETE FROM app_groups WHERE id=?', [$id]));
-    if ($table === 'forums') tx(fn() => q('DELETE FROM app_forums WHERE id=?', [$id]));
-    if ($table === 'forums') {
-        forums_cache(true);
-    }
-    if ($table === 'groups') groups_cache(true);
+    tx(fn() => q('DELETE FROM ' . $tables[$table] . ' WHERE id=?', [$id]));
+    if ($table === 'forums') forums_cache(true);
+    else groups_cache(true);
 }
 function login_page(): void
 {
     if (uid()) go(consume_auth_return_url());
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_post_request()) {
         $ip = ip_addr();
         if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'login_fail']) === false) err('同一IP 1小时内错误次数已达上限');
         hook('login.before_submit', true, []);
@@ -2453,7 +2442,7 @@ function register_page(): void
 {
     if (uid()) go(consume_auth_return_url());
     if (setting('allow_register', '1') !== '1') err('注册已关闭');
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_post_request()) {
         if (array_key_exists('id', $_GET) || array_key_exists('id', $_POST)) err('参数错误');
         save_user(false);
         $user_id = (int)($GLOBALS['__last_saved_user_id'] ?? 0);
@@ -2471,7 +2460,7 @@ function profile_page(): void
 {
     need_login();
     $u = me();
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_post_request()) {
         save_user(false, uid());
         set_flash('个人资料已保存');
         go(route_url('profile'));
@@ -2497,6 +2486,101 @@ function user_page(): void
     if ($tab === 'notify') user_notify_page();
     else topic_index_page(null, $user);
 }
+function topic_index_sort(bool $profile): string
+{
+    if ($profile) return 'post';
+    if (!array_key_exists('sort', $_GET)) return (($_COOKIE['__topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
+    $sort = $_GET['sort'] === 'post' ? 'post' : 'comment';
+    app_cookie('__topic_index_sort', $sort, time() + COOKIE_TTL, false);
+    $_COOKIE['__topic_index_sort'] = $sort;
+    return $sort;
+}
+function topic_index_data(int $fid, ?array $user, string $profile_tab, string $query, string $search_field, string $sort, int $page, int $size): array
+{
+    $profile_uid = (int)($user['id'] ?? 0);
+    $offset = ($page - 1) * $size;
+    $simple_pagination = false;
+    $has_next_page = false;
+    $profile_empty = '';
+    $unread_total = 0;
+    $where_parts = [];
+    $params = [];
+    if ($fid) {
+        $where_parts[] = 'forum_id=?';
+        $params[] = $fid;
+    }
+    if ($query !== '' && $search_field !== 'reply') {
+        [$condition, $search_params] = content_search_condition($query, $search_field);
+        $where_parts[] = '(' . $condition . ')';
+        $params = array_merge($params, $search_params);
+    }
+    $where = $where_parts ? 'WHERE ' . implode(' AND ', $where_parts) : '';
+    $profile_data = $profile_uid ? hook('user.profile_tab_data', null, ['user' => $user, 'tab' => $profile_tab, 'page' => $page, 'page_size' => $size, 'offset' => $offset]) : null;
+    if (is_array($profile_data)) {
+        $rows = is_array($profile_data['rows'] ?? null) ? $profile_data['rows'] : [];
+        $total = max(0, (int)($profile_data['total'] ?? count($rows)));
+        $profile_empty = trim((string)($profile_data['empty'] ?? ''));
+    } elseif ($profile_uid && $profile_tab === 'notifications') {
+        $total = notifications_total($profile_uid);
+        $unread_total = notifications_unread_total($profile_uid);
+        $rows = notifications_list($profile_uid, $size, $offset);
+    } elseif ($profile_uid && $profile_tab === 'replies') {
+        $total = (int)val("SELECT COUNT(*) FROM app_replies WHERE user_id=?", [$profile_uid]);
+        $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $offset])->fetchAll();
+        $rows = topic_list_rows_for_replies($reply_rows);
+    } elseif ($query !== '' && $search_field === 'reply') {
+        [$reply_condition, $reply_params] = content_search_condition($query, 'reply');
+        $topic_scope = [];
+        $topic_scope_params = [];
+        if ($fid) {
+            $topic_scope[] = 'forum_id=?';
+            $topic_scope_params[] = $fid;
+        }
+        if ($profile_uid) {
+            $topic_scope[] = 'user_id=?';
+            $topic_scope_params[] = $profile_uid;
+        }
+        $reply_where = '(' . $reply_condition . ') AND topic_id IN (SELECT id FROM app_topics' . ($topic_scope ? ' WHERE ' . implode(' AND ', $topic_scope) : '') . ')';
+        $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE $reply_where ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", array_merge($reply_params, $topic_scope_params, [$size + 1, $offset]))->fetchAll();
+        $total = 0;
+        $simple_pagination = true;
+        $has_next_page = count($reply_rows) > $size;
+        $rows = topic_list_rows_for_replies(array_slice($reply_rows, 0, $size));
+    } else {
+        if ($profile_uid) {
+            $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
+            $params[] = $profile_uid;
+        }
+        $total = $query !== '' ? 0 : (($fid || $profile_uid) ? (int)val("SELECT COUNT(*) FROM app_topics $where", $params) : (int)stats_cache()['topics']);
+        $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
+        $index_hint = db_driver() === 'mysql' && $query === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
+        $query_size = $query !== '' ? $size + 1 : $size;
+        $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $offset]))->fetchAll();
+        if ($query !== '') {
+            $simple_pagination = true;
+            $has_next_page = count($rows) > $size;
+            $rows = array_slice($rows, 0, $size);
+        }
+        $pinned_ids = (!$profile_uid && !$fid && $query === '' && $page === 1) ? pinned_topic_ids() : [];
+        if ($pinned_ids) {
+            $pinned_rows = rows_by_ids('app_topics', $pinned_ids, topic_list_select_columns());
+            $ordered = [];
+            foreach ($pinned_ids as $pinned_id) {
+                if (isset($pinned_rows[$pinned_id])) $ordered[] = $pinned_rows[$pinned_id] + ['is_pinned' => 1];
+            }
+            $rows = array_merge($ordered, array_values(array_filter($rows, fn($row) => !isset($pinned_rows[(int)$row['id']]))));
+        }
+        $rows = attach_topic_list_users($rows);
+    }
+    return [
+        'rows' => $rows,
+        'total' => $total,
+        'profile_empty' => $profile_empty,
+        'unread_total' => $unread_total,
+        'simple_pagination' => $simple_pagination,
+        'has_next_page' => $has_next_page,
+    ];
+}
 function topic_index_page(?array $filter_forum = null, ?array $filter_user = null): void
 {
     $fid = (int)($filter_forum['id'] ?? 0);
@@ -2512,16 +2596,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $size = max(1, (int)setting('topics_per_page', '30'));
     $off = ($p - 1) * $size;
     $profile_tab = (string)($_GET['tab'] ?? 'topics');
-    if ($profile_uid) {
-        $sort = 'post';
-    } elseif (array_key_exists('sort', $_GET)) {
-        $sort = ($_GET['sort'] === 'post') ? 'post' : 'comment';
-        app_cookie('__topic_index_sort', $sort, time() + COOKIE_TTL, false);
-        $_COOKIE['__topic_index_sort'] = $sort;
-    } else {
-        $sort = (($_COOKIE['__topic_index_sort'] ?? 'comment') === 'post') ? 'post' : 'comment';
-    }
-    $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
+    $sort = topic_index_sort($profile_uid > 0);
     $q = trim((string)($_GET['q'] ?? ''));
     $search_field = topic_search_field((string)($_GET['field'] ?? 'title'));
     $profile_tabs = [
@@ -2544,83 +2619,11 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
             q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
         }
     }
-    $search_simple_pagination = false;
-    $has_next_search_page = false;
-    $pinned_ids = (!$profile_uid && !$fid && $q === '') ? pinned_topic_ids() : [];
-    $where_parts = [];
-    $params = [];
-    if ($fid) {
-        $where_parts[] = 'forum_id=?';
-        $params[] = $fid;
-    }
-    if ($q !== '' && $search_field !== 'reply') {
-        [$condition, $search_params] = content_search_condition($q, $search_field);
-        $where_parts[] = '(' . $condition . ')';
-        $params = array_merge($params, $search_params);
-    }
-    $where = $where_parts ? 'WHERE ' . implode(' AND ', $where_parts) : '';
-    $profile_data = $profile_uid ? hook('user.profile_tab_data', null, ['user' => $filter_user, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'offset' => $off]) : null;
-    $profile_empty = '';
-    if (is_array($profile_data)) {
-        $rows = is_array($profile_data['rows'] ?? null) ? $profile_data['rows'] : [];
-        $total = max(0, (int)($profile_data['total'] ?? count($rows)));
-        $profile_empty = trim((string)($profile_data['empty'] ?? ''));
-    } elseif ($profile_uid && $profile_tab === 'notifications') {
-        $total = notifications_total($profile_uid);
-        $unread_total = notifications_unread_total($profile_uid);
-        $rows = notifications_list($profile_uid, $size, $off);
-    } elseif ($profile_uid && $profile_tab === 'replies') {
-        $total = (int)val("SELECT COUNT(*) FROM app_replies WHERE user_id=?", [$profile_uid]);
-        $reply_rows = q("SELECT id,topic_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $off])->fetchAll();
-        $rows = topic_list_rows_for_replies($reply_rows);
-    } else {
-        if ($q !== '' && $search_field === 'reply') {
-            [$reply_condition, $reply_params] = content_search_condition($q, 'reply');
-            $topic_scope = [];
-            $topic_scope_params = [];
-            if ($fid) {
-                $topic_scope[] = 'forum_id=?';
-                $topic_scope_params[] = $fid;
-            }
-            if ($profile_uid) {
-                $topic_scope[] = 'user_id=?';
-                $topic_scope_params[] = $profile_uid;
-            }
-            $reply_where = '(' . $reply_condition . ')';
-            $reply_where .= ' AND topic_id IN (SELECT id FROM app_topics' . ($topic_scope ? ' WHERE ' . implode(' AND ', $topic_scope) : '') . ')';
-            $reply_rows = q(
-                "SELECT id,topic_id,body,created_at FROM app_replies WHERE $reply_where ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
-                array_merge($reply_params, $topic_scope_params, [$size + 1, $off])
-            )->fetchAll();
-            $total = 0;
-            $search_simple_pagination = true;
-            $has_next_search_page = count($reply_rows) > $size;
-            $rows = topic_list_rows_for_replies(array_slice($reply_rows, 0, $size));
-        } else {
-            if ($profile_uid) {
-                $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
-                $params[] = $profile_uid;
-            }
-            $total = $q !== '' ? 0 : (($fid || $profile_uid) ? (int)q("SELECT COUNT(*) FROM app_topics $where", $params)->fetchColumn() : (int)stats_cache()['topics']);
-            $index_hint = db_driver() === 'mysql' && $q === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
-            $query_size = $q !== '' ? $size + 1 : $size;
-            $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $off]))->fetchAll();
-            if ($q !== '') {
-                $search_simple_pagination = true;
-                $has_next_search_page = count($rows) > $size;
-                $rows = array_slice($rows, 0, $size);
-            }
-            if ($pinned_ids && $p === 1) {
-                $pinned_rows = array_values(rows_by_ids('app_topics', $pinned_ids, topic_list_select_columns()));
-                $by_id = [];
-                foreach ($pinned_rows as $r) $by_id[(int)$r['id']] = $r + ['is_pinned' => 1];
-                $ordered = [];
-                foreach ($pinned_ids as $pid) if (isset($by_id[$pid])) $ordered[] = $by_id[$pid];
-                $rows = array_merge($ordered, array_values(array_filter($rows, fn($r) => !isset($by_id[(int)$r['id']]))));
-            }
-            $rows = attach_topic_list_users($rows);
-        }
-    }
+    $data = topic_index_data($fid, $filter_user, $profile_tab, $q, $search_field, $sort, $p, $size);
+    $rows = $data['rows'];
+    $total = $data['total'];
+    $profile_empty = $data['profile_empty'];
+    $unread_total = $data['unread_total'];
     $main = '';
     $search_query = $q !== '' ? 'q=' . rawurlencode($q) . '&field=' . $search_field . '&' : '';
     if ($profile_uid) {
@@ -2645,10 +2648,10 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     }
     $main .= '<ul class="post-list">';
     if ($profile_uid && $profile_tab === 'notifications') {
-        mark_notifications_read($profile_uid, (int)($unread_total ?? 0));
+        mark_notifications_read($profile_uid, $unread_total);
         if (!$rows) $main .= '<li class="empty-state">暂无通知</li>';
         else foreach ($rows as $i => $n) {
-            if (($unread_total ?? 0) > 0 && $off + $i === ($unread_total ?? 0)) $main .= '<li class="notification-read-divider">下面的通知已读</li>';
+            if ($unread_total > 0 && $off + $i === $unread_total) $main .= '<li class="notification-read-divider">下面的通知已读</li>';
             $main .= notification_row_html($n);
         }
     } elseif (!$rows) {
@@ -2663,7 +2666,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
     }
     $page_query = $search_query . ($profile_uid ? 'tab=' . $profile_tab : 'sort=' . $sort);
-    if ($search_simple_pagination) $pagination = simple_paginate($p > 1, $has_next_search_page, $p, $url($page_query));
+    if ($data['simple_pagination']) $pagination = simple_paginate($p > 1, $data['has_next_page'], $p, $url($page_query));
     else $pagination = paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $sidebar_user = $profile_uid ? $filter_user : null;
@@ -2682,7 +2685,7 @@ function home_page(): void
 function search_page(): void
 {
     if (!uid()) err('请登录后操作');
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') go(route_url('home'));
+    if (!is_post_request()) go(route_url('home'));
     $q = post('q', 120);
     if ($q === '') go(route_url('home'));
     require_search_min_chars($q);
@@ -2774,15 +2777,17 @@ function topic_page(): void
 function topic_edit_page(): void
 {
     need_speak();
+    $topic_id = id();
+    $editing = $topic_id > 0;
     $t = ['id' => 0, 'forum_id' => id('fid') ?: 1, 'title' => '', 'body' => '', 'user_id' => uid()];
-    if (id()) {
-        $t = row('app_topics', 'id', id()) ?: err('主题不存在');
+    if ($editing) {
+        $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
     }
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') go(route_url('topic', ['id' => save_topic()]));
-    $title = id() ? '编辑主题' : '发表主题';
+    if (is_post_request()) go(route_url('topic', ['id' => save_topic()]));
+    $title = $editing ? '编辑主题' : '发表主题';
     $topic_ops = '';
-    if (id() && can_manage()) {
+    if ($editing && can_manage()) {
         $style = preg_match('/#[0-9a-fA-F]{6}/', (string)($t['highlight_style'] ?? ''), $m) ? $m[0] : '';
         $colors = ['#d94b4b', '#d97706', '#16a34a', '#2563eb', '#7c3aed'];
         $swatches = '<div class="topic-color-swatches">';
@@ -2791,28 +2796,29 @@ function topic_edit_page(): void
         $swatches .= '</div>';
         $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="unpin">取消置顶</option><option value="highlight">高亮</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-highlight-field is-hidden" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label>';
     }
-    $reply_order = id() ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
+    $reply_order = $editing ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);
-    $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => id() > 0]);
-    $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => id() > 0]);
+    $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => $editing]);
+    $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => $editing]);
     page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<button>保存</button></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {
     need_speak();
+    $reply_id = id();
+    $editing = $reply_id > 0;
     $r = ['id' => 0, 'topic_id' => id('topic_id'), 'body' => '', 'user_id' => uid()];
-    if (id()) {
-        $r = row('app_replies', 'id', id()) ?: err('回复不存在');
+    if ($editing) {
+        $r = row('app_replies', 'id', $reply_id) ?: err('回复不存在');
         if (!can_manage_reply($r)) err('无权限');
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'mute_author') {
+        if (is_post_request() && ($_POST['do'] ?? '') === 'mute_author') {
             if (!can_manage()) err('无权限');
             if ((int)$r['user_id'] === 1) err('不能操作超级管理员');
             q("UPDATE app_users SET is_muted=1 WHERE id=?", [(int)$r['user_id']]);
             go(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]));
         }
     }
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $editing = id() > 0;
+    if (is_post_request()) {
         $saved = save_reply();
         if (!empty($saved['redirect'])) go($saved['redirect']);
         if (ajax_request() && $editing) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
@@ -2824,19 +2830,13 @@ function reply_edit_page(): void
             $ops = quote_reply_action($row, $floor);
             if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])], JSON_UNESCAPED_UNICODE);
-            exit;
+            json_response(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])]);
         }
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
     $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
     $reply_form_extra = (string)hook('reply.form_extra', '', ['reply' => $r, 'editing' => (int)$r['id'] > 0]);
     page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . (string)hook('attachment.uploader', '', ['muted' => true]) . $reply_form_extra . '<button>保存</button></form></div>'));
-}
-function admin_nav(string $tab): string
-{
-    return sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => $tab]);
 }
 function admin_tabs(string $tab): string
 {
@@ -2849,115 +2849,123 @@ function admin_tabs(string $tab): string
 }
 function admin_layout(string $tab, string $body): string
 {
-    return shell_html(admin_tabs($tab) . $body, admin_nav($tab));
+    return shell_html(admin_tabs($tab) . $body, sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => $tab]));
+}
+function admin_settings_handle_post(): never
+{
+    if ((string)($_POST['debug_log_action'] ?? '') === 'clear') {
+        if (!is_dir(dirname(DEBUG_LOG_FILE))) mkdir(dirname(DEBUG_LOG_FILE), 0755, true);
+        file_put_contents(DEBUG_LOG_FILE, '', LOCK_EX);
+        set_flash('Debug日志已清空');
+        go(admin_url(['tab' => 'settings']));
+    }
+    if (isset($_POST['clear_opcache'])) {
+        clear_opcache_cache();
+        set_flash('OPcache已清理');
+        go(admin_url(['tab' => 'settings']));
+    }
+    save_settings();
+    go(admin_url(['tab' => 'settings']));
+}
+function admin_settings_html(): string
+{
+    $notice_state = Setup::update_state_data();
+    $pending_notice = is_array($notice_state['update_notice'] ?? null) ? $notice_state['update_notice'] : [];
+    $notice_sha = (string)($pending_notice['sha'] ?? ($notice_state['update_notice_sent_sha'] ?? ''));
+    Setup::deliver_update_notice();
+    $settings = settings_cache();
+    $fields = [
+        'site_name' => ['label' => '网站名', 'required' => true],
+        'site_name_title' => ['label' => '网站名title', 'help' => '为空时使用网站名。'],
+        'site_base_url' => ['label' => '网站固定地址', 'type' => 'url', 'help' => '填写以 https:// 开头的网站域名。'],
+        'site_keywords' => ['label' => '关键字'],
+        'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
+        'mail_from' => ['label' => '系统发件邮箱', 'type' => 'email'],
+        'pinned_topic_ids' => ['label' => '置顶主题ID'],
+        'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
+        'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+        'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+        'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
+        'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
+        'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
+        'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
+        'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
+        'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
+        'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
+        'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
+    ];
+    $tools = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
+    if ((string)($settings['debug_mode'] ?? '0') === '1') {
+        $tools .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
+    }
+    $update_state = is_file(UPDATE_STATE_FILE) ? json_decode((string)file_get_contents(UPDATE_STATE_FILE), true) : [];
+    $update_sha = is_array($update_state) ? (string)($update_state['sha'] ?? '') : '';
+    $update_time = is_array($update_state) ? (string)($update_state['updated_at'] ?? '') : '';
+    $update_meta = $update_sha !== '' ? '当前版本 ' . substr($update_sha, 0, 12) . ($update_time !== '' ? ' / ' . $update_time : '') : '尚无在线升级记录';
+    $update_action = is_file(APP_DIR . '/optional/Setup.php')
+        ? '<a class="settings-tool-action" href="' . h(route_url('update')) . '">升级</a>'
+        : '<button class="settings-tool-action" type="button" disabled>升级</button>';
+    $update_dot = preg_match('/^[a-f0-9]{40}$/', $notice_sha) === 1 ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
+    $tools .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
+    return '<span hidden data-settings-update-check-url="' . h(route_url('update', ['notice_check' => 1])) . '"></span><div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $settings) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $tools . '</div></div>';
+}
+function admin_groups_html(): string
+{
+    $html = '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
+    foreach (groups_cache() as $group) {
+        $html .= '<tr><td><strong class="admin-name">' . h($group['name']) . '</strong></td><td>' . admin_flag((int)($group['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($group['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$group['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$group['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
+    }
+    return $html . '</table>';
+}
+function admin_forums_html(): string
+{
+    $html = '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => 0])) . '">添加</a></th></tr>';
+    foreach (forums_cache() as $forum) {
+        $permissions = [];
+        foreach (['allow_view_groups' => '浏览', 'allow_post_groups' => '发帖', 'allow_reply_groups' => '回帖'] as $field => $label) {
+            $count = count(forum_group_ids($forum, $field));
+            $permissions[] = $label . ':' . ($count ? $count . '组' : '不限');
+        }
+        $html .= '<tr><td><strong class="admin-name">' . h($forum['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$forum['sort'] . '</span></td><td>' . h(implode(' / ', $permissions)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$forum['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$forum['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
+    }
+    return $html . '</table>';
+}
+function admin_plugins_html(): string
+{
+    $view = (string)($_GET['view'] ?? '');
+    if ($view === '') return Plugin::admin_plugins_page_html();
+    if ($view === 'market') return Plugin::plugin_market_page_html();
+    if ($view === 'cron') return Plugin::admin_plugins_cron_logs_page_html();
+    $html = hook('admin.plugins.view', null, ['view' => $view, 'with_tabs' => true]);
+    if (!is_string($html)) err('你访问的页面不存在', 404);
+    return $html;
 }
 function admin_page(): void
 {
     need_admin();
-    $tab = $_GET['tab'] ?? 'settings';
+    $tab = (string)($_GET['tab'] ?? 'settings');
     if ($tab === 'settings' && (string)($_GET['debug_log'] ?? '') === 'view') {
         header('Content-Type: text/plain; charset=utf-8');
         echo is_file(DEBUG_LOG_FILE) ? (string)file_get_contents(DEBUG_LOG_FILE) : '';
         exit;
     }
-    if ($tab === 'plugins' && $_SERVER['REQUEST_METHOD'] === 'POST') Plugin::admin_plugins_handle_post();
-    if ($tab === 'settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        if ((string)($_POST['debug_log_action'] ?? '') === 'clear') {
-            if (!is_dir(dirname(DEBUG_LOG_FILE))) mkdir(dirname(DEBUG_LOG_FILE), 0755, true);
-            file_put_contents(DEBUG_LOG_FILE, '', LOCK_EX);
-            set_flash('Debug日志已清空');
-            go(admin_url(['tab' => 'settings']));
-        }
-        if (isset($_POST['clear_opcache'])) {
-            clear_opcache_cache();
-            set_flash('OPcache已清理');
-            go(admin_url(['tab' => 'settings']));
-        }
-        save_settings();
-        go(admin_url(['tab' => 'settings']));
-    }
-    $html = '';
-    if ($tab === 'settings') {
-        $notice_state = Setup::update_state_data();
-        $pending_notice = is_array($notice_state['update_notice'] ?? null) ? $notice_state['update_notice'] : [];
-        $notice_sha = (string)($pending_notice['sha'] ?? ($notice_state['update_notice_sent_sha'] ?? ''));
-        $has_update_notice = preg_match('/^[a-f0-9]{40}$/', $notice_sha) === 1;
-        Setup::deliver_update_notice();
-        $html .= '<span hidden data-settings-update-check-url="' . h(route_url('update', ['notice_check' => 1])) . '"></span>';
-        $s = settings_cache();
-        $fields = [
-            'site_name' => ['label' => '网站名', 'required' => true],
-            'site_name_title' => ['label' => '网站名title', 'help' => '为空时使用网站名。'],
-            'site_base_url' => ['label' => '网站固定地址', 'type' => 'url', 'help' => '填写以 https:// 开头的网站域名。'],
-            'site_keywords' => ['label' => '关键字'],
-            'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
-            'mail_from' => ['label' => '系统发件邮箱', 'type' => 'email'],
-            'pinned_topic_ids' => ['label' => '置顶主题ID'],
-            'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
-            'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
-            'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
-            'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
-            'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
-            'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
-            'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
-            'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
-            'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
-            'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
-            'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
-        ];
-        $debug_cards = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
-        if ((string)($s['debug_mode'] ?? '0') === '1') {
-            $debug_cards .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
-        }
-        $update_state = is_file(UPDATE_STATE_FILE) ? json_decode((string)file_get_contents(UPDATE_STATE_FILE), true) : [];
-        $update_sha = is_array($update_state) ? (string)($update_state['sha'] ?? '') : '';
-        $update_time = is_array($update_state) ? (string)($update_state['updated_at'] ?? '') : '';
-        $update_meta = $update_sha !== '' ? '当前版本 ' . substr($update_sha, 0, 12) . ($update_time !== '' ? ' / ' . $update_time : '') : '尚无在线升级记录';
-        $update_action = is_file(APP_DIR . '/optional/Setup.php')
-            ? '<a class="settings-tool-action" href="' . h(route_url('update')) . '">升级</a>'
-            : '<button class="settings-tool-action" type="button" disabled>升级</button>';
-        $update_dot = $has_update_notice ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
-        $debug_cards .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
-        $html .= '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $s) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $debug_cards . '</div></div>';
-    } elseif ($tab === 'groups') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
-        foreach (groups_cache() as $g) {
-            $html .= '<tr><td><strong class="admin-name">' . h($g['name']) . '</strong></td><td>' . admin_flag((int)($g['allow_manage'] ?? 0)) . '</td><td>' . admin_flag((int)($g['allow_admin'] ?? 0)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => (int)$g['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'groups', 'id' => (int)$g['id'], 'tab' => 'groups'], 'danger', '确定删除？') . '</td></tr>';
-        }
-        $html .= '</table>';
-    } elseif ($tab === 'forums') {
-        $html .= '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => 0])) . '">添加</a></th></tr>';
-        foreach (forums_cache() as $f) {
-            $perm = [];
-            foreach (['allow_view_groups' => '浏览', 'allow_post_groups' => '发帖', 'allow_reply_groups' => '回帖'] as $field => $label) {
-                $count = count(forum_group_ids($f, $field));
-                $perm[] = $label . ':' . ($count ? $count . '组' : '不限');
-            }
-            $html .= '<tr><td><strong class="admin-name">' . h($f['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$f['sort'] . '</span></td><td>' . h(implode(' / ', $perm)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$f['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$f['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
-        }
-        $html .= '</table>';
-    } elseif ($tab === 'plugins') {
-        $view = (string)($_GET['view'] ?? '');
-        if ($view === '') $html .= Plugin::admin_plugins_page_html();
-        elseif ($view === 'market') $html .= Plugin::plugin_market_page_html();
-        elseif ($view === 'cron') $html .= Plugin::admin_plugins_cron_logs_page_html();
-        else {
-            $plugin_view = hook('admin.plugins.view', null, ['view' => $view, 'with_tabs' => true]);
-            if (!is_string($plugin_view)) err('你访问的页面不存在', 404);
-            $html .= $plugin_view;
-        }
-    } else {
-        $plugin_html = Plugin::admin_plugin_tab_html((string)$tab);
-        if ($plugin_html === null) err('你访问的页面不存在', 404);
-        $html .= $plugin_html;
-    }
+    if ($tab === 'plugins' && is_post_request()) Plugin::admin_plugins_handle_post();
+    if ($tab === 'settings' && is_post_request()) admin_settings_handle_post();
+    $html = match ($tab) {
+        'settings' => admin_settings_html(),
+        'groups' => admin_groups_html(),
+        'forums' => admin_forums_html(),
+        'plugins' => admin_plugins_html(),
+        default => Plugin::admin_plugin_tab_html($tab),
+    };
+    if ($html === null) err('你访问的页面不存在', 404);
     page('后台', admin_layout($tab, $html));
 }
 function admin_edit_page(): void
 {
     need_admin();
     $type = $_GET['type'] ?? $_POST['type'] ?? '';
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_post_request()) {
         if ($type === 'group') save_group();
         elseif ($type === 'forum') save_forum();
         else err('参数错误');
@@ -2996,9 +3004,7 @@ function form_error_route(): void
 function logout_route(): void
 {
     require_post();
-    auth_cookie_clear();
-    $GLOBALS['__request_uid'] = 0;
-    $GLOBALS['__me_cache'] = null;
+    clear_auth_cookie();
     go(route_url('home'));
 }
 function delete_route(): void
@@ -3012,10 +3018,6 @@ function delete_route(): void
     if ((string)($_POST['back'] ?? '') === 'topic') go(route_url('topic', ['id' => (int)($_POST['tid'] ?? 0)]));
     go(route_url('home'));
 }
-function migration_route(): void { Setup::migrate_page(); }
-function cron_dispatch_route(): void { Cron::cron_route(); }
-function plugin_market_install_route(): void { Plugin::plugin_market_install_page(); }
-function plugin_market_share_route(): void { Plugin::plugin_market_share_page(); }
 function admin_route(): void
 {
     $do = (string)($_GET['do'] ?? '');
@@ -3032,13 +3034,30 @@ function admin_route(): void
 function core_routes(): array
 {
     return [
-        'home'=>'home_page', 'robots.txt'=>'robots_page',
-        'favicon.ico'=>'favicon_page', 'apple-touch-icon.png'=>'favicon_page', 'apple-touch-icon-precomposed.png'=>'favicon_page',
-        'search'=>'search_page', 'forum'=>'forum_page', 'topic'=>'topic_page', 'user'=>'user_page',
-        'login'=>'login_page', 'logout'=>'logout_route', 'register'=>'register_page', 'form_error'=>'form_error_route', 'profile'=>'profile_page', 'notify'=>'user_notify_page',
-        'topic_edit'=>'topic_edit_page', 'reply_edit'=>'reply_edit_page', 'delete'=>'delete_route',
-        'migrate'=>'migration_route', 'admin'=>'admin_route', 'cron'=>'cron_dispatch_route', 'opcache_refresh'=>'opcache_refresh_route',
-        'plugin_market_install'=>'plugin_market_install_route', 'plugin_market_share'=>'plugin_market_share_route',
+        'home' => 'home_page',
+        'robots.txt' => 'robots_page',
+        'favicon.ico' => 'favicon_page',
+        'apple-touch-icon.png' => 'favicon_page',
+        'apple-touch-icon-precomposed.png' => 'favicon_page',
+        'search' => 'search_page',
+        'forum' => 'forum_page',
+        'topic' => 'topic_page',
+        'user' => 'user_page',
+        'login' => 'login_page',
+        'logout' => 'logout_route',
+        'register' => 'register_page',
+        'form_error' => 'form_error_route',
+        'profile' => 'profile_page',
+        'notify' => 'user_notify_page',
+        'topic_edit' => 'topic_edit_page',
+        'reply_edit' => 'reply_edit_page',
+        'delete' => 'delete_route',
+        'migrate' => [Setup::class, 'migrate_page'],
+        'admin' => 'admin_route',
+        'cron' => [Cron::class, 'cron_route'],
+        'opcache_refresh' => 'opcache_refresh_route',
+        'plugin_market_install' => [Plugin::class, 'plugin_market_install_page'],
+        'plugin_market_share' => [Plugin::class, 'plugin_market_share_page'],
     ];
 }
 if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {
@@ -3068,7 +3087,7 @@ try {
     }
     $route = (string)($_GET['a'] ?? 'home');
     $handler = core_routes()[$route] ?? null;
-    if ($handler !== null) call_user_func($handler);
+    if ($handler !== null) $handler();
     elseif (!plugin_route($route)) err('你访问的页面不存在', 404);
 } catch (Throwable $e) {
     debug_log_write('未捕获异常', $e);
