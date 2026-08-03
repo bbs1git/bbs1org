@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v7.9');
+define('APP_VERSION', 'v8.0');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -417,7 +417,6 @@ function default_settings(): array
     return [
         'site_name' => 'FORUM',
         'allow_register' => '1',
-        'reserved_usernames' => 'admin,administrator,root,system',
         'default_group_id' => '2',
         'pc_nav_forum_count' => '6',
         'topics_per_page' => '30',
@@ -426,9 +425,6 @@ function default_settings(): array
         'mysql_search_index_topics_title' => '0',
         'mysql_search_index_topics_body' => '0',
         'mysql_search_index_replies_body' => '0',
-        'register_per_hour' => '1',
-        'login_fail_per_hour' => '5',
-        'reset_fail_per_hour' => '5',
         'post_interval_seconds' => '5',
         'stats_topics' => '0',
         'stats_replies' => '0',
@@ -738,42 +734,6 @@ function ip_addr(): string
     }
     return '0.0.0.0';
 }
-function rate_bucket_config(string $bucket): array
-{
-    static $configs = [
-        'register' => ['count' => 'register_count', 'time' => 'register_at', 'setting' => 'register_per_hour', 'default' => '1', 'window' => 3600],
-        'login_fail' => ['count' => 'login_fail_count', 'time' => 'login_fail_at', 'setting' => 'login_fail_per_hour', 'default' => '5', 'window' => 3600],
-        'reset_fail' => ['count' => 'reset_fail_count', 'time' => 'reset_fail_at', 'setting' => 'reset_fail_per_hour', 'default' => '5', 'window' => 3600],
-    ];
-    if (!isset($configs[$bucket])) err('参数错误');
-    return $configs[$bucket];
-}
-function rate_allow_bucket(string $ip, string $bucket): bool
-{
-    $config = rate_bucket_config($bucket);
-    $count = (string)$config['count'];
-    $time = (string)$config['time'];
-    $row = one("SELECT $count count_value,$time time_value FROM app_ip_logs WHERE ip=?", [$ip]);
-    $hits = $row && (int)$row['time_value'] >= time() - (int)$config['window'] ? (int)$row['count_value'] : 0;
-    return $hits < max(1, (int)setting((string)$config['setting'], (string)$config['default']));
-}
-function rate_hit_bucket(string $ip, string $bucket): void
-{
-    $config = rate_bucket_config($bucket);
-    $count_field = (string)$config['count'];
-    $time_field = (string)$config['time'];
-    $ts = time();
-    $expired = $ts - (int)$config['window'];
-    $sql = "INSERT INTO app_ip_logs(ip,$count_field,$time_field,created_at,updated_at) VALUES(?,1,?,?,?)";
-    if (db_driver() === 'mysql') {
-        $sql .= " ON DUPLICATE KEY UPDATE $count_field=IF($time_field<?,1,$count_field+1),$time_field=?,updated_at=?";
-        q($sql, [$ip, $ts, $ts, $ts, $expired, $ts, $ts]);
-        return;
-    } else {
-        $sql .= " ON CONFLICT(ip) DO UPDATE SET $count_field=CASE WHEN $time_field<? THEN 1 ELSE app_ip_logs.$count_field+1 END,$time_field=excluded.$time_field,updated_at=excluded.updated_at";
-    }
-    q($sql, [$ip, $ts, $ts, $ts, $expired]);
-}
 function post_interval_seconds(): int
 {
     return min(3600, max(0, (int)setting('post_interval_seconds', '5')));
@@ -827,9 +787,9 @@ function save_settings(): void
         'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '',
         'default_group_id' => (string)$gid,
     ];
-    foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120, 'reserved_usernames' => 2000] as $key => $max) $values[$key] = post($key, $max);
+    foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500, 'header_html' => 20000, 'footer_html' => 20000, 'mail_from' => 120] as $key => $max) $values[$key] = post($key, $max);
     foreach (['show_runtime_info', 'site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'mail_virtual', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
-    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'search_min_chars' => [1, 20, 2], 'register_per_hour' => [1, 100, 1], 'login_fail_per_hour' => [1, 100, 5], 'reset_fail_per_hour' => [1, 100, 5], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) {
+    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'search_min_chars' => [1, 20, 2], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
     save_settings_values($values);
@@ -2346,7 +2306,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     if ($admin && $user_id === 1 && !is_super_user()) err('无权限');
     if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限');
     if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
-    if (!$admin && !$user_id && !rate_allow_bucket($ip, 'register')) err('同一IP 1小时内注册次数已达上限');
+    if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP 1小时内注册次数已达上限');
     $username = post('username', 40);
     $email = post('email', 120);
     $bio = post('bio', 1000);
@@ -2356,7 +2316,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     if ($username === '') err('用户名不能为空');
     $old_user = $user_id ? row('app_users', 'id', $user_id) : null;
     if ($user_id && !$old_user) err('用户不存在');
-    if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && in_array(function_exists('mb_strtolower') ? mb_strtolower($username, 'UTF-8') : strtolower($username), array_map(fn($v) => function_exists('mb_strtolower') ? mb_strtolower($v, 'UTF-8') : strtolower($v), preg_split('/[\s,，]+/u', setting('reserved_usernames'), -1, PREG_SPLIT_NO_EMPTY) ?: []), true)) err('用户名已保留');
+    if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && hook('user.username_reserved', false, ['username' => $username]) === true) err('用户名已保留');
     $gid = $admin ? max(1, (int)$_POST['group_id']) : ($old_user ? (int)$old_user['group_id'] : (int)setting('default_group_id', '2'));
     if (!group_by_id($gid)) err('用户组不存在');
     $points = $admin ? (int)($_POST['points'] ?? 0) : (int)($old_user['points'] ?? 0);
@@ -2407,7 +2367,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         q("INSERT INTO app_users(username,password,email,bio,avatar_style,avatar_seed,group_id,points,is_banned,is_muted,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [$username, password_hash($pwd, PASSWORD_DEFAULT), $email, $bio, $avatar_style, $avatar_seed, $gid, $points, $is_banned, $is_muted, now()]);
         $new_user_id = app_db_last_insert_id('app_users');
         $GLOBALS['__last_saved_user_id'] = $new_user_id;
-        if (!$admin && !id()) rate_hit_bucket($ip, 'register');
+        if (!$admin && !id()) fire('security.rate_hit', ['ip' => $ip, 'bucket' => 'register']);
         fire('user.after_save', ['id' => $new_user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => true]);
         if (!$admin) home_stats_record_insert('users', $new_user_id);
     }
@@ -2539,13 +2499,13 @@ function forgot_password_page(): void
     $sent = false;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
-        if (!rate_allow_bucket($ip, 'reset_fail')) err('同一IP 1小时内错误次数已达上限');
+        if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'reset_fail']) === false) err('同一IP 1小时内错误次数已达上限');
         hook('forgot_password.before_submit', true, []);
         $username = post('username', 40);
         $email = post('email', 120);
         $u = one("SELECT id,username,email FROM app_users WHERE username=? AND email=?", [$username, $email]);
         if (!$u || !filter_var((string)$u['email'], FILTER_VALIDATE_EMAIL)) {
-            rate_hit_bucket($ip, 'reset_fail');
+            fire('security.rate_hit', ['ip' => $ip, 'bucket' => 'reset_fail']);
             err('用户名和邮箱不匹配');
         }
         $token = create_password_reset($u);
@@ -2800,7 +2760,7 @@ function login_page(): void
     if (uid()) go(consume_auth_return_url());
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = ip_addr();
-        if (!rate_allow_bucket($ip, 'login_fail')) err('同一IP 1小时内错误次数已达上限');
+        if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'login_fail']) === false) err('同一IP 1小时内错误次数已达上限');
         hook('login.before_submit', true, []);
         $u = one("SELECT id,password FROM app_users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
@@ -2808,7 +2768,7 @@ function login_page(): void
             if (!is_array($auth) || !empty($auth['continue'])) complete_login((int)$u['id']);
             return;
         }
-        rate_hit_bucket($ip, 'login_fail');
+        fire('security.rate_hit', ['ip' => $ip, 'bucket' => 'login_fail']);
         err('用户名或密码错误');
     }
     $sidebar = sidebar_stack_html([
@@ -3294,10 +3254,6 @@ function admin_page(): void
             'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
             'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
             'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
-            'reserved_usernames' => ['label' => '保留用户名', 'type' => 'textarea'],
-            'register_per_hour' => ['label' => '1小时内注册限制', 'type' => 'number', 'min' => 1, 'max' => 100],
-            'login_fail_per_hour' => ['label' => '1小时内登录错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
-            'reset_fail_per_hour' => ['label' => '1小时内操作错误限制', 'type' => 'number', 'min' => 1, 'max' => 100],
             'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
         ];
         $debug_cards = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
