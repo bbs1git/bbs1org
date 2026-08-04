@@ -1412,7 +1412,7 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
 {
     $status = $status > 0 ? $status : 200;
     $is_not_found = $status === 404;
-    if ($log ?? !$is_not_found) debug_log_write($message);
+    if ($log === true) debug_log_write($message);
     if ($status !== 200) http_response_code($status);
     if ($mode === 'auto') {
         if (ajax_request()) $mode = 'ajax';
@@ -1437,7 +1437,7 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
         echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
         exit;
     }
-    error_page($is_not_found ? '404' : '错误', $message, $status);
+    error_page($is_not_found ? '404' : '消息', $message, $status);
 }
 function go(string $u): never
 {
