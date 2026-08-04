@@ -1902,7 +1902,16 @@ function topic_list_rows_for_replies(array $reply_rows): array
     $rows = [];
     foreach ($reply_rows as $reply) {
         $topic_id = (int)$reply['topic_id'];
-        $topic = $topics[$topic_id] ?? ['id' => $topic_id, 'title' => '已删除'];
+        $topic = $topics[$topic_id] ?? [
+            'id' => $topic_id,
+            'title' => '已删除',
+            'reply_only' => 1,
+            'forum_id' => 0,
+            'user_id' => (int)$reply['user_id'],
+            'created_at' => (int)$reply['created_at'],
+            'last_reply_at' => (int)$reply['created_at'],
+            'reply_count' => 0,
+        ];
         $rows[] = $topic + [
             'my_reply_at' => (int)$reply['created_at'],
             'my_reply_id' => (int)$reply['id'],
