@@ -176,7 +176,6 @@ public static function cron_run(): array
                 $value = $callback($plugin, $definition);
                 $message = is_scalar($value) ? trim((string)$value) : '';
                 $status = 'success';
-                if ($message !== '') debug_log_write('[cron] ' . $key . ': ' . $message);
             } catch (Throwable $e) {
                 $error = trim($e->getMessage());
                 debug_log_write('[cron] ' . $key . ' failed', $e);
