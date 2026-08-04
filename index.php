@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.2');
+define('APP_VERSION', 'v8.3');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -23,6 +23,7 @@ define('PLUGIN_JS_FILE', ASSET_DIR . '/plugins.js');
 define('CRON_LOG_RETENTION_SECONDS', 604800);
 define('CRON_LEASE_SECONDS', 1800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
+define('DEBUG_LOG_DEDUP_SECONDS', 600);
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('PASSWORD_MIN_LENGTH', 4);
 define('COOKIE_TTL', 15552000);
@@ -475,10 +476,35 @@ function debug_mode_enabled(): bool
 function debug_log_write(string $message, ?Throwable $e = null): void
 {
     if (!debug_mode_enabled()) return;
+    $exception_text = $e ? exception_detail($e) : '';
+    $fingerprint = hash('sha256', $message . "\n" . $exception_text);
+    $now = time();
+    $throttle = @fopen(DEBUG_LOG_FILE . '.throttle', 'c+');
+    if (is_resource($throttle) && @flock($throttle, LOCK_EX)) {
+        rewind($throttle);
+        $recent = json_decode((string)stream_get_contents($throttle), true);
+        $recent = is_array($recent) ? $recent : [];
+        foreach ($recent as $key => $timestamp) {
+            if ($now - (int)$timestamp >= DEBUG_LOG_DEDUP_SECONDS) unset($recent[$key]);
+        }
+        if (isset($recent[$fingerprint])) {
+            @flock($throttle, LOCK_UN);
+            @fclose($throttle);
+            return;
+        }
+        $recent[$fingerprint] = $now;
+        @ftruncate($throttle, 0);
+        rewind($throttle);
+        @fwrite($throttle, json_encode($recent, JSON_UNESCAPED_SLASHES));
+        @flock($throttle, LOCK_UN);
+        @fclose($throttle);
+    } elseif (is_resource($throttle)) {
+        @fclose($throttle);
+    }
     $line = '[' . date('Y-m-d H:i:s') . '] ' . trim($message);
     $uri = trim((string)($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . (string)($_SERVER['REQUEST_URI'] ?? ''));
     if ($uri !== '') $line .= "\n" . $uri;
-    if ($e) $line .= "\n" . exception_detail($e);
+    if ($exception_text !== '') $line .= "\n" . $exception_text;
     $line .= "\n\n";
     @file_put_contents(DEBUG_LOG_FILE, $line, FILE_APPEND | LOCK_EX);
 }
