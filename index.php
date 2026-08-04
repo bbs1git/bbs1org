@@ -1442,6 +1442,7 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
 function go(string $u): never
 {
     if (ajax_request()) json_response(['ok' => 1, 'redirect' => $u]);
+    if (ob_get_level() > 0) ob_end_clean();
     header("Location: $u");
     exit;
 }
