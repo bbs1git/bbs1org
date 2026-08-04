@@ -705,9 +705,21 @@ function clean_ip(string $value): string
     if (($p = strpos($value, ';')) !== false) $value = substr($value, 0, $p);
     if (stripos($value, 'for=') === 0) $value = substr($value, 4);
     $value = trim($value, " \t\n\r\0\x0B\"'");
-    if (preg_match('/^\[([^\]]+)\](?::\d+)?$|^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/', $value, $m)) $value = $m[1] ?: $m[2];
+    if (str_starts_with($value, '[')) {
+        $end = strpos($value, ']');
+        if ($end === false) return '';
+        $port = substr($value, $end + 1);
+        if ($port !== '' && !preg_match('/^:\d+$/D', $port)) return '';
+        $value = substr($value, 1, $end - 1);
+    } elseif (substr_count($value, ':') === 1) {
+        [$host, $port] = explode(':', $value, 2);
+        if ($port !== '' && ctype_digit($port)) $value = $host;
+    }
     if (($p = strpos($value, '%')) !== false) $value = substr($value, 0, $p);
-    return filter_var($value, FILTER_VALIDATE_IP) ? $value : '';
+    $packed = inet_pton($value);
+    if ($packed === false) return '';
+    $normalized = inet_ntop($packed);
+    return is_string($normalized) ? strtolower($normalized) : '';
 }
 function ip_addr(): string
 {
