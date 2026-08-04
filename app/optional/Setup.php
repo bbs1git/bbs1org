@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace app\optional;
 
 use PDO;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
