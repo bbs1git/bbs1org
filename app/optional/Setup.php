@@ -1110,6 +1110,12 @@ public static function migrate_driver(string $driver): string
     return $driver;
 }
 
+public static function migrate_identifier(string $driver, string $name): string
+{
+    if ($name === '' || str_contains($name, "\0")) throw new InvalidArgumentException('数据库标识符不能为空。');
+    return $driver === 'mysql' ? '`' . str_replace('`', '``', $name) . '`' : '"' . str_replace('"', '""', $name) . '"';
+}
+
 public static function migrate_source_config(): array
 {
     $driver = self::migrate_driver((string)($_POST['source_driver'] ?? 'sqlite'));
@@ -1159,13 +1165,17 @@ public static function migrate_tables(PDO $db, string $driver): array
 
 public static function migrate_columns(PDO $db, string $driver, string $table): array
 {
+    if ($driver === 'sqlite') {
+        $rows = $db->query('PRAGMA table_info(' . self::migrate_identifier($driver, $table) . ')')->fetchAll();
+        return array_values(array_filter(array_map(fn(array $row): string => (string)($row['name'] ?? ''), $rows)));
+    }
     return array_keys(app_db_columns($db, $driver, $table));
 }
 
 public static function migrate_column_schema(PDO $db, string $driver, string $table): array
 {
     if ($driver === 'sqlite') {
-        $rows = $db->query('PRAGMA table_info(' . app_db_identifier($driver, $table) . ')')->fetchAll();
+        $rows = $db->query('PRAGMA table_info(' . self::migrate_identifier($driver, $table) . ')')->fetchAll();
         return array_map(fn(array $row): array => [
             'name' => (string)$row['name'], 'type' => (string)$row['type'], 'nullable' => !(bool)$row['notnull'],
             'default' => $row['dflt_value'], 'auto' => false, 'pk' => (int)$row['pk'],
@@ -1207,17 +1217,17 @@ public static function migrate_index_schema(PDO $db, string $driver, string $tab
             ksort($primary);
             $indexes['PRIMARY'] = ['name' => 'PRIMARY', 'unique' => true, 'primary' => true, 'columns' => array_values($primary)];
         }
-        foreach ($db->query('PRAGMA index_list(' . app_db_identifier($driver, $table) . ')')->fetchAll() as $index) {
+        foreach ($db->query('PRAGMA index_list(' . self::migrate_identifier($driver, $table) . ')')->fetchAll() as $index) {
             if ((string)$index['origin'] === 'pk') continue;
             $name = (string)$index['name'];
-            $items = $db->query('PRAGMA index_info(' . app_db_identifier($driver, $name) . ')')->fetchAll();
+            $items = $db->query('PRAGMA index_info(' . self::migrate_identifier($driver, $name) . ')')->fetchAll();
             $names = array_values(array_filter(array_map(fn(array $row): string => (string)($row['name'] ?? ''), $items)));
             if ($names) $indexes[$name] = ['name' => $name, 'unique' => (bool)$index['unique'], 'primary' => false, 'columns' => $names];
         }
         return array_values($indexes);
     }
     if ($driver === 'mysql') {
-        $rows = $db->query('SHOW INDEX FROM ' . app_db_identifier($driver, $table))->fetchAll();
+        $rows = $db->query('SHOW INDEX FROM ' . self::migrate_identifier($driver, $table))->fetchAll();
         foreach ($rows as $row) {
             $name = (string)$row['Key_name'];
             $indexes[$name] ??= ['name' => $name, 'unique' => !(bool)$row['Non_unique'], 'primary' => $name === 'PRIMARY', 'columns' => []];
@@ -1323,18 +1333,18 @@ public static function migrate_install_table(PDO $source, string $source_driver,
         $auto = $column['name'] === $auto_column && ($column['auto'] || preg_match('/int|serial/i', $column['type']));
         if ($auto) $auto_primary = true;
         $type = self::migrate_column_type($column['type'], $target_driver, isset($indexed[$column['name']]), $auto);
-        $definition = app_db_identifier($target_driver, $column['name']) . ' ' . $type;
+        $definition = self::migrate_identifier($target_driver, $column['name']) . ' ' . $type;
         if (!$auto) $definition .= (!$column['nullable'] ? ' NOT NULL' : '') . self::migrate_default_sql($target, $source_driver, $column['default'], $target_driver === 'mysql' && preg_match('/TEXT|BLOB/', $type));
         $definitions[] = $definition;
     }
-    if ($primary && !$auto_primary) $definitions[] = 'PRIMARY KEY(' . implode(',', array_map(fn(string $name): string => app_db_identifier($target_driver, $name), $primary)) . ')';
-    $sql = 'CREATE TABLE ' . app_db_identifier($target_driver, $target_table) . '(' . implode(',', $definitions) . ')';
+    if ($primary && !$auto_primary) $definitions[] = 'PRIMARY KEY(' . implode(',', array_map(fn(string $name): string => self::migrate_identifier($target_driver, $name), $primary)) . ')';
+    $sql = 'CREATE TABLE ' . self::migrate_identifier($target_driver, $target_table) . '(' . implode(',', $definitions) . ')';
     if ($target_driver === 'mysql') $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     $target->exec($sql);
     foreach ($indexes as $index) {
         if ($index['primary'] || !$index['columns']) continue;
         $name = self::migrate_index_name($target, $target_driver, $target_table, $index['name'], $index['columns'], $index['unique']);
-        $target->exec('CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX ' . app_db_identifier($target_driver, $name) . ' ON ' . app_db_identifier($target_driver, $target_table) . '(' . implode(',', array_map(fn(string $column): string => app_db_identifier($target_driver, $column), $index['columns'])) . ')');
+        $target->exec('CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX ' . self::migrate_identifier($target_driver, $name) . ' ON ' . self::migrate_identifier($target_driver, $target_table) . '(' . implode(',', array_map(fn(string $column): string => self::migrate_identifier($target_driver, $column), $index['columns'])) . ')');
     }
 }
 
@@ -1419,7 +1429,7 @@ public static function migrate_reset_sequences(PDO $db, string $driver, array $t
         $sequence->execute([$table]);
         $name = $sequence->fetchColumn();
         if (!$name) continue;
-        $max = (int)$db->query('SELECT COALESCE(MAX(id),0) FROM ' . app_db_identifier($driver, $table))->fetchColumn();
+        $max = (int)$db->query('SELECT COALESCE(MAX(id),0) FROM ' . self::migrate_identifier($driver, $table))->fetchColumn();
         $set->execute([$name, max(1, $max), $max > 0]);
     }
 }
@@ -1454,16 +1464,16 @@ public static function migrate_run(PDO $source, array $source_config): array
     else $source->beginTransaction();
     $target->beginTransaction();
     try {
-        foreach (array_reverse($plans) as $plan) $target->exec('DELETE FROM ' . app_db_identifier($target_config['driver'], $plan['target']));
+        foreach (array_reverse($plans) as $plan) $target->exec('DELETE FROM ' . self::migrate_identifier($target_config['driver'], $plan['target']));
         foreach ($plans as $plan) {
             $source_table = $plan['source'];
             $target_table = $plan['target'];
             $columns = $plan['columns'];
-            $source_columns = implode(',', array_map(fn(string $name): string => app_db_identifier($source_config['driver'], $name), $columns));
-            $target_columns = implode(',', array_map(fn(string $name): string => app_db_identifier($target_config['driver'], $name), $columns));
-            $order = in_array('id', $columns, true) ? ' ORDER BY ' . app_db_identifier($source_config['driver'], 'id') : '';
-            $read = $source->query('SELECT ' . $source_columns . ' FROM ' . app_db_identifier($source_config['driver'], $source_table) . $order);
-            $insert = 'INSERT INTO ' . app_db_identifier($target_config['driver'], $target_table) . '(' . $target_columns . ') VALUES(' . sql_marks(count($columns)) . ')';
+            $source_columns = implode(',', array_map(fn(string $name): string => self::migrate_identifier($source_config['driver'], $name), $columns));
+            $target_columns = implode(',', array_map(fn(string $name): string => self::migrate_identifier($target_config['driver'], $name), $columns));
+            $order = in_array('id', $columns, true) ? ' ORDER BY ' . self::migrate_identifier($source_config['driver'], 'id') : '';
+            $read = $source->query('SELECT ' . $source_columns . ' FROM ' . self::migrate_identifier($source_config['driver'], $source_table) . $order);
+            $insert = 'INSERT INTO ' . self::migrate_identifier($target_config['driver'], $target_table) . '(' . $target_columns . ') VALUES(' . sql_marks(count($columns)) . ')';
             $insert = $target_config['driver'] === 'mysql' ? str_replace('INSERT INTO', 'INSERT IGNORE INTO', $insert) : $insert . ' ON CONFLICT DO NOTHING';
             $write = $target->prepare($insert);
             $count = 0;
