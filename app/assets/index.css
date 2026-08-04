@@ -538,6 +538,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .plugin-ops{grid-column:1;justify-content:flex-start;align-self:start;margin:2px 0 0;overflow-x:auto}
 .plugin-ops .plugin-enable,.plugin-ops .plugin-manage-link{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
 .plugin-ops .plugin-enable:hover,.plugin-ops .plugin-manage-link:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-hover)}
+.plugin-ops button[aria-busy="true"]{cursor:wait;opacity:.7}
 .plugin-entry-line{grid-column:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .plugin-entry-label{color:var(--text-subtle);font-size:var(--font-size-sm);font-weight:600;line-height:1.4;white-space:nowrap}
 .plugin-entry-form{display:inline-flex}

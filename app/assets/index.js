@@ -475,7 +475,23 @@ document.addEventListener("submit", async e => {
     if (form.dataset.noAjax === "1") return;
     e.preventDefault();
     const button = e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
-    if (button) button.disabled = true;
+    const loadingText = button?.dataset?.loadingText || "";
+    const buttonText = button?.textContent || "";
+    const resetButton = () => {
+        if (!button) return;
+        button.disabled = false;
+        if (loadingText) {
+            button.textContent = buttonText;
+            button.removeAttribute("aria-busy");
+        }
+    };
+    if (button) {
+        button.disabled = true;
+        if (loadingText) {
+            button.textContent = loadingText;
+            button.setAttribute("aria-busy", "true");
+        }
+    }
     try {
         window.bbs1AttachmentUpload?.beforeSubmit(form);
         const body = new FormData(form);
@@ -492,7 +508,7 @@ document.addEventListener("submit", async e => {
         window.bbs1AttachmentUpload?.afterSubmit();
         if (data.modal && typeof data.modal === "object") {
             openModal(data.modal.title || data.message || "提示", data.modal.html || "");
-            if (button) button.disabled = false;
+            resetButton();
             return;
         }
         const replaceTarget = form.dataset.replaceTarget || "";
@@ -504,6 +520,7 @@ document.addEventListener("submit", async e => {
                 const panel = panelDoc.querySelector(replaceTarget);
                 if (panel) replaceEl.outerHTML = panel.outerHTML;
             } catch (_) {}
+            if (!replaceEl || replaceEl.isConnected) resetButton();
             showToast(data.message || "操作完成");
             return;
         }
@@ -522,7 +539,7 @@ document.addEventListener("submit", async e => {
     } catch (err) {
         showToast(err?.message || "操作失败");
         if (window.turnstile && form.querySelector(".cf-turnstile")) window.turnstile.reset(form.querySelector(".cf-turnstile"));
-        if (button) button.disabled = false;
+        resetButton();
     }
 });
 window.addEventListener("load", () => {

@@ -258,7 +258,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $needs_update = isset($updates[$id]);
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
-        $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
