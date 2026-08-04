@@ -53,6 +53,8 @@ public static function debug_log_write(string $message, ?Throwable $e = null): v
         @fclose($throttle);
     }
     $line = '[' . date('Y-m-d H:i:s') . '] ' . trim($message);
+    $ip = ip_addr();
+    if ($ip !== '') $line .= "\nIP: " . $ip;
     $uri = trim((string)($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . (string)($_SERVER['REQUEST_URI'] ?? ''));
     if ($uri !== '') $line .= "\n" . $uri;
     if ($exception_text !== '') $line .= "\n" . $exception_text;
