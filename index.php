@@ -2750,6 +2750,14 @@ function topic_page(): void
     $posts = attach_users(array_merge([$t], $replies));
     $t = array_shift($posts);
     $replies = $posts;
+    $filtered_replies = hook('topic.replies', $replies, [
+        'topic' => $t,
+        'page' => $p,
+        'page_size' => $size,
+        'reply_count' => (int)$t['reply_count'],
+        'reply_order' => $reply_desc ? 1 : 0,
+    ]);
+    if (is_array($filtered_replies)) $replies = $filtered_replies;
     fire('topic.after_view', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
     $topic_ops = '';
     if (uid()) $topic_ops .= quote_reply_action($t);
