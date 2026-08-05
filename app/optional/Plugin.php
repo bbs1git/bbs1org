@@ -283,7 +283,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
     uksort($items, fn(string $a, string $b): int => (int)isset($updates[$b]) <=> (int)isset($updates[$a]));
     $query = trim((string)($_GET['q'] ?? ''));
     $url = admin_url(['tab' => 'plugins', 'view' => 'market']);
-    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
+    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
     $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'refresh' => '1'])) . '">刷新</a></div>';
     $html = ($with_tabs ? self::admin_plugins_tabs_html('market') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, $actions) . '<ul class="admin-manage-list plugin-list">';
     if (!(int)($market['ok'] ?? 0)) return $html . '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li></ul></div>';
