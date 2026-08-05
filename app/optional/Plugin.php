@@ -628,7 +628,7 @@ public static function admin_plugins_handle_post(): void
     } elseif ($plugin_action === 'uninstall') {
         $keep_data = (string)($_POST['keep_plugin_data'] ?? '1') === '1';
         self::plugin_uninstall($plugin_id, $keep_data);
-        $message = $keep_data ? '插件已卸载，目录已删除，数据已保留' : '插件已卸载，目录和数据已删除';
+        $message = $keep_data ? '插件已卸载，PHP脚本已备份，数据已保留' : '插件已卸载，PHP脚本已备份，目录和数据已删除';
     } elseif ($plugin_action === 'entry_toggle') {
         self::plugin_set_entry_enabled($plugin_id, (string)($_POST['entry'] ?? ''), (string)($_POST['entry_enabled'] ?? '0') === '1');
         $message = '插件入口显示已更新';
@@ -687,6 +687,7 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     $dir = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id;
     if (str_replace('\\', '/', (string)($plugin['file'] ?? '')) !== $dir . '/plugin.php') err('插件目录无效');
     if (!self::plugin_directory_removable($dir)) err('插件目录不可删除，请检查目录权限');
+    self::plugin_backup_php_files($id, $dir);
     if (!$keep_data) {
         plugin_call($plugin, function () use ($plugin, $id): void {
             $fn = (string)($plugin['uninstall'] ?? '');
@@ -700,6 +701,20 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     plugins(true);
     plugin_runtime_cache_reset();
     self::plugin_assets_mark_dirty();
+}
+
+private static function plugin_backup_php_files(string $id, string $dir): void
+{
+    if (is_link($dir)) throw new RuntimeException('插件目录不可备份');
+    $backup_root = DATA_DIR . '/plugin-backups';
+    require_writable_dir($backup_root, '插件备份目录不可写，请检查 app/data/plugin-backups 目录权限');
+    $source = $dir . '/plugin.php';
+    if (is_link($source) || !is_file($source)) throw new RuntimeException('插件入口脚本不可备份');
+    $backup_file = $backup_root . '/' . $id . '-' . date('YmdHis') . '-' . bin2hex(random_bytes(4)) . '.php';
+    if (!copy($source, $backup_file) || !hash_equals((string)hash_file('sha256', $source), (string)hash_file('sha256', $backup_file))) {
+        @unlink($backup_file);
+        throw new RuntimeException('插件 PHP 脚本备份失败');
+    }
 }
 
 private static function plugin_directory_removable(string $dir): bool
