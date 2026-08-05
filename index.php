@@ -991,8 +991,18 @@ function notification_row_html(array $n): string
     $sender_name = trim((string)($n['sender_username'] ?? '')) ?: '系统';
     $body = (string)($n['content'] ?? '');
     $content_html = markdown_html($body);
-    if ((string)($n['kind'] ?? '') === 'mention' && (int)($n['topic_id'] ?? 0) > 0 && preg_match('/^在主题《(.+?)》中提到你：(.*)$/us', $body, $m)) {
-        $content_html = '在主题《<a href="' . h(notification_link($n)) . '">' . h($m[1]) . '</a>》中提到你：' . markdown_html(trim((string)$m[2]));
+    if ((int)($n['topic_id'] ?? 0) > 0 || (int)($n['reply_id'] ?? 0) > 0) {
+        $url = notification_link($n);
+        if ($url !== '') {
+            $linked = preg_replace_callback('/《([^》]*)》/u', static fn(array $match): string => '《<a href="' . h($url) . '">' . $match[1] . '</a>》', $content_html, 1, $count);
+            if (is_string($linked) && $count > 0) {
+                $content_html = $linked;
+            } else {
+                $view_link = '<a href="' . h($url) . '">查看主题</a>';
+                $content_html = preg_replace('/<\/p>\s*$/u', ' ' . $view_link . '</p>', $content_html, 1, $paragraph_count) ?? $content_html;
+                if ($paragraph_count < 1) $content_html .= ' ' . $view_link;
+            }
+        }
     }
     $kind = (string)($n['kind'] ?? '') === 'mention' ? '提及' : '通知';
     $unread = (int)($n['read_at'] ?? 0) === 0;
