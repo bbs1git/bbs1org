@@ -3044,7 +3044,7 @@ function admin_route(): void
     if ($do === '') { admin_page(); return; }
     if ($do !== 'delete') err('你访问的页面不存在', 404);
     require_post(); need_admin();
-    $type = ['group' => 'groups', 'forum' => 'forums'][$_POST['type'] ?? ''] ?? '';
+    $type = ['group' => 'groups', 'groups' => 'groups', 'forum' => 'forums', 'forums' => 'forums'][$_POST['type'] ?? ''] ?? '';
     if (!in_array($type, ['groups', 'forums'], true)) err('参数错误');
     if (!can_admin_delete($type, id())) err('无权限');
     del($type, id());
