@@ -2530,6 +2530,9 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
 {
     $profile_uid = (int)($user['id'] ?? 0);
     $offset = ($page - 1) * $size;
+    $ctx = ['forum_id' => $fid, 'user' => $user, 'profile_tab' => $profile_tab, 'query' => $query, 'search_field' => $search_field, 'sort' => $sort, 'page' => $page, 'page_size' => $size, 'offset' => $offset];
+    $data = hook('topic.index_data.load', null, $ctx);
+    if (is_array($data)) return $data;
     $simple_pagination = false;
     $has_next_page = false;
     $profile_empty = '';
@@ -2593,7 +2596,7 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
         }
         $rows = attach_topic_list_users($rows);
     }
-    return [
+    $data = [
         'rows' => $rows,
         'total' => $total,
         'profile_empty' => $profile_empty,
@@ -2601,6 +2604,8 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
         'simple_pagination' => $simple_pagination,
         'has_next_page' => $has_next_page,
     ];
+    hook('topic.index_data.loaded', $data, $ctx);
+    return $data;
 }
 function topic_index_page(?array $filter_forum = null, ?array $filter_user = null): void
 {
@@ -2720,6 +2725,20 @@ function forum_page(): void
     remember_forum($fid);
     topic_index_page($f);
 }
+function topic_page_replies(array $topic, int $page, int $size, int $offset, bool $reply_desc): array
+{
+    $ctx = ['topic' => $topic, 'page' => $page, 'page_size' => $size, 'offset' => $offset, 'reply_order' => $reply_desc ? 1 : 0];
+    $data = hook('topic.replies_data.load', null, $ctx);
+    if (is_array($data)) return $data;
+    $order = $reply_desc ? 'created_at DESC,id DESC' : 'created_at,id';
+    $replies = q("SELECT * FROM app_replies WHERE topic_id=? ORDER BY $order LIMIT ? OFFSET ?", [(int)$topic['id'], $size, $offset])->fetchAll();
+    $posts = attach_users(array_merge([$topic], $replies));
+    $topic = array_shift($posts);
+    $replies = $posts;
+    $data = ['topic' => $topic, 'replies' => $replies];
+    hook('topic.replies_data.loaded', $data, $ctx);
+    return $data;
+}
 function topic_page(): void
 {
     if (!id() && id('replyid')) {
@@ -2755,11 +2774,9 @@ function topic_page(): void
     }
     $p = max(1, (int)($_GET['p'] ?? 1));
     $off = ($p - 1) * $size;
-    $reply_order_sql = $reply_desc ? 'created_at DESC,id DESC' : 'created_at,id';
-    $replies = q("SELECT * FROM app_replies WHERE topic_id=? ORDER BY $reply_order_sql LIMIT ? OFFSET ?", [(int)$t['id'], $size, $off])->fetchAll();
-    $posts = attach_users(array_merge([$t], $replies));
-    $t = array_shift($posts);
-    $replies = $posts;
+    $page_data = topic_page_replies($t, $p, $size, $off, $reply_desc);
+    $t = $page_data['topic'];
+    $replies = $page_data['replies'];
     $filtered_replies = hook('topic.replies', $replies, [
         'topic' => $t,
         'page' => $p,
