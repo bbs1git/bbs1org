@@ -119,7 +119,7 @@ private static function plugin_market_cache_read(bool $fresh): ?array
     $file = self::plugin_market_cache_file();
     if (!is_file($file)) return null;
     $data = json_decode((string)@file_get_contents($file), true);
-    if (!is_array($data) || !is_array($data['plugins'] ?? null)) return null;
+    if (!is_array($data) || !is_array($data['plugins'] ?? null) || !$data['plugins']) return null;
     $fetched_at = (int)($data['fetched_at'] ?? 0);
     if ($fetched_at < 1) return null;
     if ($fresh && now() - $fetched_at >= PLUGIN_MARKET_CACHE_TTL) return null;
@@ -169,9 +169,14 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
         if ($need_code) $plugins[$id]['code'] = $code;
     }
     $result = ['ok' => (int)($data['ok'] ?? 1), 'message' => (string)($data['message'] ?? ''), 'plugins' => $plugins];
-    if (!$need_code && (int)$result['ok'] === 1) {
+    if (!$need_code && (int)$result['ok'] === 1 && $plugins) {
         $result['fetched_at'] = now();
         self::plugin_market_cache_write($result);
+        return $result;
+    }
+    if (!$need_code) {
+        $stale = self::plugin_market_cache_read(false);
+        if ($stale !== null) return $stale;
     }
     return $result;
 }
