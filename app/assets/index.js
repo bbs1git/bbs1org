@@ -410,7 +410,13 @@ document.addEventListener("submit", async e => {
         const button = replyForm.querySelector("button");
         const status = replyForm.querySelector(".reply-status");
         const list = document.querySelector(".topic-post-list");
+        const loadingText = button?.dataset?.loadingText || "";
+        const buttonText = button?.textContent || "";
         button.disabled = true;
+        if (loadingText) {
+            button.textContent = loadingText;
+            button.setAttribute("aria-busy", "true");
+        }
         if (status) status.textContent = "提交中";
         try {
             window.bbs1AttachmentUpload?.beforeSubmit(replyForm);
@@ -442,6 +448,10 @@ document.addEventListener("submit", async e => {
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
         } finally {
             button.disabled = false;
+            if (loadingText) {
+                button.textContent = buttonText;
+                button.removeAttribute("aria-busy");
+            }
         }
         return;
     }

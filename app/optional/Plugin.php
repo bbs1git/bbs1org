@@ -285,11 +285,12 @@ public static function plugin_market_admin_actions(array $plugin): string
 public static function admin_plugin_action_form(string $id, string $action, string $label, string $class = '', string $confirm = ''): string
 {
     $confirm_attr = $confirm !== '' ? ' data-confirm="' . h($confirm) . '"' : '';
-    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => $action]) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . '>' . h($label) . '</button></form>';
+    $loading_attr = $action === 'enable' ? ' data-loading-text="正在启用"' : '';
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => $action]) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . $loading_attr . '>' . h($label) . '</button></form>';
 }
 public static function admin_plugin_uninstall_form(string $id): string
 {
-    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？插件目录将被永久删除。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger">卸载</button></form>';
+    return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？插件目录将被永久删除。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger" data-loading-text="正在卸载">卸载</button></form>';
 }
 public static function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
 {
