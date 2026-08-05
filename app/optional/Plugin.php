@@ -12,7 +12,7 @@ if (!defined('APP_ROOT')) {
 const PLUGIN_MARKET_ENDPOINT = 'https://bbs1.org/index.php';
 const PLUGIN_MARKET_SHARE_MAX = 200000;
 const PLUGIN_MARKET_CACHE_TTL = 900;
-const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-feed.json';
+const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
 
 final class Plugin
 {
