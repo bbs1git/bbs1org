@@ -2758,7 +2758,7 @@ function topic_page(): void
     $floor = id('floor');
     $reply_desc = (int)($t['reply_order'] ?? 0) === 1;
     if ($floor > 0) {
-        if ($floor > (int)$t['reply_count']) err('你访问的楼层可能已经删除', 404);
+        if ($floor > (int)$t['reply_count']) $floor = (int)$t['reply_count'];
         $display_position = $reply_desc ? (int)$t['reply_count'] - $floor + 1 : $floor;
         $_GET['p'] = (string)max(1, (int)ceil($display_position / $size));
     } elseif ($replyid > 0) {
