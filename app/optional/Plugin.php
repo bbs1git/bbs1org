@@ -13,6 +13,8 @@ const PLUGIN_MARKET_ENDPOINT = 'https://bbs1.org/index.php';
 const PLUGIN_MARKET_SHARE_MAX = 200000;
 const PLUGIN_MARKET_CACHE_TTL = 900;
 const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
+const PLUGIN_UPLOAD_FILE = 'plugin_upload.data';
+const PLUGIN_UPLOAD_MAX = 2097152;
 
 final class Plugin
 {
@@ -255,6 +257,29 @@ public static function plugin_market_share_page(): void
     page('分享插件', shell_html('<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, '') . '<ul class="admin-manage-list plugin-list">' . $row . '</ul></div>', sidebar_stack_html([sidebar_user_card_html()])));
 }
 
+public static function plugin_download_page(): void
+{
+    need_admin();
+    require_post();
+    $id = (string)($_POST['plugin_id'] ?? '');
+    $plugin = plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
+    if (!is_array($plugin)) err('插件不存在');
+    $file = (string)($plugin['file'] ?? '');
+    $expected = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id . '/plugin.php';
+    if (str_replace('\\', '/', $file) !== $expected || is_link($file) || !is_file($file) || !is_readable($file)) err('插件文件不存在或不可读');
+    $code = file_get_contents($file);
+    if (!is_string($code) || $code === '') err('插件文件不存在或为空');
+    $version = trim((string)preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)($plugin['version'] ?? '')), '._-');
+    if ($version === '') $version = 'unknown';
+    $filename = $id . '_' . $version . '.php1';
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . strlen($code));
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('X-Content-Type-Options: nosniff');
+    echo $code;
+    exit;
+}
+
 public static function plugin_market_update_available(array $plugin, array $item): bool
 {
     $remote = trim((string)($item['version'] ?? ''));
@@ -323,7 +348,9 @@ public static function plugin_market_admin_actions(array $plugin): string
 {
     $id = (string)($plugin['id'] ?? '');
     if (!plugin_id_valid($id)) return '';
-    return '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">分享</button></form>';
+    $share = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">分享</button></form>';
+    $download = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_download')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">下载</button></form>';
+    return $share . $download;
 }
 
 public static function admin_plugin_action_form(string $id, string $action, string $label, string $class = '', string $confirm = ''): string
@@ -331,6 +358,11 @@ public static function admin_plugin_action_form(string $id, string $action, stri
     $confirm_attr = $confirm !== '' ? ' data-confirm="' . h($confirm) . '"' : '';
     $loading_attr = $action === 'enable' ? ' data-loading-text="正在启用"' : '';
     return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => $action]) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . $loading_attr . '>' . h($label) . '</button></form>';
+}
+public static function admin_plugin_upload_form(): string
+{
+    $form = '<form class="plugin-upload-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" enctype="multipart/form-data">' . form_token() . hidden_inputs(['plugin_action' => 'upload']) . '<input type="file" name="plugin_file" data-plugin-upload-file required><div class="plugin-upload-note">请选择插件脚本文件上传。⚠️ 同名插件将覆盖安装。</div><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="plugin-enable" data-loading-text="上传中">上传</button></div></form>';
+    return '<button type="button" class="plugin-upload-open" data-plugin-upload-open>插件上传</button><template data-plugin-upload-template>' . $form . '</template>';
 }
 public static function admin_plugin_uninstall_form(string $id): string
 {
@@ -354,7 +386,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = self::admin_plugin_action_form('', 'sync', '同步插件');
+    $head_right = '<div class="plugin-head-actions">' . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件') . '</div>';
     $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
@@ -659,10 +691,15 @@ public static function admin_plugins_handle_post(): void
     $plugin_id = (string)($_POST['plugin_id'] ?? '');
     $message = '';
     $refresh_after_response = false;
+    $redirect_after_response = false;
     if ($plugin_action === 'sync') {
         save_settings_values(['plugin_sync_pending' => '1']);
         $message = '插件已同步';
         $refresh_after_response = true;
+    } elseif ($plugin_action === 'upload') {
+        $plugin = self::plugin_upload((array)($_FILES['plugin_file'] ?? []));
+        $message = '插件 ' . (string)$plugin['id'] . ' 已上传并同步';
+        $redirect_after_response = true;
     } elseif ($plugin_action === 'enable') {
         self::plugin_set_enabled($plugin_id, true);
         $message = '插件已启用';
@@ -679,6 +716,11 @@ public static function admin_plugins_handle_post(): void
     } else err('参数错误');
     $view = (string)($_GET['view'] ?? '');
     if (ajax_request()) {
+        if ($redirect_after_response) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => 1, 'message' => $message, 'redirect' => admin_url(['tab' => 'plugins'])], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         if ($refresh_after_response) {
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1], JSON_UNESCAPED_UNICODE);
@@ -691,6 +733,84 @@ public static function admin_plugins_handle_post(): void
     }
     set_flash($message);
     go(admin_url(['tab' => 'plugins', 'view' => $view === 'cron' ? $view : null]));
+}
+
+private static function plugin_upload(array $file): array
+{
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error !== UPLOAD_ERR_OK) err($error === UPLOAD_ERR_NO_FILE ? '请选择插件脚本文件' : '插件上传失败');
+    $tmp = (string)($file['tmp_name'] ?? '');
+    $size = (int)($file['size'] ?? 0);
+    if (!is_uploaded_file($tmp) || $size <= 0) err('插件文件无效');
+    if ($size > PLUGIN_UPLOAD_MAX) err('插件文件不能超过2MB');
+    require_writable_dir(DATA_DIR, 'app/data 目录不可写');
+    $upload_file = DATA_DIR . '/' . PLUGIN_UPLOAD_FILE;
+    if (!move_uploaded_file($tmp, $upload_file)) err('插件上传失败');
+    $code = file_get_contents($upload_file);
+    if (!is_string($code)) {
+        @unlink($upload_file);
+        err('插件文件读取失败');
+    }
+    try {
+        token_get_all($code, TOKEN_PARSE);
+    } catch (Throwable) {
+        @unlink($upload_file);
+        err('插件 PHP 语法无效');
+    }
+    if (!str_starts_with(ltrim($code), '<?php') || preg_match('/!\s*defined\s*\(\s*[\'\"]APP_ROOT[\'\"]\s*\)/', $code) !== 1) {
+        @unlink($upload_file);
+        err('不是标准的插件脚本');
+    }
+    preg_match_all('/\breturn\s*\[\s*([\'\"])id\1\s*=>\s*([\'\"])([a-z0-9][a-z0-9_-]{0,63})\2/s', $code, $matches, PREG_OFFSET_CAPTURE);
+    $match_index = count($matches[0] ?? []) - 1;
+    $id = $match_index >= 0 ? (string)$matches[3][$match_index][0] : '';
+    $manifest_offset = $match_index >= 0 ? (int)$matches[0][$match_index][1] : -1;
+    $manifest = $manifest_offset >= 0 ? substr($code, $manifest_offset) : '';
+    foreach (['name', 'version', 'description', 'author'] as $key) {
+        if ($manifest === '' || preg_match('/[\'\"]' . preg_quote($key, '/') . '[\'\"]\s*=>/', $manifest) !== 1) {
+            @unlink($upload_file);
+            err('插件 manifest 不完整');
+        }
+    }
+    if (!plugin_id_valid($id) || $id === 'plugin_market') {
+        @unlink($upload_file);
+        err('插件 ID 无效');
+    }
+    $dir = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id;
+    if (is_link($dir) || (file_exists($dir) && !is_dir($dir))) {
+        @unlink($upload_file);
+        err('插件目录无效');
+    }
+    if (is_dir($dir)) {
+        $source = $dir . '/plugin.php';
+        if (is_link($source) || !is_file($source)) {
+            @unlink($upload_file);
+            err('同名插件目录缺少可备份的 plugin.php');
+        }
+        if (!is_writable($dir)) {
+            @unlink($upload_file);
+            err('插件目录不可写');
+        }
+        self::plugin_backup_php_files($id, $dir);
+    } else {
+        require_writable_dir(PLUGIN_DIR, 'app/plugins 目录不可写');
+        if (!mkdir($dir, 0755)) {
+            @unlink($upload_file);
+            err('插件目录创建失败');
+        }
+    }
+    $target = $dir . '/plugin.php';
+    $target_tmp = $target . '.tmp.' . bin2hex(random_bytes(4));
+    if (file_put_contents($target_tmp, $code, LOCK_EX) === false || !rename($target_tmp, $target)) {
+        @unlink($target_tmp);
+        @unlink($upload_file);
+        err('插件文件写入失败');
+    }
+    @chmod($target, 0644);
+    if (function_exists('opcache_invalidate')) @opcache_invalidate($target, true);
+    @unlink($upload_file);
+    save_settings_values(['plugin_sync_pending' => '1', 'plugin_assets_dirty' => '1']);
+    return ['id' => $id];
 }
 
 public static function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): void

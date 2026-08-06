@@ -113,6 +113,14 @@ const openConfirm = (message, title = "确认操作") => _openModalBox(title, fa
     box.append(text, actions);
     return cancel;
 });
+document.addEventListener("click", e => {
+    const button = e.target.closest("[data-plugin-upload-open]");
+    if (!button) return;
+    const template = document.querySelector("[data-plugin-upload-template]");
+    if (!template) return;
+    openModal("插件上传", template.innerHTML);
+    modalBody?.querySelector("[data-plugin-upload-file]")?.focus();
+});
 const openPluginUninstallConfirm = (message, title = "卸载插件") => _openModalBox(title, false, (box, cancel, ok) => {
     box.className = "confirm-box";
     const text = document.createElement("p");

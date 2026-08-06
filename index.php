@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.3.2');
+define('APP_VERSION', 'v8.3.8');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -3122,6 +3122,7 @@ function core_routes(): array
         'opcache_refresh' => 'opcache_refresh_route',
         'plugin_market_install' => [Plugin::class, 'plugin_market_install_page'],
         'plugin_market_share' => [Plugin::class, 'plugin_market_share_page'],
+        'plugin_download' => [Plugin::class, 'plugin_download_page'],
     ];
 }
 if (PHP_SAPI === 'cli' && (string)($_SERVER['argv'][1] ?? '') === 'cron') {

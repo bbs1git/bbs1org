@@ -492,6 +492,11 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-list-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 26px var(--shadow-base);overflow:hidden}
 .admin-rebuild-fts-form{display:flex;justify-content:flex-end}
 .admin-topic-tools,.plugin-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.plugin-upload-open{box-sizing:border-box;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:auto;height:32px;min-height:32px;padding:7px 13px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text-muted);font:inherit;font-size:var(--font-size-sm);font-weight:500;line-height:1.2;cursor:pointer}
+.plugin-upload-open:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.plugin-upload-form{display:grid;gap:12px;min-width:min(360px,calc(100vw - 56px));margin:0}
+.plugin-upload-form input[type=file]{width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font:inherit;color:var(--text)}
+.plugin-upload-note{color:var(--text-muted);font-size:var(--font-size-sm);line-height:1.5}
 .admin-list-head{padding:12px;border-bottom:1px solid var(--line-soft);background:var(--bg)}
 .admin-list-item{padding:12px;border-bottom:1px solid var(--line-soft)}
 .admin-list-item:last-child{border-bottom:none}
