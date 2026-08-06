@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.3.5');
+define('APP_VERSION', 'v8.3.2');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -511,7 +511,7 @@ function plugin_json_encode(array $value): string
 {
     return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 }
-function plugin_update_row(string $id, array $values): void
+function plugin_update_row(string $id, array $values, bool $touch_updated_at = true): void
 {
     if (!plugin_id_valid($id)) throw new InvalidArgumentException('插件 ID 无效');
     $allowed = array_flip(['name', 'version', 'file', 'code_hash', 'manifest_json', 'config_json', 'entries_json', 'enabled', 'status', 'disabled_reason', 'installed_at']);
@@ -520,7 +520,7 @@ function plugin_update_row(string $id, array $values): void
         if (array_key_exists($field, $values)) $values[$field] = plugin_json_encode(plugin_json_decode($values[$field]) ?? []);
     }
     if (!$values) return;
-    $values['updated_at'] = now();
+    if ($touch_updated_at) $values['updated_at'] = now();
     $fields = array_keys($values);
     q('UPDATE app_plugins SET ' . implode('=?,', $fields) . '=? WHERE id=?', array_merge(array_values($values), [$id]));
 }

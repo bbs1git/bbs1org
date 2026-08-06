@@ -305,7 +305,11 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:var(
 input:hover,select:hover,textarea:hover{border-color:var(--line)}
 input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--focus-ring);outline:0}
 input.readonly-input:disabled{border-color:var(--line-soft);background:var(--bg);color:var(--text-disabled);opacity:1;cursor:not-allowed}
-input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--brand)}
+input[type=checkbox]{box-sizing:border-box;width:38px;height:22px;margin:0;padding:0;border:1px solid var(--line);border-radius:999px;background-color:var(--line-soft);background-image:radial-gradient(circle,var(--panel) 0 7px,transparent 7.5px);background-position:3px 50%;background-repeat:no-repeat;background-size:16px 16px;cursor:pointer;appearance:none;-webkit-appearance:none;transition:background-color var(--transition-normal),background-position var(--transition-normal),border-color var(--transition-normal)}
+input[type=checkbox]:checked{border-color:var(--brand);background-color:var(--brand);background-position:calc(100% - 3px) 50%}
+input[type=checkbox]:hover{border-color:var(--brand)}
+input[type=checkbox]:disabled{border-color:var(--line-soft);background-color:var(--line-soft);cursor:not-allowed;opacity:.6}
+input[type=checkbox]:focus-visible{box-shadow:0 0 0 3px var(--focus-ring)}
 textarea{min-height:120px;resize:vertical;line-height:1.6}
 .grid{display:grid;grid-template-columns:98px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}
 .grid>span{padding-top:6px;color:var(--text-muted);font-size:var(--font-size-sm)}
@@ -324,7 +328,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .topic-color-swatch:hover{background:inherit;filter:brightness(.98)}
 .topic-color-clear:hover{background:linear-gradient(135deg,transparent 0 46%,var(--danger) 47% 53%,transparent 54%),var(--panel);color:inherit}
 .forum-group-checks .check{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--text-muted);font-size:var(--font-size-sm)}
-.forum-group-checks .check input{width:14px;height:14px}
+.forum-group-checks .check input{width:38px;height:22px}
 .form-panel input,.form-panel select{max-width:450px}
 .form-panel button{justify-self:start}
 .form-panel .muted{margin:10px 0;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg)}
@@ -441,7 +445,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-head-right-slot{flex:0 0 auto;margin-left:auto}
 .bulk-bar{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:0 6px 18px var(--shadow-base)}
 .bulk-select-all{display:inline-flex;align-items:center;gap:6px;margin-right:auto;color:var(--text-muted);font-size:var(--font-size-sm)}
-.bulk-select-all input{width:14px;height:14px}
+.bulk-select-all input{width:38px;height:22px}
 .bulk-action-group{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
 .bulk-action-select{flex:0 0 150px;width:150px;max-width:150px;height:28px;padding:0 24px 0 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:var(--font-size-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bulk-action-select + .bulk-action-select{flex-basis:160px;width:160px;max-width:160px}
@@ -484,7 +488,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-bulk-list th{height:34px;background:var(--bg);color:var(--text-subtle);font-weight:600}
 .admin-bulk-list td{padding-top:12px;padding-bottom:12px}
 .admin-bulk-list tr:hover td{background:var(--bg)}
-.admin-bulk-list input[type=checkbox]{width:15px;height:15px}
+.admin-bulk-list input[type=checkbox]{width:38px;height:22px}
 .admin-list-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 26px var(--shadow-base);overflow:hidden}
 .admin-rebuild-fts-form{display:flex;justify-content:flex-end}
 .admin-topic-tools,.plugin-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
@@ -494,8 +498,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-list-item:hover{background:var(--bg)}
 .admin-object-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:center;min-height:64px}
 .admin-user-row,.admin-topic-row,.admin-reply-row{grid-template-columns:minmax(0,1fr) auto}
-.admin-trash-row{grid-template-columns:18px minmax(0,1fr) auto}
-.admin-row-check{flex:0 0 auto;width:15px;height:15px;margin:0}
+.admin-trash-row{grid-template-columns:42px minmax(0,1fr) auto}
+.admin-row-check{flex:0 0 auto;width:38px;height:22px;margin:0}
 .admin-inline-ops .admin-row-check{margin-left:4px}
 .admin-row-main{display:grid;gap:6px;min-width:0}
 .admin-row-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;color:var(--text-subtle);font-size:11px;line-height:1.35}
@@ -506,7 +510,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-topic-row .admin-row-main,.admin-reply-row .admin-row-main{padding-right:8px}
 .admin-reply-row .admin-content-text{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:var(--text-muted)}
 .admin-list-line{display:flex;align-items:flex-start;gap:9px;min-width:0}
-.admin-list-line>input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin-top:3px}
+.admin-list-line>input[type=checkbox]{flex:0 0 auto;width:38px;height:22px;margin-top:3px}
 .admin-list-line .admin-content-title,.admin-list-line .admin-content-text{flex:1;min-width:0}
 .plugin-tabs{display:inline-flex;align-items:center;gap:4px;width:auto;margin:0 0 10px;padding:4px;border:0;border-radius:999px;background:var(--line-soft)}
 .plugin-tabs .tab{display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:0 14px;border:0;border-radius:999px;background:transparent;color:var(--text-muted);font-size:var(--font-size-sm);font-weight:500;line-height:1.2}
@@ -543,7 +547,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .plugin-entry-label{color:var(--text-subtle);font-size:var(--font-size-sm);font-weight:600;line-height:1.4;white-space:nowrap}
 .plugin-entry-form{display:inline-flex}
 .plugin-entry-check{display:inline-flex;align-items:center;gap:5px;min-height:26px;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text-muted);font-size:var(--font-size-sm);font-weight:500;white-space:nowrap}
-.plugin-entry-check input{width:14px;height:14px}
+.plugin-entry-check input{flex:0 0 auto;width:38px;height:15px}
 .plugin-manage-panel+.plugin-manage-panel{margin-top:12px}
 .plugin-panel-body{padding:12px}
 .plugin-settings-form{display:grid;gap:8px;max-width:520px}
@@ -607,7 +611,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .plugin-list-panel .admin-head-add{padding:0 12px}
     .admin-bulk-list .admin-content-cell,.admin-bulk-list .admin-content-text,.admin-bulk-list .admin-content-title{white-space:normal}
     .admin-object-row{grid-template-columns:minmax(0,1fr);gap:10px}
-    .admin-trash-row{grid-template-columns:18px minmax(0,1fr)}
+    .admin-trash-row{grid-template-columns:42px minmax(0,1fr)}
     .admin-object-row .admin-inline-ops{grid-column:1;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
     .admin-trash-row .admin-inline-ops{grid-column:2}
     .plugin-item.admin-object-row{gap:8px}

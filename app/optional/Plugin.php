@@ -700,7 +700,7 @@ public static function plugin_set_entry_enabled(string $id, string $entry, bool 
     if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
     $entries = (array)($plugin['entries'] ?? []);
     $entries[$entry] = $enabled;
-    plugin_update_row($id, ['entries_json' => $entries]);
+    plugin_update_row($id, ['entries_json' => $entries], false);
     plugins(true);
 }
 
@@ -716,7 +716,7 @@ public static function plugin_set_enabled(string $id, bool $enabled): void
             }
         });
     }
-    plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => '']);
+    plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], false);
     q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$enabled ? 1 : 0, $id]);
     $runtime_plugins = plugins(true);
     if ($enabled && isset($runtime_plugins[$id])) Cron::plugin_cron_sync($runtime_plugins[$id]);
