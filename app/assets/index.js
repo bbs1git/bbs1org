@@ -293,7 +293,7 @@ document.addEventListener("change", async e => {
     const body = new FormData(form);
     input.disabled = true;
     try {
-        const response = await fetch(form.action || window.location.href, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const response = await fetch(form.action || window.location.href, {method: "POST", body, credentials: "same-origin", headers: {"X-Requested-With": "XMLHttpRequest"}});
         const data = await response.json();
         if (!data?.ok) throw new Error(data?.message || "保存失败");
         const replaceTarget = form.dataset.replaceTarget || "";
