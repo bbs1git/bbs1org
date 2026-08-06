@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.3.1');
+define('APP_VERSION', 'v8.3.3');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1312,7 +1312,17 @@ function me(): ?array
         clear_auth_cookie();
         return null;
     }
-    $g = group_by_id((int)$u['group_id']) ?: err('用户组不存在');
+    $g = group_by_id((int)$u['group_id']);
+    if (!$g) {
+        $fallback_group_id = (int)setting('default_group_id', '2');
+        $g = group_by_id($fallback_group_id);
+        if (!$g) {
+            clear_auth_cookie();
+            return null;
+        }
+        q('UPDATE app_users SET group_id=? WHERE id=? AND group_id=?', [$fallback_group_id, (int)$u['id'], (int)$u['group_id']]);
+        $u['group_id'] = $fallback_group_id;
+    }
     $GLOBALS['__request_uid'] = (int)$u['id'];
     return $GLOBALS['__me_cache'] = $u + ['group_name' => $g['name'], 'group_id' => (int)($u['group_id'] ?? 0), 'is_banned' => (int)($u['is_banned'] ?? 0), 'is_muted' => (int)($u['is_muted'] ?? 0), 'allow_manage' => (int)($g['allow_manage'] ?? 0), 'allow_admin' => (int)($g['allow_admin'] ?? 0)];
 }
