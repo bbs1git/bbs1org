@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.3.4');
+define('APP_VERSION', 'v8.3.5');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -328,6 +328,11 @@ function auth_cookie_clear(): void
 {
     app_cookie(AUTH_COOKIE_NAME, '', time() - 3600);
     unset($_COOKIE[AUTH_COOKIE_NAME]);
+}
+function csrf_cookie_clear(): void
+{
+    app_cookie(CSRF_COOKIE_NAME, '', time() - 3600);
+    unset($_COOKIE[CSRF_COOKIE_NAME]);
 }
 function auth_cookie_set(int $user_id, string $password_hash): void
 {
@@ -1295,6 +1300,7 @@ function is_super_user(): bool
 function clear_auth_cookie(): void
 {
     auth_cookie_clear();
+    csrf_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
 }
@@ -1360,6 +1366,7 @@ function consume_auth_return_url(): string
 function start_cookie_login(int $user_id): void
 {
     $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
+    csrf_cookie_clear();
     auth_cookie_set($user_id, (string)$user['password']);
     $GLOBALS['__request_uid'] = $user_id;
     unset($GLOBALS['__me_cache']);
@@ -2203,6 +2210,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
             $p = [$username, $email, $bio, $avatar_style, $avatar_seed, $gid, $is_banned, $is_muted, password_hash($pwd, PASSWORD_DEFAULT), $user_id];
         }
         q($sql, $p);
+        if ($pwd !== '' && $user_id === uid()) csrf_cookie_clear();
         if ($admin) user_points_set($user_id, $points, '管理员调整');
         fire('user.after_save', ['id' => $user_id, 'username' => $username, 'email' => $email, 'admin' => $admin, 'creating' => false]);
     } else {
