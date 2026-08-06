@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.3.3');
+define('APP_VERSION', 'v8.3.4');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2649,7 +2649,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     if ($q !== '') {
         if (!uid()) err('请登录后操作');
         $seconds = post_interval_seconds();
-        if ($p === 1 && $seconds > 0) {
+        if ($seconds > 0) {
             $wait = $seconds - (time() - (int)(row('app_users', 'id', uid())['last_post_at'] ?? 0));
             if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
             q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
