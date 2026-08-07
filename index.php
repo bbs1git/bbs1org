@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.1');
+define('APP_VERSION', 'v8.5.2');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1961,12 +1961,14 @@ function topic_list_row(array $t, string $sort): string
         return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
     }
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
+    $has_forum = (int)($forum['id'] ?? 0) > 0 && trim((string)($forum['name'] ?? '')) !== '';
     $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
-    $forum_link = '<a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>';
+    $forum_link = $has_forum ? '<a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
     $last_reply_username = (string)($t['last_reply_username'] ?? '');
     $last_reply_user = $last_reply_username !== '' ? '<span>' . svg_icon('user') . h($last_reply_username) . '</span>' : '';
     $time_meta = '<span>' . human_time($time) . '</span>';
-    $meta = '<span>' . $user_link . '</span>' . ($sort === 'post' ? $time_meta : '') . '<span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span><span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span>' . $last_reply_user . ($sort === 'post' ? '' : $time_meta);
+    $forum_meta = $has_forum ? '<span class="post-forum-meta">' . svg_icon('forum') . $forum_link . '</span>' : '';
+    $meta = '<span>' . $user_link . '</span>' . ($sort === 'post' ? $time_meta : '') . $forum_meta . '<span>' . svg_icon('reply') . (int)$t['reply_count'] . '</span>' . $last_reply_user . ($sort === 'post' ? '' : $time_meta);
     $pages = topic_page_links((int)$t['id'], (int)$t['reply_count']);
     $reply_id = (int)($t['my_reply_id'] ?? 0);
     $topic_url = route_url('topic', ['id' => (int)$t['id'], 'replyid' => $reply_id > 0 ? $reply_id : null]);
@@ -1975,7 +1977,8 @@ function topic_list_row(array $t, string $sort): string
     $badges = ((int)($t['is_pinned'] ?? 0) ? '<span class="topic-badge pinned">置顶</span>' : '');
     $style = (string)($t['highlight_style'] ?? '') !== '' ? ' style="' . h((string)$t['highlight_style']) . '"' : '';
     $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t, 'list' => true, 'sort' => $sort]);
-    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div><a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></li>';
+    $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
+    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
     return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
 }
 function topic_stats_html(int $view_count, int $reply_count): string
@@ -2767,9 +2770,9 @@ function topic_page(): void
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
     $t = row('app_topics', 'id', id()) ?: err('你访问的帖子可能已经删除', 404);
-    $forum = forum_by_id((int)$t['forum_id']) ?: err('你访问的页面不存在', 404);
-    if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
-    remember_forum((int)$t['forum_id']);
+    $forum = forum_by_id((int)$t['forum_id']);
+    if ($forum && !forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
+    if ($forum) remember_forum((int)$t['forum_id']);
     if (mark_viewed((int)$t['id'])) {
         q("UPDATE app_topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;
