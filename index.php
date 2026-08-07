@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.0');
+define('APP_VERSION', 'v8.5.1');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2157,6 +2157,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限');
     if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
     if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP 1小时内注册次数已达上限');
+    $is_registration = !$admin && !$user_id;
     $username = post('username', 40);
     $email = post('email', 120);
     $bio = post('bio', 1000);
@@ -2200,6 +2201,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $is_muted = (int)($filtered['is_muted'] ?? $is_muted) ? 1 : 0;
     }
     if ($username === '') err('用户名不能为空');
+    if ($is_registration && preg_match_all('/./us', $username) > 20) err('用户名不能超过20个汉字或英文');
     $exists = $user_id ? one("SELECT id FROM app_users WHERE username=? AND id<>?", [$username, $user_id]) : one("SELECT id FROM app_users WHERE username=?", [$username]);
     if ($exists) err('用户名已存在');
     if ($user_id) {
@@ -2503,7 +2505,8 @@ function register_page(): void
         sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
-    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
+    $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文</small></span><input name="username" type="text" maxlength="20" required></label>';
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
