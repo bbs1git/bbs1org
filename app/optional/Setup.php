@@ -19,7 +19,7 @@ define('UPDATE_DB_CONFIG_FILE', DB_CONFIG_FILE);
 define('UPDATE_INSTALL_LOCK_FILE', INSTALL_LOCK_FILE);
 define('UPDATE_RUN_LOCK_FILE', DATA_DIR . '/update.lock');
 define('UPDATE_REPOSITORY', 'bbs1org/bbs1org');
-define('UPDATE_BRANCH', 'main');
+define('UPDATE_SOURCE_ENDPOINT', 'https://bbs1.org/index.php');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
@@ -448,11 +448,11 @@ public static function us_handle_legacy_upgrade(): never
     }
 }
 
-public static function us_http(string $url): string
+public static function us_http(string $url, int $max_bytes = UPDATE_MAX_ARCHIVE_BYTES): string
 {
     $context = stream_context_create(['http' => [
         'method' => 'GET',
-        'header' => "Accept: application/vnd.github+json\r\nUser-Agent: bbs1org-updater\r\n",
+        'header' => "Accept: application/json, text/plain, application/octet-stream\r\nUser-Agent: bbs1org-updater\r\n",
         'timeout' => 15,
         'follow_location' => 1,
         'max_redirects' => 3,
@@ -463,37 +463,39 @@ public static function us_http(string $url): string
     foreach (($http_response_header ?? []) as $header) {
         if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $m)) $status = (int)$m[1];
     }
-    if ($body === false || $status < 200 || $status >= 300) throw new RuntimeException('连接 GitHub 失败（HTTP ' . ($status ?: '未知') . '）。');
+    if ($body === false || $status < 200 || $status >= 300) throw new RuntimeException('连接升级源失败（HTTP ' . ($status ?: '未知') . '）。');
+    if (strlen($body) > $max_bytes) throw new RuntimeException('升级源返回内容过大。');
     return $body;
+}
+
+public static function us_source_url(string $path): string
+{
+    return UPDATE_SOURCE_ENDPOINT . '?' . http_build_query(['a' => 'plugin_market_source', 'path' => $path, 'raw' => 1], '', '&', PHP_QUERY_RFC3986);
 }
 
 public static function us_remote_release(): array
 {
-    $json = json_decode(self::us_http('https://api.github.com/repos/' . UPDATE_REPOSITORY . '/commits/' . UPDATE_BRANCH), true, 512, JSON_THROW_ON_ERROR);
+    $json = json_decode(self::us_http(self::us_source_url('bbs1org.json'), 10485760), true, 512, JSON_THROW_ON_ERROR);
     $sha = (string)($json['sha'] ?? '');
-    $tree_url = (string)($json['commit']['tree']['url'] ?? '');
-    if (!preg_match('/^[a-f0-9]{40}$/', $sha) || $tree_url === '') throw new RuntimeException('GitHub 返回的版本信息无效。');
-    $tree = json_decode(self::us_http($tree_url . '?recursive=1'), true, 512, JSON_THROW_ON_ERROR);
-    if (!empty($tree['truncated']) || !is_array($tree['tree'] ?? null)) throw new RuntimeException('GitHub 返回的文件清单不完整。');
+    if (!preg_match('/^[a-f0-9]{64}$/D', $sha) || !is_array($json['files'] ?? null)) throw new RuntimeException('升级源返回的版本信息无效。');
     $files = [];
-    foreach ($tree['tree'] as $item) {
-        if (($item['type'] ?? '') !== 'blob') continue;
-        $path = (string)($item['path'] ?? '');
-        if (!self::us_update_ignored_path($path)) $files[$path] = (string)($item['sha'] ?? '');
+    foreach ($json['files'] as $path => $hash) {
+        if (!is_string($path) || !is_string($hash) || self::us_update_ignored_path($path) || self::us_protected_path($path) || !preg_match('/^[a-f0-9]{64}$/D', $hash)) continue;
+        $files[$path] = $hash;
     }
+    if (!$files) throw new RuntimeException('升级源返回的文件清单为空。');
     return [
         'sha' => $sha,
         'short_sha' => substr($sha, 0, 12),
-        'date' => (string)($json['commit']['committer']['date'] ?? ''),
-        'message' => trim(strtok((string)($json['commit']['message'] ?? ''), "\r\n")),
+        'date' => (string)($json['date'] ?? ''),
+        'message' => trim(strtok((string)($json['message'] ?? ''), "\r\n")),
         'files' => $files,
     ];
 }
 
-public static function us_git_blob_sha(string $file): string
+public static function us_file_sha256(string $file): string
 {
-    $content = (string)file_get_contents($file);
-    return sha1('blob ' . strlen($content) . "\0" . $content);
+    return (string)hash_file('sha256', $file);
 }
 
 public static function update_state_data(): array
@@ -519,7 +521,7 @@ public static function us_local_changes(array $remote_files): array
     foreach ($remote_files as $path => $sha) {
         $file = APP_ROOT . '/' . $path;
         if (!is_file($file)) $changes[] = ['path' => $path, 'type' => '新增'];
-        elseif (!hash_equals($sha, self::us_git_blob_sha($file))) $changes[] = ['path' => $path, 'type' => '更新'];
+        elseif (!hash_equals($sha, self::us_file_sha256($file))) $changes[] = ['path' => $path, 'type' => '更新'];
     }
     foreach ((array)(self::update_state_data()['files'] ?? []) as $path) {
         if (is_string($path) && !isset($remote_files[$path]) && !self::us_protected_path($path) && is_file(APP_ROOT . '/' . $path)) {
@@ -541,7 +543,7 @@ public static function deliver_update_notice(): void
     $state = self::update_state_data();
     $notice = is_array($state['update_notice'] ?? null) ? $state['update_notice'] : [];
     $sha = (string)($notice['sha'] ?? '');
-    if (!preg_match('/^[a-f0-9]{40}$/', $sha)) return;
+    if (!preg_match('/^[a-f0-9]{64}$/', $sha)) return;
     $short_sha = substr($sha, 0, 12);
     $message = trim((string)($notice['message'] ?? ''));
     $content = '检测到系统新版本 ' . $short_sha . '。' . ($message !== '' ? "\n\n" . cut($message, 120) : '') . "\n\n请前往后台设置中的“系统升级”完成升级。";
@@ -560,26 +562,25 @@ public static function us_notice_check(): never
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) self::us_json(['ok' => 1, 'pending' => 1]);
     try {
         $state = self::update_state_data();
-        $available = is_array($state['update_notice'] ?? null) || preg_match('/^[a-f0-9]{40}$/', (string)($state['update_notice_sent_sha'] ?? '')) === 1;
+        $available = is_array($state['update_notice'] ?? null);
         $last_checked = strtotime((string)($state['last_notice_checked_at'] ?? '')) ?: 0;
         if (!$available && $last_checked > time() - UPDATE_NOTICE_CHECK_INTERVAL) {
             self::us_json(['ok' => 1, 'update_available' => 0, 'cached' => 1]);
         }
         if (!is_array($state['update_notice'] ?? null)) {
-            $state['last_notice_checked_at'] = date(DATE_ATOM);
-            self::update_state_write($state);
             $release = self::us_remote_release();
             $changes = self::us_local_changes((array)$release['files']);
             $sha = (string)$release['sha'];
+            $state['last_notice_checked_at'] = date(DATE_ATOM);
+            $available = (bool)$changes;
             if ($changes && !hash_equals((string)($state['update_notice_sent_sha'] ?? ''), $sha)) {
                 $state['update_notice'] = [
                     'sha' => $sha,
                     'message' => (string)($release['message'] ?? ''),
                     'checked_at' => date(DATE_ATOM),
                 ];
-                self::update_state_write($state);
-                $available = true;
             }
+            self::update_state_write($state);
         }
         self::us_json(['ok' => 1, 'update_available' => $available ? 1 : 0]);
     } catch (Throwable $e) {
@@ -596,14 +597,14 @@ public static function us_update_page(?array $release = null, string $error = ''
     $state = self::update_state_data();
     $local = isset($state['sha']) ? substr((string)$state['sha'], 0, 12) : '未记录';
     $local_time = ($timestamp = strtotime((string)($state['updated_at'] ?? ''))) !== false ? date('Y-m-d H:i', $timestamp) : '';
-    $body = '<h1 class="update-title">系统升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测并安装 ' . h(UPDATE_REPOSITORY) . ' 主分支的最新代码，也可单独同步当前代码对应的数据库结构。</p>';
+    $body = '<h1 class="update-title">系统升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">从官方只读源码下载入口检测并安装 ' . h(UPDATE_REPOSITORY) . ' 主分支代码，也可单独同步当前代码对应的数据库结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';
     if ($release) {
         $changes = self::us_local_changes($release['files']);
         $remote_time = ($timestamp = strtotime((string)$release['date'])) !== false ? date('Y-m-d H:i', $timestamp) : (string)$release['date'];
         $body .= '<div class="update-grid"><div class="update-panel"><strong>本地记录</strong><span class="update-version">' . h($local) . '</span>' . ($local_time !== '' ? '<span>更新时间：' . h($local_time) . '</span>' : '') . '</div><div class="update-panel"><strong>远端最新</strong><span class="update-version">' . h($release['short_sha']) . '</span><span>最后提交：' . h($remote_time) . '</span><span>' . h($release['message']) . '</span></div></div>';
         if ($changes) {
-            $body .= '<div class="update-notice">检测到 ' . count($changes) . ' 个代码文件需要新增或更新。</div><div class="update-warning"><strong>警告：</strong>勾选文件的本地内容和修改将被 GitHub main 分支版本覆盖。</div><ul class="update-list">';
+            $body .= '<div class="update-notice">检测到 ' . count($changes) . ' 个代码文件需要变更。</div><div class="update-warning"><strong>警告：</strong>勾选文件的本地内容和修改将被官方源码下载入口中的版本覆盖。</div><ul class="update-list">';
             foreach ($changes as $change) {
                 $path = (string)($change['path'] ?? '');
                 $type = (string)($change['type'] ?? '变更');
@@ -616,7 +617,7 @@ public static function us_update_page(?array $release = null, string $error = ''
         }
     } else {
         $changes = [];
-        $body .= '<div class="update-notice">点击“检测更新”连接 GitHub 并逐文件核对当前程序。</div>';
+        $body .= '<div class="update-notice">点击“检测更新”读取官方源码下载清单并核对当前程序。</div>';
     }
     $body .= '<div class="update-actions"><a href="index.php">返回首页</a><a href="index.php?a=migrate">数据迁入</a><a href="index.php?a=update&amp;check=1">检测更新</a>';
     if (!$release || !$changes) $body .= '<form method="post" data-no-ajax="1"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
@@ -707,16 +708,20 @@ public static function us_refresh_opcache_after_update(array $files): string
 
 public static function us_install_files(string $sha, array $remote_files, array $selected): array
 {
-    if (!preg_match('/^[a-f0-9]{40}$/', $sha)) throw new RuntimeException('升级版本无效。');
+    if (!preg_match('/^[a-f0-9]{64}$/', $sha)) throw new RuntimeException('升级版本无效。');
     $temp = UPDATE_DATA_DIR . '/update-' . bin2hex(random_bytes(6));
     if (!mkdir($temp, 0700, true)) throw new RuntimeException('无法创建升级临时目录。');
     try {
         $files = [];
-        foreach ($remote_files as $path => $expected_sha) {
+        foreach ($selected as $path) {
             if (!is_string($path) || self::us_update_ignored_path($path)) continue;
-            if (!in_array($path, $selected, true)) continue;
-            $content = self::us_http('https://raw.githubusercontent.com/' . UPDATE_REPOSITORY . '/' . $sha . '/' . $path);
-            if (strlen($content) > UPDATE_MAX_ARCHIVE_BYTES || !hash_equals($expected_sha, sha1('blob ' . strlen($content) . "\0" . $content))) throw new RuntimeException('远端文件校验失败：' . $path);
+            if (!isset($remote_files[$path])) {
+                if (is_file(APP_ROOT . '/' . $path)) $files[] = $path;
+                continue;
+            }
+            $expected_sha = (string)$remote_files[$path];
+            $content = self::us_http(self::us_source_url('bbs1org/' . $path));
+            if (!hash_equals($expected_sha, hash('sha256', $content))) throw new RuntimeException('远端文件校验失败：' . $path);
             $target = $temp . '/' . $path;
             if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0700, true)) throw new RuntimeException('无法创建临时目录：' . dirname($path));
             if (file_put_contents($target, $content, LOCK_EX) === false) throw new RuntimeException('无法保存临时文件：' . $path);
@@ -741,8 +746,13 @@ public static function us_install_files(string $sha, array $remote_files, array 
         $replaced = [];
         try {
             foreach ($files as $path) {
-                $source = $temp . '/' . $path;
                 $target = APP_ROOT . '/' . $path;
+                if (!isset($remote_files[$path])) {
+                    if (is_file($target) && !unlink($target)) throw new RuntimeException('删除文件失败：' . $path);
+                    $replaced[] = $path;
+                    continue;
+                }
+                $source = $temp . '/' . $path;
                 if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0755, true)) throw new RuntimeException('无法创建目录：' . dirname($path));
                 $swap = $target . '.update-' . bin2hex(random_bytes(4));
                 if (!copy($source, $swap) || !rename($swap, $target)) {
@@ -750,9 +760,9 @@ public static function us_install_files(string $sha, array $remote_files, array 
                     throw new RuntimeException('更新文件失败：' . $path);
                 }
                 $replaced[] = $path;
-                if (!hash_equals((string)$remote_files[$path], self::us_git_blob_sha($target))) throw new RuntimeException('更新后校验失败：' . $path);
+                if (!hash_equals((string)$remote_files[$path], self::us_file_sha256($target))) throw new RuntimeException('更新后校验失败：' . $path);
             }
-            $state = json_encode(['sha' => $sha, 'updated_at' => date(DATE_ATOM), 'files' => $files], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+            $state = json_encode(['sha' => $sha, 'updated_at' => date(DATE_ATOM), 'files' => array_keys($remote_files)], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             $state_swap = UPDATE_STATE_FILE . '.update-' . bin2hex(random_bytes(4));
             if ($state === false || file_put_contents($state_swap, $state, LOCK_EX) === false || !rename($state_swap, UPDATE_STATE_FILE)) {
                 @unlink($state_swap);
@@ -1118,7 +1128,9 @@ public static function setup_update_run(): never
             $remote = self::us_remote_release();
             $requested_sha = (string)($_POST['sha'] ?? '');
             if (!hash_equals($remote['sha'], $requested_sha)) throw new RuntimeException('远端版本已变化，请重新检测后再升级。');
-            $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => is_string($path) && isset($remote['files'][$path]))));
+            $change_paths = [];
+            foreach (self::us_local_changes($remote['files']) as $change) $change_paths[(string)($change['path'] ?? '')] = true;
+            $selected = array_values(array_unique(array_filter((array)($_POST['files'] ?? ''), static fn($path): bool => is_string($path) && isset($change_paths[$path]))));
             if (in_array('index.php', $selected, true)) {
                 foreach (['app/optional/Cron.php', 'app/optional/Plugin.php'] as $dependency) {
                     if (isset($remote['files'][$dependency]) && !in_array($dependency, $selected, true)) $selected[] = $dependency;
