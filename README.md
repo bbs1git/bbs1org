@@ -23,13 +23,22 @@ https://bbs1.org
 
 ## Docker 源码部署
 
-服务器需先安装 Docker `curl -fsSL https://get.docker.com -o install-docker.sh && sudo sh install-docker.sh`
-
-源码仓库和 Docker 配置仓库应放在同一目录下。
+服务器需先安装 Docker 和 `unzip`。Docker 可使用以下命令安装：
 
 ```bash
-git clone https://github.com/bbs1org/bbs1org.git
-git clone https://github.com/bbs1org/bbs1org_docker.git
+curl -fsSL https://get.docker.com -o install-docker.sh
+sudo sh install-docker.sh
+```
+
+从 [源码下载](https://bbs1.org/plugin_market_source) 获取程序包和 Docker 部署包，解压后的 `bbs1org`、`bbs1org_docker` 目录应放在同一目录下。
+
+```bash
+curl -fL 'https://bbs1.org/plugin_market_source?path=bbs1org.zip&download=1' -o bbs1org.zip
+curl -fL 'https://bbs1.org/plugin_market_source?path=bbs1org_docker.zip&download=1' -o bbs1org_docker.zip
+
+unzip -q bbs1org.zip
+unzip -q bbs1org_docker.zip
+
 cd bbs1org_docker
 cp .env.example .env
 # 如需修改端口或数据库模式，请先编辑 .env
@@ -42,7 +51,7 @@ docker compose up -d
 http://服务器地址:8080
 ```
 
-首次访问会进入网页安装程序，请在页面中设置站点、默认版块和管理员账号。使用 MySQL 或 PostgreSQL 时，先通过 `docker compose ps` 确认数据库状态为 `healthy`。
+首次访问会进入网页安装程序，请在页面中设置站点、默认版块和管理员账号。
 
 默认使用 `SQLite`。如需修改 `8080` 端口，或者启用 `MySQL`、`PostgreSQL`，请在启动前修改 `.env`。数据库容器会按 `.env` 中的 `DB_NAME`、`DB_USER`、`DB_PASSWORD` 初始化；网页安装时填写同样的数据库名、用户名和密码。
 
@@ -63,19 +72,19 @@ docker compose down               # 停止并保留数据卷
 
 ## 虚拟机部署（已有 Nginx/Apache + PHP8 环境）
 
-- 下载项目压缩包 `https://github.com/bbs1org/bbs1org/archive/refs/heads/main.zip`
-- 解压缩后通过 FTP 上传到网站目录，确保 `index.php` 位于根目录。
+- 打开 [源码下载](https://bbs1.org/plugin_market_source)，下载 `bbs1org.zip`。
+- 解压 ZIP，将该目录内的全部文件上传到网站目录，确保 `index.php` 位于网站根目录。
 - 访问站点域名，根据指示进行安装即可。
 - 使用第三方服务 (比如: cron-job.org) 定时请求服务，启用定时任务。
 每分钟以 `GET` 方式访问：`https://你的域名/index.php?a=cron`
 
 ## 面板部署
 
-宝塔和 1Panel 在面板 终端 执行Docker 源码部署代码即可。
+宝塔和 1Panel 可在面板终端执行“Docker 源码部署”中的下载、解压和启动命令。
 
 ## 在线升级
 
-在后台设置底部点击“升级”，检测更新后选择文件并执行“在线升级”。升级前请先备份数据库、附件、头像和插件目录。
+在后台设置底部点击“升级”。检测更新时只读取源码下载入口的 `bbs1org.json`，确认升级后才下载所选文件。升级前请先备份数据库、附件、头像和插件目录。
 
 ## 数据库转换和迁移
 

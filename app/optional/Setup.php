@@ -19,7 +19,7 @@ define('UPDATE_DB_CONFIG_FILE', DB_CONFIG_FILE);
 define('UPDATE_INSTALL_LOCK_FILE', INSTALL_LOCK_FILE);
 define('UPDATE_RUN_LOCK_FILE', DATA_DIR . '/update.lock');
 define('UPDATE_REPOSITORY', 'bbs1org/bbs1org');
-define('UPDATE_SOURCE_ENDPOINT', 'https://bbs1.org/index.php');
+define('UPDATE_SOURCE_ENDPOINT', 'https://bbs1.org/plugin_market_source');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
 define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
@@ -470,7 +470,7 @@ public static function us_http(string $url, int $max_bytes = UPDATE_MAX_ARCHIVE_
 
 public static function us_source_url(string $path): string
 {
-    return UPDATE_SOURCE_ENDPOINT . '?' . http_build_query(['a' => 'plugin_market_source', 'path' => $path, 'raw' => 1], '', '&', PHP_QUERY_RFC3986);
+    return UPDATE_SOURCE_ENDPOINT . '?' . http_build_query(['path' => $path, 'raw' => 1], '', '&', PHP_QUERY_RFC3986);
 }
 
 public static function us_remote_release(): array
