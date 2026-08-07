@@ -7,6 +7,17 @@ const showToast = (message) => {
     clearTimeout(window.__toastTimer);
     window.__toastTimer = setTimeout(() => toast.hidden = true, 1800);
 };
+const markButtonPending = button => {
+    if (!button) return;
+    button.classList.add("is-click-pending");
+    button.setAttribute("aria-busy", "true");
+};
+window.addEventListener("pageshow", () => {
+    document.querySelectorAll(".is-click-pending").forEach(button => {
+        button.classList.remove("is-click-pending");
+        button.removeAttribute("aria-busy");
+    });
+});
 const modal = document.getElementById("notify-modal");
 const modalBody = document.getElementById("notify-modal-body");
 const modalTitle = document.getElementById("notify-modal-title");
@@ -382,6 +393,7 @@ document.addEventListener("submit", async e => {
         const value = await openPrompt(e.submitter?.dataset?.promptMessage || e.target?.dataset?.promptMessage || "请输入", e.submitter?.dataset?.promptTitle || e.target?.dataset?.promptTitle || "请输入", e.submitter?.dataset?.promptValue || e.target?.dataset?.promptValue || input?.value || "1");
         if (value === null || value === false) return;
         if (input) input.value = value;
+        markButtonPending(e.submitter || e.target.querySelector("button[type=submit],button:not([type]),input[type=submit]"));
         e.target.submit();
         return;
     }
@@ -407,6 +419,7 @@ document.addEventListener("submit", async e => {
             e.stopImmediatePropagation();
             if (!await openConfirm(confirmMessage)) return;
             if (e.target?.dataset?.noAjax === "1") {
+                markButtonPending(e.submitter || e.target.querySelector("button[type=submit],button:not([type]),input[type=submit]"));
                 e.target.submit();
                 return;
             }
@@ -421,9 +434,9 @@ document.addEventListener("submit", async e => {
         const loadingText = button?.dataset?.loadingText || "";
         const buttonText = button?.textContent || "";
         button.disabled = true;
+        button.setAttribute("aria-busy", "true");
         if (loadingText) {
             button.textContent = loadingText;
-            button.setAttribute("aria-busy", "true");
         }
         if (status) status.textContent = "提交中";
         try {
@@ -456,9 +469,9 @@ document.addEventListener("submit", async e => {
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
         } finally {
             button.disabled = false;
+            button.removeAttribute("aria-busy");
             if (loadingText) {
                 button.textContent = buttonText;
-                button.removeAttribute("aria-busy");
             }
         }
         return;
@@ -469,6 +482,7 @@ document.addEventListener("submit", async e => {
         const button = notifyForm.querySelector("button");
         const status = notifyForm.querySelector(".notify-status");
         button.disabled = true;
+        button.setAttribute("aria-busy", "true");
         if (status) status.textContent = "发送中";
         try {
             const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
@@ -484,13 +498,18 @@ document.addEventListener("submit", async e => {
             showToast(err?.message || "发送失败");
         } finally {
             button.disabled = false;
+            button.removeAttribute("aria-busy");
             if (status) status.textContent = "";
         }
         return;
     }
     const form = e.target.closest("form");
-    if (!form || (form.method || "").toLowerCase() !== "post") return;
-    if (form.dataset.noAjax === "1") return;
+    if (!form) return;
+    if (form.dataset.noAjax === "1") {
+        markButtonPending(e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]"));
+        return;
+    }
+    if ((form.method || "").toLowerCase() !== "post") return;
     e.preventDefault();
     const button = e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]");
     const loadingText = button?.dataset?.loadingText || "";
@@ -498,16 +517,16 @@ document.addEventListener("submit", async e => {
     const resetButton = () => {
         if (!button) return;
         button.disabled = false;
+        button.removeAttribute("aria-busy");
         if (loadingText) {
             button.textContent = buttonText;
-            button.removeAttribute("aria-busy");
         }
     };
     if (button) {
         button.disabled = true;
+        button.setAttribute("aria-busy", "true");
         if (loadingText) {
             button.textContent = loadingText;
-            button.setAttribute("aria-busy", "true");
         }
     }
     try {

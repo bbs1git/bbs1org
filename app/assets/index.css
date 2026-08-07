@@ -295,6 +295,10 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .nu-name{max-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:10px;text-align:center}
 .btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:7px 13px;border:0;border-radius:var(--radius-sm);background:var(--brand);color:var(--inverse-text);cursor:pointer;font:inherit;font-weight:500;line-height:1.2;white-space:nowrap}
 .btn:hover,button:hover{background:var(--brand-hover);color:var(--inverse-text)}
+button:active,.btn:active,.btn-post:active,input[type=button]:active,input[type=submit]:active,input[type=reset]:active,[role=button]:active{opacity:.68}
+button:disabled,input[type=button]:disabled,input[type=submit]:disabled,input[type=reset]:disabled{opacity:.68;cursor:not-allowed}
+button.is-click-pending,.btn.is-click-pending,.btn-post.is-click-pending,input.is-click-pending,[role=button].is-click-pending{opacity:.68;cursor:wait;pointer-events:none}
+[aria-busy=true]{opacity:.68;cursor:wait}
 .btn.alt{background:var(--bg);color:var(--text-muted);border:1px solid var(--line)}
 .btn.alt:hover{background:var(--line-soft);color:var(--text);border-color:var(--text-subtle)}
 .btn.danger,button.danger{background:var(--danger)}
