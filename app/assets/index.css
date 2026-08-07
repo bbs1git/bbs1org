@@ -35,7 +35,7 @@
     --radius-sm:4px
 }
 *{box-sizing:border-box}
-html{min-height:100%;background:var(--bg)}
+html{min-height:100%;scrollbar-gutter:stable;background:var(--bg)}
 body{margin:0;background:var(--bg);color:var(--text);font:var(--font-size-md)/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 a:hover{color:var(--brand)}
