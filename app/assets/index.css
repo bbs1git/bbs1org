@@ -104,6 +104,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .home-shell{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px;overflow:visible;box-shadow:0 6px 18px var(--shadow-base)}
 .home-shell .forum-layout{gap:24px}
 .forum-layout{display:flex;gap:12px;align-items:flex-start}
+@media(min-width:721px){.forum-layout-has-sidebar{display:grid;grid-template-columns:minmax(0,1fr) 230px}}
 .forum-main{flex:1;min-width:0}
 .main-panel{background:var(--panel);border-radius:var(--radius);overflow:hidden}
 .user-panel{box-shadow:0 6px 18px var(--shadow-base)}

@@ -13,6 +13,7 @@ const PLUGIN_MARKET_ENDPOINT = 'https://bbs1.org/index.php';
 const PLUGIN_MARKET_SHARE_MAX = 200000;
 const PLUGIN_MARKET_CACHE_TTL = 900;
 const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
+const PLUGIN_MARKET_PAGE_SIZE = 40;
 const PLUGIN_UPLOAD_FILE = 'plugin_upload.data';
 const PLUGIN_UPLOAD_MAX = 2097152;
 
@@ -134,16 +135,23 @@ private static function plugin_market_cache_write(array $data): void
     @file_put_contents(self::plugin_market_cache_file(), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), LOCK_EX);
 }
 
-public static function plugin_market_fetch(bool $need_code = false, bool $force = false): array
+public static function plugin_market_fetch(bool $need_code = false, bool $force = false, string $plugin_id = '', int $topic_id = 0): array
 {
     if (!$need_code && !$force) {
         $cached = self::plugin_market_cache_read(true);
         if ($cached !== null) return $cached;
     }
-    $response = self::remote_http_request(self::plugin_market_url('plugin_market_feed'), $need_code ? 8 : 5, ['Accept: application/json']);
+    $feed_url = append_url_query(self::plugin_market_url('plugin_market_feed'), ['mode' => $need_code ? 'install' : 'list']);
+    if ($need_code) {
+        if (!plugin_id_valid($plugin_id) || $topic_id < 1) return ['ok' => 0, 'message' => '插件市场参数无效', 'plugins' => []];
+        $feed_url = append_url_query($feed_url, ['id' => $plugin_id, 'topic_id' => $topic_id]);
+    }
+    $response = self::remote_http_request($feed_url, $need_code ? 8 : 5, ['Accept: application/json']);
     if (!$response['ok']) {
-        $stale = self::plugin_market_cache_read(false);
-        if ($stale !== null) return $stale;
+        if (!$need_code) {
+            $stale = self::plugin_market_cache_read(false);
+            if ($stale !== null) return $stale;
+        }
         return ['ok' => 0, 'message' => '无法连接插件市场' . ((string)$response['error'] !== '' ? '：' . (string)$response['error'] : ''), 'plugins' => []];
     }
     $data = json_decode((string)$response['body'], true);
@@ -153,7 +161,9 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
         if (!is_array($item)) continue;
         $id = (string)($item['id'] ?? '');
         $code = (string)($item['code'] ?? '');
-        if (!plugin_id_valid($id) || $id === 'plugin_market' || trim($code) === '') continue;
+        $price_points = max(0, (int)($item['price_points'] ?? 0));
+        $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
+        if (!plugin_id_valid($id) || $id === 'plugin_market' || ($need_code && $online_install && trim($code) === '')) continue;
         $plugins[$id] = [
             'id' => $id,
             'title' => (string)($item['title'] ?? ''),
@@ -164,11 +174,14 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
             'creator' => (string)($item['creator'] ?? ($item['username'] ?? ($item['author'] ?? ''))),
             'creator_id' => (int)($item['creator_id'] ?? 0),
             'topic_id' => (int)($item['topic_id'] ?? 0),
+            'price_points' => $price_points,
+            'online_install' => $online_install,
+            'required' => !empty($item['required']),
             'updated_at' => (int)($item['updated_at'] ?? 0),
             'sha256' => (string)($item['sha256'] ?? hash('sha256', $code)),
             'url' => clean_site_base_url((string)($item['url'] ?? '')),
         ];
-        if ($need_code) $plugins[$id]['code'] = $code;
+        if ($need_code && $online_install) $plugins[$id]['code'] = $code;
     }
     $result = ['ok' => (int)($data['ok'] ?? 1), 'message' => (string)($data['message'] ?? ''), 'plugins' => $plugins];
     if (!$need_code && (int)$result['ok'] === 1 && $plugins) {
@@ -183,14 +196,15 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
     return $result;
 }
 
-public static function plugin_market_install(string $id): void
+public static function plugin_market_install(string $id, int $topic_id): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
     if ($id === 'plugin_market') err('该插件 ID 为系统保留');
     require_writable_dir(PLUGIN_DIR, '插件目录不可写，请检查 app/plugins/ 目录权限');
-    $market = self::plugin_market_fetch(true, true);
+    $market = self::plugin_market_fetch(true, true, $id, $topic_id);
     $item = $market['plugins'][$id] ?? null;
     if (!is_array($item)) err((string)($market['message'] ?? '') ?: '插件市场没有返回该插件');
+    if (empty($item['online_install']) || (int)($item['price_points'] ?? 0) > 0) err('付费插件不支持在线安装，请前往插件页面购买并下载');
     $code = (string)($item['code'] ?? '');
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)$item['sha256'] !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
@@ -225,7 +239,7 @@ public static function plugin_market_install_page(): void
 {
     need_admin();
     require_post();
-    self::plugin_market_install((string)($_POST['plugin_id'] ?? ''));
+    self::plugin_market_install((string)($_POST['plugin_id'] ?? ''), max(0, (int)($_POST['topic_id'] ?? 0)));
     $message = '插件已安装或更新，已自动停用，请启用后使用。';
     if (ajax_request()) {
         header('Content-Type: application/json; charset=utf-8');
@@ -310,38 +324,66 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
     $local = self::plugin_registry();
     $updates = [];
     foreach ($items as $id => $item) if (isset($local[$id]) && is_array($item) && self::plugin_market_update_available($local[$id], $item)) $updates[$id] = true;
-    uksort($items, fn(string $a, string $b): int => (int)isset($updates[$b]) <=> (int)isset($updates[$a]));
     $query = trim((string)($_GET['q'] ?? ''));
+    $items = array_filter($items, static function ($item) use ($query): bool {
+        if (!is_array($item)) return false;
+        $id = (string)($item['id'] ?? '');
+        return plugin_id_valid($id) && self::plugin_market_matches($item, $query);
+    });
+    uasort($items, static function (array $a, array $b) use ($updates): int {
+        $a_id = (string)($a['id'] ?? '');
+        $b_id = (string)($b['id'] ?? '');
+        $update = (int)isset($updates[$b_id]) <=> (int)isset($updates[$a_id]);
+        if ($update !== 0) return $update;
+        $required = (int)!empty($b['required']) <=> (int)!empty($a['required']);
+        if ($required !== 0) return $required;
+        $updated = (int)($b['updated_at'] ?? 0) <=> (int)($a['updated_at'] ?? 0);
+        if ($updated !== 0) return $updated;
+        $topic = (int)($b['topic_id'] ?? 0) <=> (int)($a['topic_id'] ?? 0);
+        return $topic !== 0 ? $topic : strcmp($a_id, $b_id);
+    });
+    $total = count($items);
+    $page = max(1, (int)($_GET['p'] ?? 1));
+    $pages = min(max_pagination_pages(), max(1, (int)ceil($total / PLUGIN_MARKET_PAGE_SIZE)));
+    $page = min($page, $pages);
+    $items = array_slice($items, ($page - 1) * PLUGIN_MARKET_PAGE_SIZE, PLUGIN_MARKET_PAGE_SIZE, true);
     $url = admin_url(['tab' => 'plugins', 'view' => 'market']);
-    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>仅展示官方审核通过的插件，安装后默认仍需手动启用。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
-    $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'refresh' => '1'])) . '">刷新</a></div>';
+    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>免费插件支持在线安装，付费插件请前往插件页面购买并下载。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
+    $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'q' => $query !== '' ? $query : null, 'refresh' => '1'])) . '">刷新</a></div>';
     $html = ($with_tabs ? self::admin_plugins_tabs_html('market') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, $actions) . '<ul class="admin-manage-list plugin-list">';
     if (!(int)($market['ok'] ?? 0)) return $html . '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li></ul></div>';
-    $shown = 0;
     foreach ($items as $item) {
-        if (!is_array($item)) continue;
         $id = (string)($item['id'] ?? '');
-        if (!plugin_id_valid($id) || !self::plugin_market_matches($item, $query)) continue;
-        $shown++;
         $installed = isset($local[$id]);
         $needs_update = isset($updates[$id]);
+        $price_points = max(0, (int)($item['price_points'] ?? 0));
+        $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
+        $paid = $price_points > 0 || !$online_install;
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
-        $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        if ($paid) {
+            $topic_url = (string)($item['url'] ?? '');
+            $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
+        } else {
+            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0)]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        }
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
         $meta[] = '插件制作者 ' . ($creator !== '' ? $creator : '未声明');
+        $meta[] = $paid ? $price_points . ' 积分' : '免费';
         if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
         $topic_url = (string)($item['url'] ?? '');
         $title = h((string)($item['name'] ?? $id));
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
-        $flag = $installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>';
+        $flag = (!empty($item['required']) ? '<span class="admin-flag danger">必装</span>' : '') . ($installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>');
         $class = $needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available');
         $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
-    if ($shown === 0) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : '暂无已审核通过的插件。') . '</li>';
-    return $html . '</ul></div>';
+    if (!$items) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : '暂无已审核通过的插件。') . '</li>';
+    $html .= '</ul></div>';
+    $pagination = paginate($total, $page, PLUGIN_MARKET_PAGE_SIZE, admin_url(['tab' => 'plugins', 'view' => 'market', 'q' => $query !== '' ? $query : null]));
+    return $html . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
 }
 
 public static function plugin_market_admin_actions(array $plugin): string

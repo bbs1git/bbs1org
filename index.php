@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.6');
+define('APP_VERSION', 'v8.5.10');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1167,7 +1167,8 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
 function shell_html(string $main, string $sidebar, string $class = ''): string
 {
     $mainpanel_extra = (string)hook('mainpanel_extra', '', ['main' => $main, 'class' => $class]);
-    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="forum-layout"><div class="forum-main"><div class="main-panel">' . $main . $mainpanel_extra . '</div></div>' . $sidebar . '</div></div>';
+    $layout_class = 'forum-layout' . ($sidebar !== '' ? ' forum-layout-has-sidebar' : '');
+    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="' . $layout_class . '"><div class="forum-main"><div class="main-panel">' . $main . $mainpanel_extra . '</div></div>' . $sidebar . '</div></div>';
 }
 function tab_bar_html(array $items, string $active, string $class = ''): string
 {
@@ -2386,7 +2387,7 @@ function save_topic(): int
         }
         $reply_order = (int)($_POST['reply_order'] ?? 0) === 1 ? 1 : 0;
         tx(function () use ($topic_id, $fid, $title, $body, $reply_order) {
-            q("UPDATE app_topics SET forum_id=?,title=?,body=?,reply_order=?,last_reply_at=? WHERE id=?", [$fid, $title, $body, $reply_order, now(), $topic_id]);
+            q("UPDATE app_topics SET forum_id=?,title=?,body=?,reply_order=? WHERE id=?", [$fid, $title, $body, $reply_order, $topic_id]);
             topic_fts_sync($topic_id, $title, $body);
         });
         fire('topic.after_save', ['id' => $topic_id, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'editing' => true]);
