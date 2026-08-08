@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.5');
+define('APP_VERSION', 'v8.5.6');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -412,6 +412,7 @@ function default_settings(): array
         'pc_nav_forum_count' => '6',
         'topics_per_page' => '30',
         'replies_per_page' => '50',
+        'max_pagination_pages' => '50',
         'search_min_chars' => '2',
         'mysql_search_index_topics_title' => '0',
         'mysql_search_index_topics_body' => '0',
@@ -791,7 +792,7 @@ function save_settings(): void
     ];
     foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500] as $key => $max) $values[$key] = post($key, $max);
     foreach (['site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
-    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'search_min_chars' => [1, 20, 2], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) {
+    foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'max_pagination_pages' => [1, 1000, 50], 'search_min_chars' => [1, 20, 2], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) {
         $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
     }
     save_settings_values($values);
@@ -1402,6 +1403,7 @@ function need_site_access(): void
     if (!db_schema_ready()) err('请访问 index.php?a=install 进行安装', 200, 'simple', false, index_url(['a' => 'install']));
     if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
     $a = $_GET['a'] ?? 'home';
+    limit_pagination_request_pages();
     if (setting('site_closed') === '1' && !can_access_admin()) {
         $core_allowed = in_array($a, ['login', 'logout', 'form_error', 'cron', 'robots.txt', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
         if (!$core_allowed && hook('site.closed_allow', false, ['action' => $a]) !== true) err('网站已关闭');
@@ -1511,9 +1513,23 @@ function human_time(int $ts): string
     if ($diff < 604800) return floor($diff / 86400) . '天前';
     return date('Y-m-d', $ts);
 }
-function paginate(int $total, int $page, int $size, string $url): string
+function max_pagination_pages(): int
+{
+    return min(1000, max(1, (int)setting('max_pagination_pages', '50')));
+}
+function limit_pagination_request_pages(): void
+{
+    if (is_post_request() || (string)($_GET['a'] ?? 'home') === 'topic') return;
+    $max = max_pagination_pages();
+    foreach ($_GET as $key => $value) {
+        if ($key !== 'p' && !str_ends_with((string)$key, '_p')) continue;
+        $_GET[$key] = (string)min($max, max(1, (int)$value));
+    }
+}
+function paginate(int $total, int $page, int $size, string $url, bool $limited = true): string
 {
     $pages = max(1, (int)ceil($total / $size));
+    if ($limited) $pages = min($pages, max_pagination_pages());
     if ($pages <= 1) return '';
     $page = max(1, min($page, $pages));
     $page_url = fn(int $n): string => append_url_query($url, ['p' => $n]);
@@ -1536,8 +1552,9 @@ function paginate(int $total, int $page, int $size, string $url): string
     $h .= '</ul></div>';
     return $h;
 }
-function simple_paginate(bool $has_prev, bool $has_next, int $page, string $url): string
+function simple_paginate(bool $has_prev, bool $has_next, int $page, string $url, bool $limited = true): string
 {
+    if ($limited && $page >= max_pagination_pages()) $has_next = false;
     if (!$has_prev && !$has_next) return '';
     $page_url = fn(int $n): string => append_url_query($url, ['p' => $n]);
     $h = '<div class="pagination"><ul>';
@@ -2832,7 +2849,7 @@ function topic_page(): void
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor]);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
-    $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]));
+    $pagination = paginate((int)$t['reply_count'], $p, $size, route_url('topic', ['id' => (int)$t['id']]), false);
     if ($pagination !== '') $main .= '</ul><div class="pagination-bar">' . $pagination . '</div>';
     else $main .= '</ul>';
     $can_reply_forum = forum_group_allowed($forum, 'allow_reply_groups');
@@ -2963,6 +2980,7 @@ function admin_settings_html(): string
         'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
         'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
         'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+        'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'],
         'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
         'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
         'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
