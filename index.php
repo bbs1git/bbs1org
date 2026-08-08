@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.4');
+define('APP_VERSION', 'v8.5.5');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2167,9 +2167,13 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     $avatar_style = avatar_style(post('avatar_style', 40));
     $avatar_seed = post('avatar_seed', 80);
     if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
-    if ($username === '') err('用户名不能为空');
     $old_user = $user_id ? row('app_users', 'id', $user_id) : null;
     if ($user_id && !$old_user) err('用户不存在');
+    if (!$admin && $old_user) {
+        $username = (string)$old_user['username'];
+        $email = (string)$old_user['email'];
+    }
+    if ($username === '') err('用户名不能为空');
     if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && hook('user.username_reserved', false, ['username' => $username]) === true) err('用户名已保留');
     $gid = $admin ? max(1, (int)$_POST['group_id']) : ($old_user ? (int)$old_user['group_id'] : (int)setting('default_group_id', '2'));
     if (!group_by_id($gid)) err('用户组不存在');
@@ -2202,6 +2206,10 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $points = (int)($filtered['points'] ?? $points);
         $is_banned = (int)($filtered['is_banned'] ?? $is_banned) ? 1 : 0;
         $is_muted = (int)($filtered['is_muted'] ?? $is_muted) ? 1 : 0;
+    }
+    if (!$admin && $old_user) {
+        $username = (string)$old_user['username'];
+        $email = (string)$old_user['email'];
     }
     if ($username === '') err('用户名不能为空');
     if ($is_registration && preg_match_all('/./us', $username) > 20) err('用户名不能超过20个汉字或英文');
@@ -2520,10 +2528,10 @@ function profile_page(): void
         set_flash('个人资料已保存');
         go(route_url('profile'));
     }
-    $username_field = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>用户名</span><strong>' . h($u['username']) . '</strong></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit><input name="username" type="text" value="' . h($u['username']) . '"></div></div></div>';
+    $account_cards = '<div class="profile-account-grid"><div class="profile-account-card"><span>用户名</span><strong>' . h($u['username']) . '</strong></div><div class="profile-account-card"><span>用户 UID</span><strong>' . (int)$u['id'] . '</strong></div><div class="profile-account-card"><span>邮箱</span><strong title="' . h($u['email']) . '">' . h($u['email']) . '</strong></div><div class="profile-account-card"><span>注册时间</span><strong>' . date('Y-m-d H:i', (int)$u['created_at']) . '</strong></div><div class="profile-account-card"><span>积分</span><strong>' . (int)$u['points'] . '</strong></div><div class="profile-account-card profile-account-logout"><form class="post-action-form" method="post" action="' . h(route_url('logout')) . '">' . form_token() . '<button class="profile-exit-button" type="submit"><span>账号安全</span><strong>安全退出</strong></button></form></div></div>';
     $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>密码</span><small>不修改密码</small></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
     $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2><form method="post">' . form_token() . $username_field . avatar_picker_html($u) . input('邮箱', 'email', $u['email'], 'email') . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '<div class="profile-exit">' . post_action_form(route_url('logout'), '安全退出', [], 'profile-exit-button') . '</div></div>', $u));
+    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2>' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>', $u));
 }
 function user_page(): void
 {
