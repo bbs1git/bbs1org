@@ -70,7 +70,13 @@ docker compose restart            # 重启
 docker compose down               # 停止并保留数据卷
 ```
 
-## 虚拟机部署（已有 Nginx/Apache + PHP8 环境）
+## 虚拟机部署（已有 Nginx/Apache + PHP 环境）
+
+环境要求：
+
+- PHP 8.1+
+- 启用 PDO；SQLite 需 `pdo_sqlite`，MySQL 需 `pdo_mysql`，PostgreSQL 需 `pdo_pgsql`
+- Web 服务运行用户对 `app/data/` 有写入权限；使用 SQLite 时数据库文件也保存在该目录
 
 - 打开 [源码下载](https://bbs1.org/plugin_market_source)，下载 `bbs1org.zip`。
 - 解压 ZIP，将该目录内的全部文件上传到网站目录，确保 `index.php` 位于网站根目录。
