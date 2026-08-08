@@ -114,7 +114,7 @@ public static function app_db_schema(string $driver): array
     $long = $types['text'];
     $tables = [
         'app_groups' => "CREATE TABLE app_groups(id $id,name $key NOT NULL UNIQUE,allow_manage INTEGER NOT NULL DEFAULT 0,allow_admin INTEGER NOT NULL DEFAULT 0)",
-        'app_users' => "CREATE TABLE app_users(id $id,username $key NOT NULL UNIQUE,password $short NOT NULL,email $short NOT NULL DEFAULT '',bio $long NOT NULL,avatar_style $short NOT NULL DEFAULT '',avatar_seed $short NOT NULL DEFAULT '',group_id $uint NOT NULL DEFAULT 2,points INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications $uint NOT NULL DEFAULT 0,last_post_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
+        'app_users' => "CREATE TABLE app_users(id $id,username $key NOT NULL UNIQUE,password $short NOT NULL,email $key NOT NULL DEFAULT '',bio $long NOT NULL,avatar_style $short NOT NULL DEFAULT '',avatar_seed $short NOT NULL DEFAULT '',group_id $uint NOT NULL DEFAULT 2,points INTEGER NOT NULL DEFAULT 0,is_banned INTEGER NOT NULL DEFAULT 0,is_muted INTEGER NOT NULL DEFAULT 0,unread_notifications $uint NOT NULL DEFAULT 0,last_post_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_notifications' => "CREATE TABLE app_notifications(id $id,recipient_id $uint NOT NULL,sender_id $uint DEFAULT NULL,kind $short NOT NULL DEFAULT 'direct',content $long NOT NULL,topic_id $uint DEFAULT NULL,reply_id $uint DEFAULT NULL,read_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_forums' => "CREATE TABLE app_forums(id $id,name $short NOT NULL,description $long NOT NULL,sort $uint NOT NULL DEFAULT 0,allow_view_groups $short NOT NULL DEFAULT '',allow_post_groups $short NOT NULL DEFAULT '',allow_reply_groups $short NOT NULL DEFAULT '')",
         'app_topics' => "CREATE TABLE app_topics(id $id,forum_id $uint NOT NULL,user_id $uint NOT NULL,title $short NOT NULL,body $long NOT NULL,highlight_style $short NOT NULL DEFAULT '',reply_order INTEGER NOT NULL DEFAULT 0,reply_count $uint NOT NULL DEFAULT 0,view_count $uint NOT NULL DEFAULT 0,last_reply_at $uint NOT NULL DEFAULT 0,last_reply_user_id $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
@@ -130,7 +130,7 @@ public static function app_db_schema(string $driver): array
         unset($sql);
     }
     $indexes = [
-        'idx_users_group' => 'app_users(group_id)', 'idx_forums_sort' => 'app_forums(sort,id)',
+        'idx_users_group' => 'app_users(group_id)', 'idx_users_email' => 'app_users(email)', 'idx_forums_sort' => 'app_forums(sort,id)',
         'idx_replies_topic_time' => 'app_replies(topic_id,created_at,id)',
         'idx_replies_user_time' => 'app_replies(user_id,created_at DESC,id DESC)',
         'idx_attachments_user' => 'app_attachments(user_id,created_at DESC,id DESC)',
@@ -1022,6 +1022,12 @@ public static function us_sync_schema(): array
             $db->exec("ALTER TABLE $table DROP COLUMN $column");
             $db->exec("ALTER TABLE $table ADD COLUMN $column INTEGER NOT NULL DEFAULT 0");
             $changes[] = '更新字段：topics.reply_order';
+        }
+        if (db_driver() === 'mysql' && self::us_column_type($db, db_driver(), 'app_users', 'email') === 'varchar(255)') {
+            $users_table = app_db_identifier(db_driver(), 'app_users');
+            $email_column = app_db_identifier(db_driver(), 'email');
+            $db->exec("ALTER TABLE $users_table MODIFY COLUMN $email_column VARCHAR(191) NOT NULL DEFAULT ''");
+            $changes[] = '更新字段：users.email';
         }
         foreach ($indexes as $index => $sql) {
             if (!app_db_index_exists($db, db_driver(), $index, self::app_db_index_table($sql))) {
