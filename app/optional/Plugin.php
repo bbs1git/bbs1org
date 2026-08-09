@@ -196,7 +196,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
     return $result;
 }
 
-public static function plugin_market_install(string $id, int $topic_id): void
+public static function plugin_market_install(string $id, int $topic_id, bool $auto_enable = false): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
     if ($id === 'plugin_market') err('该插件 ID 为系统保留');
@@ -233,14 +233,20 @@ public static function plugin_market_install(string $id, int $topic_id): void
         'plugin_sync_pending' => '1',
     ]);
     self::plugin_assets_mark_dirty();
+    if (!$auto_enable) return;
+    self::plugin_registry_sync();
+    self::plugin_set_enabled($id, true);
+    self::plugin_assets_rebuild();
+    save_settings_values(['plugin_sync_pending' => '0']);
 }
 
 public static function plugin_market_install_page(): void
 {
     need_admin();
     require_post();
-    self::plugin_market_install((string)($_POST['plugin_id'] ?? ''), max(0, (int)($_POST['topic_id'] ?? 0)));
-    $message = '插件已安装或更新，已自动停用，请启用后使用。';
+    $auto_enable = (string)($_POST['auto_enable'] ?? '') === '1';
+    self::plugin_market_install((string)($_POST['plugin_id'] ?? ''), max(0, (int)($_POST['topic_id'] ?? 0)), $auto_enable);
+    $message = $auto_enable ? '插件已安装或更新并启用。' : '插件已安装或更新，已停用。';
     if (ajax_request()) {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1], JSON_UNESCAPED_UNICODE);
@@ -365,7 +371,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
             $topic_url = (string)($item['url'] ?? '');
             $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
         } else {
-            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录，完成后插件会自动停用。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0)]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1']) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         }
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];

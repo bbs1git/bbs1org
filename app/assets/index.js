@@ -154,6 +154,28 @@ const openPluginUninstallConfirm = (message, title = "卸载插件") => _openMod
     box.append(text, option, actions);
     return checkbox;
 });
+const openPluginMarketInstallConfirm = (message, action = "安装") => _openModalBox(action + "插件", false, (box, cancel, ok) => {
+    box.className = "confirm-box";
+    const text = document.createElement("p");
+    text.className = "confirm-message";
+    text.textContent = message;
+    const option = document.createElement("label");
+    option.className = "confirm-check";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    const labelText = document.createElement("span");
+    labelText.textContent = "自动启用插件";
+    option.append(checkbox, labelText);
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    cancel.addEventListener("click", () => finishConfirm(false));
+    ok.textContent = action;
+    ok.addEventListener("click", () => finishConfirm({autoEnable: checkbox.checked}));
+    actions.append(cancel, ok);
+    box.append(text, option, actions);
+    return checkbox;
+});
 const openPrompt = (message, title = "请输入", value = "1") => _openModalBox(title, null, (box, cancel, ok) => {
     box.className = "confirm-box prompt-box";
     const text = document.createElement("p");
@@ -411,6 +433,20 @@ document.addEventListener("submit", async e => {
             e.target.appendChild(input);
         }
         input.value = result.keepData ? "1" : "0";
+    } else if (e.target?.dataset?.pluginMarketInstall === "1") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        const result = await openPluginMarketInstallConfirm(e.target.dataset.confirm || "确定安装插件？", e.target.dataset.pluginMarketAction || "安装");
+        if (!result) return;
+        let input = e.target.elements?.auto_enable;
+        if (!input) {
+            input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "auto_enable";
+            e.target.appendChild(input);
+        }
+        input.value = result.autoEnable ? "1" : "0";
     } else {
         const confirmMessage = e.submitter?.dataset?.confirm || e.target?.dataset?.confirm || "";
         if (confirmMessage) {
