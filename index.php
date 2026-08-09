@@ -2764,7 +2764,8 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $seo = [];
     if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));
     elseif ($filter_forum) $seo = page_seo('forum', ['id' => $fid], (string)($filter_forum['description'] ?? $filter_forum['name']));
-    page($title, shell_html($main, $sidebar, $is_home_first_page ? 'home-mobile-sidebar' : ''), $seo);
+    $shell_class = $profile_uid ? 'profile-mobile-sidebar' : ($is_home_first_page ? 'home-mobile-sidebar' : '');
+    page($title, shell_html($main, $sidebar, $shell_class), $seo);
 }
 function home_page(): void
 {

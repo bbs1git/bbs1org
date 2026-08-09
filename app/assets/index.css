@@ -594,7 +594,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .home-shell{padding:10px}
     .forum-layout{display:block}
     .sidebar{display:none}
-    .home-mobile-sidebar .sidebar{position:static;display:grid;width:auto;margin-top:12px}
+    .home-mobile-sidebar .sidebar,.profile-mobile-sidebar .sidebar{position:static;display:grid;width:auto;margin-top:12px}
     .profile-toolbar,.topic-toolbar{gap:6px}
     .profile-account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
     .profile-toolbar .tab-actions .notify-link{min-height:0;padding:0;border:0;background:transparent;color:var(--text-muted);font-size:var(--font-size-sm)}
