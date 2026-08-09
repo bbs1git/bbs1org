@@ -305,7 +305,7 @@ button.is-click-pending,.btn.is-click-pending,.btn-post.is-click-pending,input.i
 .btn.alt:hover{background:var(--line-soft);color:var(--text);border-color:var(--text-subtle)}
 .btn.danger,button.danger{background:var(--danger)}
 button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
-.post-action-form{display:inline-flex!important;margin:0!important;padding:0!important;gap:0!important}
+.post-action-form{display:inline-flex!important;margin:0!important;padding:0!important;gap:6px!important}
 .post-action-form button{font:inherit}
 input,select,textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font:inherit;padding:7px 9px}
 input:hover,select:hover,textarea:hover{border-color:var(--line)}
