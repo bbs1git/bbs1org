@@ -368,19 +368,19 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $paid = $price_points > 0 || !$online_install;
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
+        $topic_url = (string)($item['url'] ?? '');
         if ($paid) {
-            $topic_url = (string)($item['url'] ?? '');
             $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
         } else {
             $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1']) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         }
+        if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">质量报告</a>';
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
         $meta[] = '插件制作者 ' . ($creator !== '' ? $creator : '未声明');
         $meta[] = $paid ? $price_points . ' 积分' : '免费';
         if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
-        $topic_url = (string)($item['url'] ?? '');
         $title = h((string)($item['name'] ?? $id));
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
         $flag = (!empty($item['required']) ? '<span class="admin-flag danger">必装</span>' : '') . ($installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>');
