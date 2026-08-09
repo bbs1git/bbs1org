@@ -970,13 +970,22 @@ public static function admin_plugins_handle_post(): void
     $message = '';
     $refresh_after_response = false;
     $redirect_after_response = false;
+    $redirect_url = admin_url(['tab' => 'plugins']);
     if ($plugin_action === 'sync') {
         save_settings_values(['plugin_sync_pending' => '1']);
         $message = '插件已同步';
         $refresh_after_response = true;
     } elseif ($plugin_action === 'upload') {
         $plugin = self::plugin_upload((array)($_FILES['plugin_file'] ?? []));
-        $message = '插件 ' . (string)$plugin['id'] . ' 已上传并同步';
+        $uploaded_id = (string)$plugin['id'];
+        $enable_token = hash_hmac('sha256', 'plugin-upload-enable|' . $uploaded_id, csrf_token());
+        $redirect_url = admin_url([
+            'tab' => 'plugins',
+            'plugin_action' => 'enable_uploaded',
+            'plugin_id' => $uploaded_id,
+            'enable_token' => $enable_token,
+        ]);
+        $message = '插件 ' . $uploaded_id . ' 已上传，正在同步并启用';
         $redirect_after_response = true;
     } elseif ($plugin_action === 'enable') {
         self::plugin_set_enabled($plugin_id, true);
@@ -996,7 +1005,7 @@ public static function admin_plugins_handle_post(): void
     if (ajax_request()) {
         if ($redirect_after_response) {
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'message' => $message, 'redirect' => admin_url(['tab' => 'plugins'])], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => 1, 'message' => $message, 'redirect' => $redirect_url], JSON_UNESCAPED_UNICODE);
             exit;
         }
         if ($refresh_after_response) {
@@ -1010,7 +1019,19 @@ public static function admin_plugins_handle_post(): void
         exit;
     }
     set_flash($message);
-    go(admin_url(['tab' => 'plugins', 'view' => $view === 'cron' ? $view : null]));
+    go($redirect_after_response ? $redirect_url : admin_url(['tab' => 'plugins', 'view' => $view === 'cron' ? $view : null]));
+}
+
+public static function plugin_enable_uploaded_page(): void
+{
+    $id = (string)($_GET['plugin_id'] ?? '');
+    $token = (string)($_GET['enable_token'] ?? '');
+    $expected = hash_hmac('sha256', 'plugin-upload-enable|' . $id, csrf_token());
+    if (!plugin_id_valid($id) || !hash_equals($expected, $token)) err('插件启用参数无效');
+    self::plugin_set_enabled($id, true);
+    self::plugin_assets_rebuild();
+    set_flash('插件 ' . $id . ' 已上传、同步并启用');
+    go(admin_url(['tab' => 'plugins']));
 }
 
 private static function plugin_upload(array $file): array
@@ -1087,6 +1108,8 @@ private static function plugin_upload(array $file): array
     @chmod($target, 0644);
     if (function_exists('opcache_invalidate')) @opcache_invalidate($target, true);
     @unlink($upload_file);
+    q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='' WHERE id=?", [$id]);
+    q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
     save_settings_values(['plugin_sync_pending' => '1', 'plugin_assets_dirty' => '1']);
     return ['id' => $id];
 }

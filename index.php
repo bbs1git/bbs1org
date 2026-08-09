@@ -3059,6 +3059,7 @@ function admin_page(): void
         exit;
     }
     if ($tab === 'plugins' && is_post_request()) Plugin::admin_plugins_handle_post();
+    if ($tab === 'plugins' && (string)($_GET['plugin_action'] ?? '') === 'enable_uploaded') Plugin::plugin_enable_uploaded_page();
     if ($tab === 'settings' && is_post_request()) admin_settings_handle_post();
     $html = match ($tab) {
         'settings' => admin_settings_html(),
