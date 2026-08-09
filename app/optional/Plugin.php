@@ -226,7 +226,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-    plugin_update_row($id, ['enabled' => 0, 'status' => 'disabled', 'disabled_reason' => '']);
+    plugin_update_row($id, ['enabled' => 0, 'status' => 'disabled', 'disabled_reason' => ''], true);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],
