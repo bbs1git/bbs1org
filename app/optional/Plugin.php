@@ -211,6 +211,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $code, $match) !== 1 || (string)$match[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
     $dir = PLUGIN_DIR . '/' . $id;
     $file = $dir . '/plugin.php';
+    $plugin_file_loaded = array_key_exists($file, $GLOBALS['__plugin_raw'] ?? []);
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) err('插件目录创建失败');
     require_writable_dir($dir, '插件目录不可写，请检查 app/plugins/ 目录权限');
     if (is_file($file)) {
@@ -237,7 +238,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     self::plugin_registry_sync();
     self::plugin_set_enabled($id, true);
     self::plugin_assets_rebuild();
-    save_settings_values(['plugin_sync_pending' => '0']);
+    if (!$plugin_file_loaded) save_settings_values(['plugin_sync_pending' => '0']);
 }
 
 public static function plugin_market_install_page(): void
@@ -675,14 +676,18 @@ public static function plugin_registry_sync(): array
     foreach (self::plugin_files() as $file) {
         $id = basename(dirname($file));
         if ($id === 'plugin_market') continue;
-        try {
-            if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-            $raw = include $file;
-        } catch (Throwable $e) {
-            $disable($id, cut($e->getMessage(), 500));
-            continue;
+        if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) {
+            $raw = $GLOBALS['__plugin_raw'][$file];
+        } else {
+            try {
+                if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+                $raw = include $file;
+            } catch (Throwable $e) {
+                $disable($id, cut($e->getMessage(), 500));
+                continue;
+            }
+            $GLOBALS['__plugin_raw'][$file] = $raw;
         }
-        $GLOBALS['__plugin_raw'][$file] = $raw;
         if (!is_array($raw)) {
             $disable($id, '插件定义格式无效');
             continue;

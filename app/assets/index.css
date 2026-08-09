@@ -194,7 +194,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .modal-body{padding:14px}
 .confirm-box{display:grid;gap:14px}
 .confirm-message{margin:0;color:var(--text);font-size:var(--font-size-lg);line-height:1.7}
-.confirm-check{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:var(--font-size-lg)}
+.confirm-check{display:flex;align-items:center;gap:8px;}
 .confirm-check input{width:16px;height:16px;margin:0;accent-color:var(--brand)}
 .prompt-input{width:100%;height:38px;padding:0 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font:inherit}
 .prompt-input:focus{border-color:var(--brand);outline:0;box-shadow:0 0 0 3px var(--focus-ring)}

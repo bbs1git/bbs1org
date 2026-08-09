@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.12');
+define('APP_VERSION', 'v8.5.13');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -181,6 +181,16 @@ function app_db_create_index(string $name, string $target): void
     if (app_db_index_exists(db(), db_driver(), $name, $table)) return;
     db()->exec('CREATE INDEX ' . app_db_identifier(db_driver(), $name) . ' ON ' . $target);
 }
+function app_db_mysql_nullable_lob_defaults(string $definition, bool $with_column_names = true): string
+{
+    $lob = '(?:TINY|MEDIUM|LONG)?(?:TEXT|BLOB)|JSON|GEOMETRY|POINT|LINESTRING|POLYGON|MULTIPOINT|MULTILINESTRING|MULTIPOLYGON|GEOMETRYCOLLECTION';
+    $prefix = $with_column_names ? '`?[a-zA-Z0-9_]+`?\\s+' : '';
+    $pattern = "/(^|,)\\s*({$prefix}(?:{$lob})(?:\\([^)]*\\))?[^,]*?)\\s+DEFAULT\\s*(?:''|NULL)/is";
+    return preg_replace_callback($pattern, static function (array $match): string {
+        $col = preg_replace('/\\s+NOT\\s+NULL\\b/i', ' NULL', $match[2]) ?? $match[2];
+        return $match[1] . $col;
+    }, $definition) ?? $definition;
+}
 function app_db_drop_index(string $name, string $table): void
 {
     if (!app_db_index_exists(db(), db_driver(), $name, $table)) return;
@@ -190,6 +200,7 @@ function app_db_drop_index(string $name, string $table): void
 }
 function app_db_create_table(string $table, string $definition): void
 {
+    if (db_driver() === 'mysql') $definition = app_db_mysql_nullable_lob_defaults($definition);
     $sql = 'CREATE TABLE IF NOT EXISTS ' . app_db_identifier(db_driver(), $table) . '(' . $definition . ')';
     if (db_driver() === 'mysql') $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     db()->exec($sql);
@@ -215,6 +226,7 @@ function app_db_ensure_columns(string $table, array $definitions): void
     $columns = app_db_columns(db(), db_driver(), $table);
     foreach ($definitions as $name => $definition) {
         if (isset($columns[$name])) continue;
+        if (db_driver() === 'mysql') $definition = app_db_mysql_nullable_lob_defaults($definition, false);
         db()->exec('ALTER TABLE ' . app_db_identifier(db_driver(), $table) . ' ADD COLUMN ' . app_db_identifier(db_driver(), $name) . ' ' . $definition);
     }
 }
