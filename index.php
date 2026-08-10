@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.25');
+define('APP_VERSION', 'v8.5.26');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -1463,6 +1463,7 @@ function json_response(array $data): never
 }
 function set_flash(string $message): void
 {
+    $_COOKIE['__flash'] = $message;
     app_cookie('__flash', $message, time() + 30, true, false);
 }
 function err(string $message, int $status = 200, string $mode = 'auto', ?bool $log = null, string $url = ''): never
