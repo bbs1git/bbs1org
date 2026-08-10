@@ -633,7 +633,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .admin-object-row .admin-inline-ops{grid-column:1;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
     .admin-trash-row .admin-inline-ops{grid-column:2}
     .plugin-item.admin-object-row{gap:8px}
-    .plugin-title-line{flex-direction:column;align-items:flex-start;gap:5px}
+    .plugin-title-line{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:8px}
     .admin-content-title{white-space:normal}
     .admin-row-meta{gap:5px 8px}
     .bulk-bar{flex-wrap:nowrap;overflow-x:auto;padding:8px 10px}
