@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.18');
+define('APP_VERSION', 'v8.5.19');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -918,7 +918,7 @@ function create_notification(int $recipient_id, int $sender_id, string $kind, st
     q("UPDATE app_users SET unread_notifications=COALESCE(unread_notifications,0)+1 WHERE id=?", [$recipient_id]);
     return true;
 }
-function user_points_change(int $user_id, int $delta, string $reason = '系统调整', bool $notify = false): int
+function user_points_change(int $user_id, int $delta, string $reason = '系统调整', bool $notify = false, array $context = []): int
 {
     if ($user_id <= 0 || $delta === 0) return 0;
     [$actual, $now_points] = tx(function () use ($user_id, $delta): array {
@@ -938,6 +938,14 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
         if (ajax_request()) $GLOBALS['__point_change_tip'] = $tip;
         else set_flash($tip);
     }
+    fire('user.points_changed', array_merge($context, [
+        'event_key' => 'points-change:' . bin2hex(random_bytes(16)),
+        'user_id' => $user_id,
+        'delta' => $actual,
+        'reason' => trim($reason),
+        'points' => $now_points,
+        'notify' => $notify,
+    ]));
     return $actual;
 }
 function user_points_set(int $user_id, int $points, string $reason = '系统调整'): int
