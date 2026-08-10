@@ -409,7 +409,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .reply-panel .grid{grid-template-columns:1fr;margin:0}
 .reply-panel .grid>span{display:none}
 .reply-panel textarea{min-height:118px;border-color:var(--line);background:var(--bg);line-height:1.7}
-.reply-panel textarea:focus{background:var(--panel)}
+.reply-panel textarea:focus{border-color:var(--brand);background:var(--panel)}
 .reply-panel button{justify-self:end;min-width:92px}
 .reply-login-box{display:flex;align-items:center;justify-content:center;min-height:118px;border:1px dashed var(--line);border-radius:var(--radius-sm);background:var(--bg);color:var(--text-subtle);font-size:var(--font-size-md)}
 .reply-login-box a{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 14px;border-radius:var(--radius-sm);background:var(--brand);color:var(--inverse-text);font-weight:500}
