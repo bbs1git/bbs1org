@@ -453,6 +453,11 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
             }
         }
         $ops = $manage_url !== '' ? '<a class="plugin-manage-link" href="' . h($manage_url) . '">管理</a>' : '';
+        $market_topic_id = max(0, (int)setting('plugin_' . $id . '_market_topic_id'));
+        if ($market_topic_id > 0) {
+            $feedback_url = append_url_query(self::plugin_market_url('topic'), ['id' => $market_topic_id]);
+            $ops .= '<a href="' . h($feedback_url) . '" target="_blank" rel="noopener" title="查看插件帖子并反馈问题">反馈</a>';
+        }
         $ops .= $enabled
             ? self::admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？')
             : self::admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable');
