@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.17');
+define('APP_VERSION', 'v8.5.18');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -918,7 +918,7 @@ function create_notification(int $recipient_id, int $sender_id, string $kind, st
     q("UPDATE app_users SET unread_notifications=COALESCE(unread_notifications,0)+1 WHERE id=?", [$recipient_id]);
     return true;
 }
-function user_points_change(int $user_id, int $delta, string $reason = '系统调整'): int
+function user_points_change(int $user_id, int $delta, string $reason = '系统调整', bool $notify = false): int
 {
     if ($user_id <= 0 || $delta === 0) return 0;
     [$actual, $now_points] = tx(function () use ($user_id, $delta): array {
@@ -931,7 +931,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
     if ($actual === 0) return 0;
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
     $verb = $actual > 0 ? '增加' : '减少';
-    create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
+    if ($notify) create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
     return $actual;
 }
 function user_points_set(int $user_id, int $points, string $reason = '系统调整'): int
@@ -2763,6 +2763,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     if ($data['simple_pagination']) $pagination = simple_paginate($p > 1, $data['has_next_page'], $p, $url($page_query));
     else $pagination = paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
+    if ($profile_uid) $main .= (string)hook('user.profile_tab_footer', '', ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'total' => $total]);
     $sidebar_user = $profile_uid ? $filter_user : null;
     $is_home_first_page = !$profile_uid && !$filter_forum && $q === '' && $p === 1;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . ($is_home_first_page ? sidebar_stats_card_html() : '') : '')], ['is_home_first_page' => $is_home_first_page]);
