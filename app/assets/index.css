@@ -506,8 +506,8 @@ table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
 .admin-list-panel:has(> table.list){box-sizing:border-box;width:100%;overflow-x:auto}
 .admin-rebuild-fts-form{display:flex;justify-content:flex-end}
 .admin-topic-tools,.plugin-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-.plugin-upload-open{box-sizing:border-box;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:auto;height:32px;min-height:32px;padding:7px 13px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text-muted);font:inherit;font-size:var(--font-size-sm);font-weight:500;line-height:1.2;cursor:pointer}
-.plugin-upload-open:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.plugin-local-search{width:160px;height:32px}
+.plugin-head-button{box-sizing:border-box;height:32px;min-height:32px;padding:0 13px}
 .plugin-upload-form{display:grid;gap:12px;min-width:min(360px,calc(100vw - 56px));margin:0}
 .plugin-upload-form input[type=file]{width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font:inherit;color:var(--text)}
 .plugin-upload-note{color:var(--text-muted);font-size:var(--font-size-sm);line-height:1.5}

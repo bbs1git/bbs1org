@@ -411,7 +411,7 @@ public static function admin_plugin_action_form(string $id, string $action, stri
 public static function admin_plugin_upload_form(): string
 {
     $form = '<form class="plugin-upload-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" enctype="multipart/form-data">' . form_token() . hidden_inputs(['plugin_action' => 'upload']) . '<input type="file" name="plugin_file" data-plugin-upload-file required><div class="plugin-upload-note">请选择插件脚本文件上传。⚠️ 同名插件将覆盖安装。</div><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="plugin-enable" data-loading-text="上传中">上传</button></div></form>';
-    return '<button type="button" class="plugin-upload-open" data-plugin-upload-open>插件上传</button><template data-plugin-upload-template>' . $form . '</template>';
+    return '<button type="button" class="plugin-head-button" data-plugin-upload-open>插件上传</button><template data-plugin-upload-template>' . $form . '</template>';
 }
 public static function admin_plugin_uninstall_form(string $id): string
 {
@@ -438,8 +438,9 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     $enabled_count = 0;
     foreach ($plugins as $plugin) if (plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
-    $head_right = '<div class="plugin-head-actions">' . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件') . '</div>';
-    $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list">';
+    $search = '<label class="admin-search-field plugin-local-search"><input type="search" placeholder="搜索本地插件" aria-label="搜索本地插件" data-plugin-local-search></label>';
+    $head_right = '<div class="plugin-head-actions">' . $search . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件', 'plugin-head-button') . '</div>';
+    $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
         $enabled = plugin_enabled($plugin);
@@ -481,9 +482,11 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
         $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
         $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
-        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '<span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div>' . $reason_line . $table_conflict_line . '<div class="plugin-file">' . h($file) . '</div></div>' . $entry_line . '<div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
+        $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
+        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '<span class="admin-flag' . ($enabled ? ' on' : '') . '">' . h($enabled ? '已启用' : '已停用') . '</span></div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div><div class="admin-content-text plugin-desc">' . h((string)($plugin['description'] ?? '')) . '</div>' . $reason_line . $table_conflict_line . '<div class="plugin-file">' . h($file) . '</div></div>' . $entry_line . '<div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
-    if (!$plugins) $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
+    if ($plugins) $html .= '<li class="empty-state is-hidden" data-plugin-local-empty hidden>未找到匹配插件</li>';
+    else $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
     return $html . '</ul></div>';
 }
 public static function admin_plugins_tabs_html(string $active): string

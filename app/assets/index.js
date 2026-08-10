@@ -7,6 +7,28 @@ const showToast = (message) => {
     clearTimeout(window.__toastTimer);
     window.__toastTimer = setTimeout(() => toast.hidden = true, 1800);
 };
+const filterLocalPlugins = e => {
+    const input = e.target instanceof HTMLInputElement && e.target.matches("[data-plugin-local-search]") ? e.target : null;
+    if (!input) return;
+    const panel = input.closest(".plugin-list-panel");
+    const list = panel?.querySelector("[data-plugin-local-list]");
+    if (!list) return;
+    const query = input.value.trim().toLocaleLowerCase();
+    let matches = 0;
+    list.querySelectorAll("[data-plugin-local-search-text]").forEach(item => {
+        const matched = query === "" || (item.dataset.pluginLocalSearchText || "").toLocaleLowerCase().includes(query);
+        item.hidden = !matched;
+        item.classList.toggle("is-hidden", !matched);
+        if (matched) matches++;
+    });
+    const empty = list.querySelector("[data-plugin-local-empty]");
+    if (empty) {
+        empty.hidden = matches > 0;
+        empty.classList.toggle("is-hidden", matches > 0);
+    }
+};
+document.addEventListener("input", filterLocalPlugins);
+document.addEventListener("search", filterLocalPlugins);
 const markButtonPending = button => {
     if (!button) return;
     button.classList.add("is-click-pending");
