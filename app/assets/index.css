@@ -496,6 +496,7 @@ table.list{width:auto;min-width:0;table-layout:auto;border:0;border-collapse:sep
 .list tr:hover td{background:var(--bg)}
 .list td:last-child,.list th:last-child{text-align:right}
 .list td.admin-content-cell,.list td.admin-content-cell:last-child{text-align:left}
+table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
 .admin-bulk-list,.main-panel>.admin-bulk-list{border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 6px 18px var(--shadow-base)}
 .admin-bulk-list th{height:34px;background:var(--bg);color:var(--text-subtle);font-weight:600}
 .admin-bulk-list td{padding-top:12px;padding-bottom:12px}
@@ -633,6 +634,7 @@ table.list{width:auto;min-width:0;table-layout:auto;border:0;border-collapse:sep
     .admin-search-field{width:min(220px,100%)}
     .admin-head-add{padding:0}
     .plugin-list-panel .admin-head-add{padding:0 12px}
+    table.list.admin-bulk-list{min-width:max-content}
     .admin-bulk-list .admin-content-cell,.admin-bulk-list .admin-content-text,.admin-bulk-list .admin-content-title{white-space:normal}
     .admin-object-row{grid-template-columns:minmax(0,1fr);gap:10px}
     .admin-trash-row{grid-template-columns:42px minmax(0,1fr)}
