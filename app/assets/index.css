@@ -128,6 +128,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .post-item:hover,.profile-file-row:hover{background:var(--bg)}
 .post-avatar{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:36px;height:36px;border-radius:4px;background:var(--brand-soft);color:var(--brand);font-size:var(--font-size-lg);font-weight:700}
 .avatar-img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.avatar-profile-link{display:block;width:100%;height:100%;border-radius:inherit;overflow:hidden}
 .post-body{flex:1;min-width:0}
 .post-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:var(--font-size-md);line-height:1.4;font-weight:600}
 .post-title:hover{color:var(--brand)}
@@ -595,6 +596,8 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .forum-layout{display:block}
     .sidebar{display:none}
     .home-mobile-sidebar .sidebar,.profile-mobile-sidebar .sidebar{position:static;display:grid;width:auto;margin-top:12px}
+    .profile-mobile-sidebar:not(.profile-mobile-sidebar-own) .forum-layout{display:flex;flex-direction:column}
+    .profile-mobile-sidebar:not(.profile-mobile-sidebar-own) .sidebar{order:-1;width:100%;margin:0 0 4px}
     .profile-toolbar,.topic-toolbar{gap:6px}
     .profile-account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
     .profile-toolbar .tab-actions .notify-link{min-height:0;padding:0;border:0;background:transparent;color:var(--text-muted);font-size:var(--font-size-sm)}

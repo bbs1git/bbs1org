@@ -1027,7 +1027,7 @@ function notification_row_html(array $n): string
     $quote = notification_excerpt($body, 100);
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
     $sender_title = $sender_id > 0 ? '<a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a>' : '<span class="post-title">' . h($sender_name) . '</span>';
-    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
+    return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_link_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
 }
 function admin_flag(int $yes, bool $danger = false): string
 {
@@ -1690,6 +1690,12 @@ function avatar_tag(int $uid, string $name, string $style = '', string $class = 
     $src = (string)hook('avatar.url', avatar_remote_url($style, $seed), ['style' => $style, 'seed' => $seed, 'uid' => $uid]);
     return '<img class="' . h($classes) . '" src="' . h($src) . '" alt="' . h($name) . '" loading="lazy">';
 }
+function avatar_link_tag(int $uid, string $name, string $style = '', string $class = '', string $seed = ''): string
+{
+    $avatar = avatar_tag($uid, $name, $style, $class, $seed);
+    if ($uid < 1) return $avatar;
+    return '<a class="avatar-profile-link" href="' . h(route_url('user', ['id' => $uid])) . '" aria-label="查看 ' . h($name) . ' 的个人主页">' . $avatar . '</a>';
+}
 function app_url(string $path = ''): string
 {
     $path = ltrim($path, '/');
@@ -1823,7 +1829,7 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     }
     $has_title = $title !== '';
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
-    $avatar = avatar_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
+    $avatar = avatar_link_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
     $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
     $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '';
     $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops">' . $ops . $floor_html . '</div>' : '';
@@ -1987,7 +1993,7 @@ function topic_list_row(array $t, string $sort): string
         $reply_excerpt = trim((string)($t['my_reply_excerpt'] ?? ''));
         $reply_excerpt_html = $reply_excerpt !== '' ? '<div class="profile-reply-excerpt">' . h($reply_excerpt) . '</div>' : '';
         $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
-        $html = '<li class="post-item"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
+        $html = '<li class="post-item"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
         return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
     }
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
@@ -2008,7 +2014,7 @@ function topic_list_row(array $t, string $sort): string
     $style = (string)($t['highlight_style'] ?? '') !== '' ? ' style="' . h((string)$t['highlight_style']) . '"' : '';
     $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t, 'list' => true, 'sort' => $sort]);
     $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
-    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
+    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
     return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
 }
 function topic_stats_html(int $view_count, int $reply_count): string
@@ -2283,7 +2289,7 @@ function user_notify_page(): void
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
     $quote = notification_excerpt((string)($_GET['quote'] ?? ''), 100);
     $quote_html = $quote !== '' ? '<blockquote class="notify-quote-card"><p>' . h($quote) . '</p></blockquote><input type="hidden" name="quote" value="' . h($quote) . '">' : '';
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -2764,7 +2770,9 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $seo = [];
     if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));
     elseif ($filter_forum) $seo = page_seo('forum', ['id' => $fid], (string)($filter_forum['description'] ?? $filter_forum['name']));
-    $shell_class = $profile_uid ? 'profile-mobile-sidebar' : ($is_home_first_page ? 'home-mobile-sidebar' : '');
+    $shell_class = $profile_uid
+        ? 'profile-mobile-sidebar' . ($own_profile ? ' profile-mobile-sidebar-own' : '')
+        : ($is_home_first_page ? 'home-mobile-sidebar' : '');
     page($title, shell_html($main, $sidebar, $shell_class), $seo);
 }
 function home_page(): void
