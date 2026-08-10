@@ -212,9 +212,9 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .post-content blockquote p{margin-bottom:6px}
 .post-content ul{margin:4px 0 8px 18px;padding:0}
 .post-content li{margin:2px 0}
-.post-content .markdown-table-wrap{max-width:100%;margin:10px 0 12px;overflow-x:auto}
-.post-content table{width:100%;min-width:250px;border-collapse:collapse;border:1px solid var(--line);background:var(--panel);font-size:var(--font-size-md);line-height:1.5}
-.post-content th,.post-content td{padding:7px 9px;border:1px solid var(--line);text-align:left;vertical-align:top}
+.post-content .markdown-table-wrap,.markdown-table-wrap{box-sizing:border-box;width:100%;max-width:100%;margin:10px 0 12px;overflow-x:auto}
+.post-content table,.markdown-table-wrap table{width:100%;min-width:0;table-layout:auto;border-collapse:collapse;border:1px solid var(--line);background:var(--panel);font-size:var(--font-size-md);line-height:1.5}
+.post-content th,.post-content td,.markdown-table-wrap th,.markdown-table-wrap td{min-width:6em;padding:7px 9px;border:1px solid var(--line);text-align:left;vertical-align:top}
 .post-content th{background:var(--bg);color:var(--text-muted);font-weight:700}
 .post-content code{padding:1px 5px;border-radius:4px;background:var(--bg);color:var(--text-muted);font-family:var(--font-mono);font-size:var(--font-size-xs)}
 .post-content pre{display:block;max-width:100%;margin:10px 0 12px;padding:14px 16px;overflow:auto;border:1px solid var(--inverse-border);border-radius:6px;background:var(--inverse)!important;color:var(--inverse-text);font:var(--font-size-xs)/1.7 var(--font-mono);box-shadow:0 8px 20px var(--shadow-medium)}
@@ -309,6 +309,7 @@ button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,sele
 .post-action-form{display:inline-flex!important;margin:0!important;padding:0!important;gap:6px!important}
 .post-action-form button{font:inherit}
 input,select,textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font:inherit;padding:7px 9px}
+select{-webkit-appearance:none;appearance:none;padding-right:32px;background-image:linear-gradient(45deg,transparent 50%,var(--text-subtle) 50%),linear-gradient(135deg,var(--text-subtle) 50%,transparent 50%);background-position:calc(100% - 14px) calc(50% - 1px),calc(100% - 9px) calc(50% - 1px);background-size:5px 5px,5px 5px;background-repeat:no-repeat}
 input:hover,select:hover,textarea:hover{border-color:var(--line)}
 input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--focus-ring);outline:0}
 input.readonly-input:disabled{border-color:var(--line-soft);background:var(--bg);color:var(--text-disabled);opacity:1;cursor:not-allowed}
@@ -431,12 +432,13 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .side a{display:block;margin-bottom:2px;padding:7px 10px;border-radius:var(--radius-sm);color:var(--text-muted);font-size:var(--font-size-md)}
 .side a:hover{background:var(--bg);color:var(--text)}
 .side a.pill{background:var(--brand);color:var(--inverse-text)}
-.list{width:100%;border:0;border-collapse:separate;border-spacing:0;font-size:var(--font-size-md)}
+table.list{width:auto;min-width:0;table-layout:auto;border:0;border-collapse:separate;border-spacing:0;font-size:var(--font-size-md)}
 .main-panel>.list{margin-bottom:0;border-radius:0}
+.main-panel:has(> table.list){box-sizing:border-box;width:100%;overflow-x:auto}
 .main-panel>.row{margin-bottom:0;padding:12px 0}
 .admin-table-search{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0}
 .admin-table-search .admin-search-select{flex:0 0 104px;width:104px;max-width:104px}
-.admin-search-select{width:auto;height:30px;padding:0 28px 0 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:var(--font-size-sm);box-shadow:0 1px 2px var(--shadow-base)}
+.admin-search-select{width:auto;height:30px;padding:0 28px 0 10px;border:1px solid var(--line);border-radius:6px;background-color:var(--panel);color:var(--text);font-size:var(--font-size-sm);box-shadow:0 1px 2px var(--shadow-base)}
 .admin-search-field{display:flex;align-items:center;width:220px;height:30px;border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 1px 2px var(--shadow-base);overflow:hidden}
 .admin-search-field input{flex:1;min-width:0;height:100%;padding:0 10px;border:0;border-radius:6px 0 0 6px;background:transparent;box-shadow:none;font-size:var(--font-size-sm)}
 .admin-search-field input:focus{border:0;box-shadow:none}
@@ -457,7 +459,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .bulk-select-all{display:inline-flex;align-items:center;gap:6px;margin-right:auto;color:var(--text-muted);font-size:var(--font-size-sm)}
 .bulk-select-all input{width:38px;height:22px}
 .bulk-action-group{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
-.bulk-action-select{flex:0 0 150px;width:150px;max-width:150px;height:28px;padding:0 24px 0 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:var(--font-size-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bulk-action-select{flex:0 0 150px;width:150px;max-width:150px;height:28px;padding:0 24px 0 10px;border:1px solid var(--line);border-radius:6px;background-color:var(--panel);color:var(--text);font-size:var(--font-size-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bulk-action-select + .bulk-action-select{flex-basis:160px;width:160px;max-width:160px}
 .bulk-forum-wrap{display:inline-flex}
 .is-hidden{display:none!important}
@@ -488,7 +490,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-inline-ops a,.admin-inline-ops button{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text-muted);font-size:var(--font-size-sm);font-weight:500}
 .admin-inline-ops a:hover,.admin-inline-ops button:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
 .admin-inline-ops a.danger:hover,.admin-inline-ops button.danger:hover{border-color:var(--danger);background:var(--danger-soft);color:var(--danger)}
-.list th,.list td{max-width:420px;padding:11px 11px;border-bottom:1px solid var(--line-soft);overflow:hidden;text-overflow:ellipsis;text-align:left;vertical-align:middle}
+.list th,.list td{min-width:6em;padding:11px 11px;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere;text-align:left;vertical-align:middle}
 .list th{background:var(--bg);color:var(--text-muted);font-size:var(--font-size-sm);font-weight:600}
 .list tr:last-child td{border-bottom:none}
 .list tr:hover td{background:var(--bg)}
@@ -500,6 +502,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .admin-bulk-list tr:hover td{background:var(--bg)}
 .admin-bulk-list input[type=checkbox]{width:38px;height:22px}
 .admin-list-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 26px var(--shadow-base);overflow:hidden}
+.admin-list-panel:has(> table.list){box-sizing:border-box;width:100%;overflow-x:auto}
 .admin-rebuild-fts-form{display:flex;justify-content:flex-end}
 .admin-topic-tools,.plugin-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .plugin-upload-open{box-sizing:border-box;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:auto;height:32px;min-height:32px;padding:7px 13px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text-muted);font:inherit;font-size:var(--font-size-sm);font-weight:500;line-height:1.2;cursor:pointer}
@@ -621,7 +624,10 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
     .grid>span{padding-top:0}
     .side{position:static;display:flex;gap:4px;overflow-x:auto}
     .side a{flex:0 0 auto;margin:0}
-    .list{display:block;overflow-x:auto;white-space:nowrap}
+    table.list{display:table;overflow:visible;white-space:normal}
+    .markdown-table-wrap table{width:100%;min-width:max-content}
+    .post-content th,.post-content td,.markdown-table-wrap th,.markdown-table-wrap td,.list th,.list td{min-width:max-content}
+    .markdown-table-wrap th,.markdown-table-wrap td{min-width:0;max-width:min(72vw,360px);overflow-wrap:anywhere}
     .admin-head-left-slot{flex-basis:100%}
     .admin-head-right-slot{margin-left:0}
     .admin-search-field{width:min(220px,100%)}

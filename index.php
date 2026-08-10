@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.16');
+define('APP_VERSION', 'v8.5.17');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -3005,7 +3005,7 @@ function admin_settings_html(): string
         'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'],
         'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
         'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
-        'site_closed' => ['label' => '是否关闭', 'type' => 'checkbox'],
+        'site_closed' => ['label' => '是否关闭站点进行维护', 'type' => 'checkbox'],
         'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
         'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
         'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
