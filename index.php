@@ -931,7 +931,13 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
     if ($actual === 0) return 0;
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
     $verb = $actual > 0 ? '增加' : '减少';
-    if ($notify) create_notification($user_id, 0, 'points', '你的积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。');
+    $notification_message = '积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。';
+    if ($notify) create_notification($user_id, 0, 'points', '你的' . $notification_message);
+    elseif ($user_id === uid()) {
+        $tip = '积分 ' . ($actual > 0 ? '+' : '') . $actual;
+        if (ajax_request()) $GLOBALS['__point_change_tip'] = $tip;
+        else set_flash($tip);
+    }
     return $actual;
 }
 function user_points_set(int $user_id, int $points, string $reason = '系统调整'): int
@@ -1442,6 +1448,7 @@ function is_post_request(): bool
 }
 function json_response(array $data): never
 {
+    if (!isset($data['tip']) && !empty($GLOBALS['__point_change_tip'])) $data['tip'] = (string)$GLOBALS['__point_change_tip'];
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;

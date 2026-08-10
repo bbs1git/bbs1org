@@ -498,6 +498,7 @@ document.addEventListener("submit", async e => {
             replyForm.reset();
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
             if (status) status.textContent = "已回复";
+            if (data.tip) showToast(data.tip);
         } catch (err) {
             const message = err?.message || "提交失败";
             if (status) status.textContent = message;
@@ -529,7 +530,7 @@ document.addEventListener("submit", async e => {
                 return;
             }
             closeModal();
-            showToast(data.message || "已发送");
+            showToast(data.tip || data.message || "已发送");
         } catch (err) {
             showToast(err?.message || "发送失败");
         } finally {
@@ -579,6 +580,9 @@ document.addEventListener("submit", async e => {
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
         window.bbs1AttachmentUpload?.afterSubmit();
+        const successMessage = data.tip && data.tip !== data.message
+            ? `${data.message || "操作完成"}，${data.tip}`
+            : (data.message || data.tip || "操作完成");
         if (data.modal && typeof data.modal === "object") {
             openModal(data.modal.title || data.message || "提示", data.modal.html || "");
             resetButton();
@@ -594,10 +598,10 @@ document.addEventListener("submit", async e => {
                 if (panel) replaceEl.outerHTML = panel.outerHTML;
             } catch (_) {}
             if (!replaceEl || replaceEl.isConnected) resetButton();
-            showToast(data.message || "操作完成");
+            showToast(successMessage);
             return;
         }
-        showToast(data.message || "操作完成");
+        showToast(successMessage);
         if (replaceEl && data.html) {
             replaceEl.outerHTML = data.html;
             return;
