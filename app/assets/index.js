@@ -509,8 +509,12 @@ document.addEventListener("submit", async e => {
                 window.location.href = data.redirect;
                 return;
             }
+            let reply = null;
             list?.querySelector(".empty-state")?.remove();
-            if (data.html) list?.insertAdjacentHTML("beforeend", data.html);
+            if (data.html && list) {
+                list.insertAdjacentHTML("beforeend", data.html);
+                reply = list.lastElementChild?.matches(".post-entry") ? list.lastElementChild : null;
+            }
             const title = document.querySelector(".post-topic-title");
             const stats = title?.querySelector(".post-content-stats");
             if (title) {
@@ -523,6 +527,7 @@ document.addEventListener("submit", async e => {
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
             if (status) status.textContent = "已回复";
             if (data.tip) showToast(data.tip);
+            document.dispatchEvent(new CustomEvent("bbs1:reply-saved", {detail: {form: replyForm, reply}}));
         } catch (err) {
             const message = err?.message || "提交失败";
             if (status) status.textContent = message;
