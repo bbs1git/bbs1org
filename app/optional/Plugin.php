@@ -226,8 +226,9 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
         err('插件安装失败');
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-    plugin_update_row($id, ['enabled' => 0, 'status' => 'disabled', 'disabled_reason' => ''], true);
-    q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
+    $target_enabled = $auto_enable ? 1 : 0;
+    plugin_update_row($id, ['enabled' => $target_enabled, 'status' => $target_enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], true);
+    q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$target_enabled, $id]);
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],
         'plugin_' . $id . '_market_topic_id' => (string)(int)$item['topic_id'],
@@ -236,7 +237,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     self::plugin_assets_mark_dirty();
     if (!$auto_enable) return;
     self::plugin_registry_sync();
-    self::plugin_set_enabled($id, true);
+    self::plugin_set_enabled($id, true, true);
     self::plugin_assets_rebuild();
     if (!$plugin_file_loaded) save_settings_values(['plugin_sync_pending' => '0']);
 }
@@ -1133,7 +1134,7 @@ public static function plugin_set_entry_enabled(string $id, string $entry, bool 
     plugins(true);
 }
 
-public static function plugin_set_enabled(string $id, bool $enabled): void
+public static function plugin_set_enabled(string $id, bool $enabled, bool $run_install = false): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
     $plugin = self::plugin_registry($id)[$id] ?? null;
@@ -1147,8 +1148,8 @@ public static function plugin_set_enabled(string $id, bool $enabled): void
         $file = (string)($plugin['file'] ?? '');
         $conflicts = self::plugin_function_conflicts(self::plugin_files());
         if ($file !== '' && isset($conflicts[$file])) err('插件存在函数冲突：' . implode('；', $conflicts[$file]) . '。请修正后重新同步插件');
-        plugin_call($plugin, function () use ($plugin): void {
-            if (!plugin_enabled($plugin) && plugin_callback_exists($plugin['install'] ?? null)) {
+        plugin_call($plugin, function () use ($plugin, $run_install): void {
+            if (($run_install || !plugin_enabled($plugin)) && plugin_callback_exists($plugin['install'] ?? null)) {
                 call_user_func((string)$plugin['install'], $plugin);
             }
         });
