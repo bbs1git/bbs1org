@@ -631,7 +631,10 @@ table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
     .markdown-table-wrap th,.markdown-table-wrap td{min-width:0;max-width:min(72vw,360px);overflow-wrap:anywhere}
     .admin-head-left-slot{flex-basis:100%}
     .admin-head-right-slot{margin-left:0}
+    .plugin-local-list-panel .admin-head-right-slot{flex:1 1 100%;width:100%;min-width:0}
+    .plugin-local-list-panel .plugin-head-actions{width:100%;justify-content:flex-start}
     .admin-search-field{width:min(220px,100%)}
+    .plugin-local-list-panel .plugin-local-search{width:120px;max-width:100%}
     .admin-head-add{padding:0}
     .plugin-list-panel .admin-head-add{padding:0 12px}
     table.list.admin-bulk-list{min-width:max-content}
@@ -641,6 +644,7 @@ table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
     .admin-object-row .admin-inline-ops{grid-column:1;justify-content:flex-start;margin:2px 0 0;overflow-x:auto}
     .admin-trash-row .admin-inline-ops{grid-column:2}
     .plugin-item.admin-object-row{gap:8px}
+    .plugin-local-list-panel .plugin-ops{min-width:0;flex-wrap:wrap;overflow-x:visible}
     .plugin-title-line{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:8px}
     .admin-content-title{white-space:normal}
     .admin-row-meta{gap:5px 8px}

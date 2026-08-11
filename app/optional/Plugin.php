@@ -440,7 +440,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
     $search = '<label class="admin-search-field plugin-local-search"><input type="search" placeholder="搜索本地插件" aria-label="搜索本地插件" data-plugin-local-search></label>';
     $head_right = '<div class="plugin-head-actions">' . $search . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件', 'plugin-head-button') . '</div>';
-    $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
+    $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel plugin-local-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
         $enabled = plugin_enabled($plugin);

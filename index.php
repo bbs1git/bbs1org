@@ -7,7 +7,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
-define('APP_VERSION', 'v8.5.20');
+define('APP_VERSION', 'v8.5.21');
 define('SQL_DEBUG_MODE', false);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
@@ -2756,7 +2756,17 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $toolbar_actions = (string)hook('topic.toolbar_actions', '', ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
         $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
     }
-    $main .= '<ul class="post-list">';
+    $profile_header = $profile_uid
+        ? (string)hook('user.profile_tab_header', '', [
+            'user' => $filter_user,
+            'self' => $own_profile,
+            'tab' => $profile_tab,
+            'page' => $p,
+            'page_size' => $size,
+            'total' => $total,
+        ])
+        : '';
+    $main .= $profile_header . '<ul class="post-list">';
     if ($profile_uid && $profile_tab === 'notifications') {
         mark_notifications_read($profile_uid, $unread_total);
         if (!$rows) $main .= '<li class="empty-state">暂无通知</li>';
