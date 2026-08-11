@@ -389,7 +389,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
 });
 document.addEventListener("click", e => {
-    if (e.target?.closest("[data-modal-close]") || e.target === modal) closeModal();
+    if (e.target?.closest("[data-modal-close]")) closeModal();
 });
 document.addEventListener("click", async e => {
     const link = e.target.closest("a[data-confirm]");
