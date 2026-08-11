@@ -3,6 +3,7 @@ app/*
 !app/assets/index.js
 !app/assets/index.svg
 !app/optional/
+!app/version.php
 .DS_Store
 .vscode
 .codebuddy

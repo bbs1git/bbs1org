@@ -486,6 +486,8 @@ document.addEventListener("submit", async e => {
     const replyForm = e.target.closest(".ajax-reply-form");
     if (replyForm) {
         e.preventDefault();
+        if (replyForm.dataset.submitting === "1") return;
+        replyForm.dataset.submitting = "1";
         const button = replyForm.querySelector("button");
         const status = replyForm.querySelector(".reply-status");
         const list = document.querySelector(".topic-post-list");
@@ -527,6 +529,7 @@ document.addEventListener("submit", async e => {
             showToast(message);
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
         } finally {
+            delete replyForm.dataset.submitting;
             button.disabled = false;
             button.removeAttribute("aria-busy");
             if (loadingText) {
