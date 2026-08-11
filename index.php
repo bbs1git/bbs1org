@@ -1026,7 +1026,7 @@ function notification_row_html(array $n): string
     if ((int)($n['topic_id'] ?? 0) > 0 || (int)($n['reply_id'] ?? 0) > 0) {
         $url = notification_link($n);
         if ($url !== '') {
-            $linked = preg_replace_callback('/《([^》]*)》/u', static fn(array $match): string => '《<a href="' . h($url) . '">' . $match[1] . '</a>》', $content_html, 1, $count);
+            $linked = preg_replace_callback('/《((?:[^《》]|(?R))*)》/u', static fn(array $match): string => '《<a href="' . h($url) . '">' . $match[1] . '</a>》', $content_html, 1, $count);
             if (is_string($linked) && $count > 0) {
                 $content_html = $linked;
             } else {
