@@ -1457,6 +1457,7 @@ function is_post_request(): bool
 function json_response(array $data): never
 {
     if (!isset($data['tip']) && !empty($GLOBALS['__point_change_tip'])) $data['tip'] = (string)$GLOBALS['__point_change_tip'];
+    if (!isset($data['tip']) && !empty($GLOBALS['__ajax_tip'])) $data['tip'] = (string)$GLOBALS['__ajax_tip'];
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
