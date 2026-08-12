@@ -2176,7 +2176,13 @@ function select_forum(int $fid): string
 {
     $options = [];
     foreach (forums_cache() as $f) if (forum_group_allowed($f, 'allow_post_groups')) $options[(int)$f['id']] = (string)$f['name'];
+    if ($fid <= 0) $fid = (int)(array_key_first($options) ?? 0);
     return select_input('版块', 'forum_id', $fid, $options);
+}
+function default_post_forum_id(): int
+{
+    foreach (forums_cache() as $forum) if (forum_group_allowed($forum, 'allow_post_groups')) return (int)$forum['id'];
+    return 0;
 }
 function can_manage_topic(array $t): bool
 {
@@ -2376,7 +2382,8 @@ function save_topic(): int
     $topic_id = id();
     if (!$topic_id) check_post_interval();
     $action = (string)($_POST['topic_action'] ?? '');
-    $fid = max(1, (int)$_POST['forum_id']);
+    $fid = max(0, (int)$_POST['forum_id']);
+    if ($fid <= 0) $fid = default_post_forum_id();
     $forum = forum_by_id($fid) ?: err('版块不存在');
     $title = post('title', 120);
     $body = post('body', 20000);
@@ -2924,7 +2931,7 @@ function topic_edit_page(): void
     need_speak();
     $topic_id = id();
     $editing = $topic_id > 0;
-    $t = ['id' => 0, 'forum_id' => id('fid') ?: 1, 'title' => '', 'body' => '', 'user_id' => uid()];
+    $t = ['id' => 0, 'forum_id' => id('fid') ?: default_post_forum_id(), 'title' => '', 'body' => '', 'user_id' => uid()];
     if ($editing) {
         $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
