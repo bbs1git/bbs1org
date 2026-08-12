@@ -370,6 +370,7 @@ textarea{min-height:120px;resize:vertical;line-height:1.6}
 .profile-exit-button:hover{background:var(--danger-soft)!important;color:var(--danger)!important}
 .profile-exit-button:hover strong{color:var(--danger)}
 .topic-form-panel textarea{min-height:240px}
+.topic-form-actions{margin-top:8px}
 .reply-edit-panel textarea[name=body]{min-height:220px}
 .settings-form textarea{min-height:96px}
 .settings-form textarea[name=header_html],.settings-form textarea[name=footer_html]{min-height:120px;font-family:var(--font-mono);font-size:var(--font-size-sm)}

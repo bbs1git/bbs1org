@@ -2296,7 +2296,7 @@ function user_notify_page(): void
     if ((int)$target['id'] === uid()) err('不能通知自己');
     if (is_post_request()) {
         $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
-        $body = post('content', 500);
+        $body = post('content', 10000);
         $content = trim(($quote !== '' ? '> ' . $quote . "\n\n" : '') . $body);
         if ($content === '') err('通知内容不能为空');
         create_notification((int)$target['id'], uid(), 'direct', $content);
@@ -2306,7 +2306,7 @@ function user_notify_page(): void
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
     $quote = notification_excerpt((string)($_GET['quote'] ?? ''), 100);
     $quote_html = $quote !== '' ? '<blockquote class="notify-quote-card"><p>' . h($quote) . '</p></blockquote><input type="hidden" name="quote" value="' . h($quote) . '">' : '';
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" maxlength="10000" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -2946,7 +2946,7 @@ function topic_edit_page(): void
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => $editing]);
     $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => $editing]);
     $topic_loading_text = $editing ? '正在保存' : '正在发帖';
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {
