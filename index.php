@@ -1245,7 +1245,6 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
         }
     }
     if ($is_self) $links .= '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'notifications'])) . '">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="' . h(route_url('profile')) . '">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">' . svg_icon('admin') . '后台面板</a>' : '');
-    else $links .= '<a href="' . h(route_url('notify', ['id' => (int)$m['id']])) . '" onclick="openNotify(this.href);return false">' . svg_icon('notify') . '私信TA</a>';
     $user_url = route_url('user', ['id' => (int)$m['id']]);
     $rank = h($m['group_name'] ?? '用户') . ' · 积分 ' . (int)($m['points'] ?? 0);
     $state_tags = user_state_tag_html($m);
@@ -2745,7 +2744,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $main = '';
     $search_query = $q !== '' ? 'q=' . rawurlencode($q) . '&field=' . $search_field . '&' : '';
     if ($profile_uid) {
-        $main .= '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="' . h(route_url('profile')) . '">设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">后台</a>' : '') . '</span>' : '<span class="tab-actions"><a class="notify-link" href="' . h(route_url('notify', ['id' => $profile_uid])) . '" onclick="openNotify(this.href);return false">私信TA</a></span>') . '</div>';
+        $main .= '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="' . h(route_url('profile')) . '">设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">后台</a>' : '') . '</span>' : '') . '</div>';
     } else {
         if (!$profile_uid && $q === '') {
             $forum_links = '<div class="mobile-forum-strip"><a class="mobile-forum-link' . ($fid ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部</a>';
