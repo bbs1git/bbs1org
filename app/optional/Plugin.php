@@ -445,15 +445,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
         $enabled = plugin_enabled($plugin);
-        $manage_url = '';
-        if ($enabled && !empty($plugin['admin_tabs']) && is_array($plugin['admin_tabs'])) {
-            foreach ($plugin['admin_tabs'] as $key => $fn) {
-                if (is_string($key) && is_string($fn)) {
-                    $manage_url = admin_url(['tab' => $key]);
-                    break;
-                }
-            }
-        }
+        $manage_url = self::admin_plugin_manage_url($plugin);
         $ops = $manage_url !== '' ? '<a class="plugin-manage-link" href="' . h($manage_url) . '">管理</a>' : '';
         $market_topic_id = max(0, (int)setting('plugin_' . $id . '_market_topic_id'));
         $feedback = '';
@@ -492,6 +484,14 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     else $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
     return $html . '</ul></div>';
 }
+public static function admin_plugin_manage_url(array $plugin): string
+{
+    if (!plugin_enabled($plugin) || !is_array($plugin['admin_tabs'] ?? null)) return '';
+    foreach ($plugin['admin_tabs'] as $key => $fn) {
+        if (is_string($key) && $key !== '' && is_string($fn) && $fn !== '') return admin_url(['tab' => $key]);
+    }
+    return '';
+}
 public static function admin_plugins_tabs_html(string $active): string
 {
     $items = [
@@ -501,7 +501,16 @@ public static function admin_plugins_tabs_html(string $active): string
     $hook_items = hook('admin.plugins.tabs', $items, ['active' => $active]);
     if (is_array($hook_items)) $items = $hook_items;
     $items['cron'] = ['label' => '计划任务日志', 'href' => admin_url(['tab' => 'plugins', 'view' => 'cron'])];
-    return tab_bar_html($items, $active, 'plugin-tabs');
+    $entry_html = '';
+    if ($active === 'local') {
+        $entries = [];
+        foreach (self::plugin_registry() as $plugin) {
+            $url = self::admin_plugin_manage_url($plugin);
+            if ($url !== '') $entries[] = '<a href="' . h($url) . '">' . h((string)($plugin['name'] ?? $plugin['id'])) . '</a>';
+        }
+        if ($entries) $entry_html = '<div class="admin-list-head plugin-management-entries"><strong>插件管理配置</strong><div>' . implode('', $entries) . '</div></div>';
+    }
+    return tab_bar_html($items, $active, 'plugin-tabs') . $entry_html;
 }
 public static function admin_plugins_cron_logs_page_html(): string
 {
