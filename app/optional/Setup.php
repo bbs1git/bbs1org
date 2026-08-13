@@ -450,10 +450,19 @@ public static function us_handle_legacy_upgrade(): never
 
 public static function us_http(string $url, int $max_bytes = UPDATE_MAX_ARCHIVE_BYTES): string
 {
+    $response = Plugin::remote_http_request($url, 30, ['Accept: application/json, text/plain, application/octet-stream'], null, [
+        'connect_timeout' => 10,
+        'max_bytes' => $max_bytes,
+        'user_agent' => 'bbs1org-updater',
+    ]);
+    if ($response['ok']) return (string)$response['body'];
+    if ((string)$response['error'] === '响应内容过大') {
+        throw new RuntimeException('升级源返回内容过大。');
+    }
     $context = stream_context_create(['http' => [
         'method' => 'GET',
         'header' => "Accept: application/json, text/plain, application/octet-stream\r\nUser-Agent: bbs1org-updater\r\n",
-        'timeout' => 15,
+        'timeout' => 30,
         'follow_location' => 1,
         'max_redirects' => 3,
         'ignore_errors' => true,

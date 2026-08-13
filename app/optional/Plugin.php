@@ -79,19 +79,35 @@ public static function plugin_market_url(string $action): string
     return append_url_query(PLUGIN_MARKET_ENDPOINT, ['a' => $action]);
 }
 
-public static function remote_http_request(string $url, int $timeout = 8, array $headers = [], ?array $post_fields = null): array
+public static function remote_http_request(string $url, int $timeout = 8, array $headers = [], ?array $post_fields = null, array $options = []): array
 {
     if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
+    $timeout = max(1, $timeout);
+    $connect_timeout = min($timeout, max(1, (int)($options['connect_timeout'] ?? min(4, $timeout))));
+    $max_bytes = max(0, (int)($options['max_bytes'] ?? 0));
+    $user_agent = trim((string)($options['user_agent'] ?? '')) ?: 'bbs1org/' . APP_VERSION;
     $ch = curl_init($url);
     if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];
+    $body = '';
+    $too_large = false;
     $options = [
-        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_RETURNTRANSFER => $max_bytes === 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
-        CURLOPT_CONNECTTIMEOUT => min(4, max(1, $timeout)),
-        CURLOPT_TIMEOUT => max(1, $timeout),
-        CURLOPT_USERAGENT => 'bbs1org/' . APP_VERSION,
+        CURLOPT_CONNECTTIMEOUT => $connect_timeout,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_USERAGENT => $user_agent,
     ];
+    if ($max_bytes > 0) {
+        $options[CURLOPT_WRITEFUNCTION] = static function ($handle, string $chunk) use (&$body, &$too_large, $max_bytes): int {
+            if (strlen($body) + strlen($chunk) > $max_bytes) {
+                $too_large = true;
+                return 0;
+            }
+            $body .= $chunk;
+            return strlen($chunk);
+        };
+    }
     if (setting('ignore_ssl_errors') === '1') {
         $options[CURLOPT_SSL_VERIFYPEER] = false;
         $options[CURLOPT_SSL_VERIFYHOST] = 0;
@@ -104,10 +120,12 @@ public static function remote_http_request(string $url, int $timeout = 8, array 
     if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
     if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTP') && defined('CURLPROTO_HTTPS')) $options[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
     curl_setopt_array($ch, $options);
-    $body = curl_exec($ch);
+    $result = curl_exec($ch);
     $error = curl_error($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    if ($body === false) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => $error !== '' ? $error : '请求失败'];
+    if ($too_large) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => '响应内容过大'];
+    if ($result === false) return ['ok' => false, 'status' => $status, 'body' => '', 'error' => $error !== '' ? $error : '请求失败'];
+    if ($max_bytes === 0) $body = (string)$result;
     if ($status < 200 || $status >= 300) return ['ok' => false, 'status' => $status, 'body' => (string)$body, 'error' => 'HTTP ' . $status];
     return ['ok' => true, 'status' => $status, 'body' => (string)$body, 'error' => ''];
 }
