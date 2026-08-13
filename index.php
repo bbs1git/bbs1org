@@ -2573,7 +2573,7 @@ function register_page(): void
         go(consume_auth_return_url());
     }
     $sidebar = sidebar_stack_html([
-        sidebar_notice_card_html('注册注意事项', ['用户名注册后可在个人资料中调整。', '邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
+        sidebar_notice_card_html('注册注意事项', ['邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
     $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文</small></span><input name="username" type="text" maxlength="20" required></label>';
