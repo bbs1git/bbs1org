@@ -2463,6 +2463,7 @@ function save_reply(): array
     if ($reply_id) {
         $r = row('app_replies', 'id', $reply_id) ?: err('回复不存在');
         if (!can_manage_reply($r)) err('无权限');
+        if (trim((string)$r['body']) === '') err('回复已删除，无法编辑');
         $tid = (int)$r['topic_id'];
     } else {
         $tid = max(1, (int)$_POST['topic_id']);
@@ -2519,13 +2520,17 @@ function del(string $table, int $id): void
         $record = row($tables[$table], 'id', $id) ?: err('记录不存在');
         $affected_topics = $table === 'users' ? q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll() : [];
         tx(function () use ($table, $tables, $id, $record, $affected_topics) {
+            if ($table === 'replies') {
+                if (trim((string)$record['body']) === '') err('回复已删除');
+                reply_fts_delete($id);
+                q("UPDATE app_replies SET body='' WHERE id=?", [$id]);
+                return;
+            }
             if ($table === 'topics') fire('topic.before_delete', ['id' => $id, 'row' => $record]);
             fire('content.before_delete', ['table' => $table, 'row' => $record]);
             if ($table === 'topics') topic_fts_delete($id);
-            elseif ($table === 'replies') reply_fts_delete($id);
             q('DELETE FROM ' . $tables[$table] . ' WHERE id=?', [$id]);
-            if ($table === 'replies') refresh_topic_stats((int)$record['topic_id']);
-            elseif ($table === 'users') {
+            if ($table === 'users') {
                 foreach ($affected_topics as $topic) refresh_topic_stats((int)$topic['topic_id']);
             }
         });
@@ -2900,6 +2905,7 @@ function topic_page(): void
     if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops);
     foreach ($replies as $i => $r) {
         $reply_floor = $reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1;
+        if (trim((string)$r['body']) === '') continue;
         $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
         if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor]);
@@ -2969,6 +2975,7 @@ function reply_edit_page(): void
             q("UPDATE app_users SET is_muted=1 WHERE id=?", [(int)$r['user_id']]);
             go(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]));
         }
+        if (trim((string)$r['body']) === '') err('回复已删除，无法编辑');
     }
     if (is_post_request()) {
         $saved = save_reply();
