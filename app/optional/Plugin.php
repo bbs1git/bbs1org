@@ -226,7 +226,10 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     $code = (string)($item['code'] ?? '');
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)$item['sha256'] !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
-    if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $code, $match) !== 1 || (string)$match[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
+    $manifest_code = $code;
+    $return_at = strrpos($manifest_code, "\nreturn [");
+    if ($return_at !== false) $manifest_code = substr($manifest_code, $return_at);
+    if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $manifest_code, $match) !== 1 || (string)$match[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
     $dir = PLUGIN_DIR . '/' . $id;
     $file = $dir . '/plugin.php';
     $plugin_file_loaded = array_key_exists($file, $GLOBALS['__plugin_raw'] ?? []);
