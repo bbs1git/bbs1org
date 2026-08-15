@@ -618,9 +618,22 @@ function plugin_asset_tag(string $type): string
     if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
     return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
 }
+function plugin_entry_definitions(): array
+{
+    return [
+        'feature_links' => ['hook' => 'sidebar.feature_links', 'label' => '快捷功能'],
+        'sidebar_cards' => ['hook' => 'sidebar.stack', 'label' => '边栏卡片'],
+        'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab'],
+        'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab'],
+        'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片'],
+        'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
+        'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
+        'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单'],
+    ];
+}
 function plugin_entry_hook_name(string $entry): string
 {
-    return ['feature_links' => 'sidebar.feature_links', 'sidebar_cards' => 'sidebar.stack'][$entry] ?? '';
+    return (string)(plugin_entry_definitions()[$entry]['hook'] ?? '');
 }
 function plugin_uses_entry(array $plugin, string $entry): bool
 {
@@ -665,8 +678,9 @@ function hook_registry(): array
     foreach (plugins() as $plugin) {
         if (!plugin_enabled($plugin)) continue;
         foreach ($plugin['hooks'] as $name => $fn) {
-            if ($name === 'sidebar.feature_links' && !plugin_entry_enabled($plugin, 'feature_links')) continue;
-            if ($name === 'sidebar.stack' && !plugin_entry_enabled($plugin, 'sidebar_cards')) continue;
+            foreach (plugin_entry_definitions() as $entry => $definition) {
+                if ($name === $definition['hook'] && !plugin_entry_enabled($plugin, $entry)) continue 2;
+            }
             $registry[$name][] = ['plugin' => $plugin, 'fn' => $fn];
         }
     }
@@ -1149,6 +1163,19 @@ function mobile_menu_section_html(string $title, array $links): string
     }
     return $html . '</nav></section>';
 }
+function top_menu_links(bool $mobile, ?array $mine = null): array
+{
+    $raw_links = hook('top.menu_links', [], ['mobile' => $mobile, 'user' => $mine]);
+    if (!is_array($raw_links)) return [];
+    $links = [];
+    foreach ($raw_links as $link) {
+        if (!is_array($link)) continue;
+        $text = trim((string)($link['text'] ?? $link['title'] ?? $link['label'] ?? ''));
+        $url = trim((string)($link['url'] ?? $link['href'] ?? ''));
+        if ($text !== '' && $url !== '') $links[] = ['text' => $text, 'url' => $url];
+    }
+    return $links;
+}
 function mobile_menu_html(?array $mine = null, ?array $forums = null): string
 {
     $forums ??= array_values(array_filter(forums_cache(), fn($forum) => forum_group_allowed($forum, 'allow_view_groups')));
@@ -1156,6 +1183,7 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
     foreach ($forums as $f) {
         $forum_links[] = ['text' => (string)$f['name'], 'url' => route_url('forum', ['id' => (int)$f['id']])];
     }
+    $forum_links = array_merge($forum_links, top_menu_links(true, $mine));
     $my_links = [];
     if ($mine) {
         $uid = (int)$mine['id'];
@@ -2068,6 +2096,9 @@ function page_nav_html(string $site_name): string
     $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" aria-label="顶部版块">';
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
+    }
+    foreach (top_menu_links(false, $mine) as $link) {
+        $html .= '<a class="forum-link plugin-top-menu-link" href="' . h((string)$link['url']) . '">' . h((string)$link['text']) . '</a>';
     }
     $more_button_html = '';
     $more_panel_html = '';

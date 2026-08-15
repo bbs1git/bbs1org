@@ -438,7 +438,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
         $flag = $item_market_view === 'certified' ? '<span class="admin-flag on">站长认证</span>' : '';
         $flag .= (!empty($item['required']) ? '<span class="admin-flag danger">必装</span>' : '') . ($installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>');
-        $class = $needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available');
+        $class = ' plugin-market-entry' . ($needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available'));
         $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
     if (!$items) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : ($market_view === 'beta' ? '暂无待审核或忽略的插件。' : '暂无已审核通过的插件。')) . '</li>';
@@ -509,8 +509,10 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         $ops .= $enabled
             ? self::admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？')
             : self::admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable');
-        $entry_ops = self::admin_plugin_entry_toggle_form($plugin, 'feature_links', '快捷功能');
-        $entry_ops .= self::admin_plugin_entry_toggle_form($plugin, 'sidebar_cards', '边栏卡片');
+        $entry_ops = '';
+        foreach (plugin_entry_definitions() as $entry => $definition) {
+            $entry_ops .= self::admin_plugin_entry_toggle_form($plugin, $entry, (string)$definition['label']);
+        }
         $ops .= self::plugin_market_admin_actions($plugin);
         $ops .= (string)hook('admin.plugin.actions', '', ['plugin' => $plugin]);
         $ops .= self::admin_plugin_uninstall_form($id);
@@ -649,6 +651,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
         'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
         'cron' => is_array($plugin['cron'] ?? null) ? $plugin['cron'] : [],
+        'entries' => is_array($plugin['entries'] ?? null) ? $plugin['entries'] : [],
         'install' => (string)($plugin['install'] ?? ''),
         'uninstall' => (string)($plugin['uninstall'] ?? ''),
         'file' => $file,
@@ -658,6 +661,13 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         foreach ($base[$map] as $name => $fn) if (is_string($name) && is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $items[$name] = $fn;
         $base[$map] = $items;
     }
+    $entries = [];
+    foreach ($base['entries'] as $entry => $enabled) {
+        $entry = (string)$entry;
+        $hook = plugin_entry_hook_name($entry);
+        if ($hook !== '' && isset($base['hooks'][$hook])) $entries[$entry] = !empty($enabled);
+    }
+    $base['entries'] = $entries;
     $assets = [];
     foreach (['css', 'js'] as $type) {
         $fn = $base['assets'][$type] ?? null;
@@ -1003,10 +1013,11 @@ public static function plugin_registry_sync(): array
             ? (int)$old['updated_at']
             : now();
         $config = plugin_json_decode($old['config_json'] ?? '') ?? [];
-        $entries = isset($old['entries_json']) ? plugin_json_decode($old['entries_json']) ?? [] : [
-            'feature_links' => true,
-            'sidebar_cards' => true,
-        ];
+        $entries = isset($old['entries_json']) ? plugin_json_decode($old['entries_json']) ?? [] : [];
+        foreach (plugin_entry_definitions() as $entry => $definition) {
+            if (!isset($plugin['hooks'][$definition['hook']]) || array_key_exists($entry, $entries)) continue;
+            $entries[$entry] = !array_key_exists($entry, (array)$plugin['entries']) || !empty($plugin['entries'][$entry]);
+        }
         $enabled = isset($old['enabled']) ? (int)$old['enabled'] : 0;
         app_db_upsert('app_plugins', [
             'id' => $id,

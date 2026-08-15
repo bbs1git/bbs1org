@@ -656,6 +656,8 @@ table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
     .plugin-item.admin-object-row{gap:8px}
     .plugin-local-list-panel .plugin-ops{min-width:0;flex-wrap:wrap;overflow-x:visible}
     .plugin-title-line{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:8px}
+    .plugin-market-entry .plugin-title-line{align-items:flex-start;flex-wrap:wrap;gap:6px}
+    .plugin-market-entry .plugin-title-line .admin-content-title{flex-basis:100%}
     .admin-content-title{white-space:normal}
     .admin-row-meta{gap:5px 8px}
     .bulk-bar{flex-wrap:nowrap;overflow-x:auto;padding:8px 10px}
