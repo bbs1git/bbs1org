@@ -408,7 +408,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
     $market_tabs = tab_bar_html([
         'certified' => ['label' => '站长认证', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
         'beta' => ['label' => '最新beta', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => 'beta'])],
-    ], $market_view, 'plugin-market-tabs');
+    ], $market_view, 'plugin-admin-market-tabs');
     $html = ($with_tabs ? self::admin_plugins_tabs_html('market') : '') . '<div class="admin-list-panel plugin-list-panel">' . admin_list_head($head, $actions) . $market_tabs . '<ul class="admin-manage-list plugin-list">';
     if (!(int)($market['ok'] ?? 0)) return $html . '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li></ul></div>';
     foreach ($items as $item) {

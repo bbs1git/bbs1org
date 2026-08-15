@@ -111,6 +111,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .user-shell{padding:12px}
 .sidebar{width:230px;flex-shrink:0;display:grid;gap:12px;align-content:start}
 .tab-bar{display:flex;align-items:center;max-width:100%;flex-wrap:wrap;gap:0;margin:0 0 10px}
+.tab-bar.plugin-admin-market-tabs{justify-content:center;margin:12px 0 0}
 .tab-bar>.tab{flex:0 0 auto}
 .tab-bar>.pagination{margin:0 0 0 auto;padding:0}
 .profile-toolbar,.topic-toolbar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
