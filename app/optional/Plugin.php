@@ -359,16 +359,31 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
 {
     $market_view = self::plugin_market_view((string)($_GET['market_view'] ?? ''));
     $force = (string)($_GET['refresh'] ?? '') === '1';
+    $query = trim((string)($_GET['q'] ?? ''));
     $market = self::plugin_market_fetch(false, $force, '', 0, $market_view);
     $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
+    if ($query !== '') {
+        $other_market = self::plugin_market_fetch(false, $force, '', 0, $market_view === 'beta' ? 'certified' : 'beta');
+        $merged = array_merge(array_values($items), array_values(is_array($other_market['plugins'] ?? null) ? $other_market['plugins'] : []));
+        $items = [];
+        foreach ($merged as $item) {
+            if (!is_array($item)) continue;
+            $key = (string)($item['id'] ?? '') . ':' . (int)($item['topic_id'] ?? 0) . ':' . (string)($item['market_status'] ?? 'certified');
+            $items[$key] = $item;
+        }
+        if (empty($market['ok']) && !empty($other_market['ok'])) $market = $other_market;
+    }
     $local = self::plugin_registry();
     $updates = [];
-    foreach ($items as $id => $item) if (isset($local[$id]) && is_array($item) && self::plugin_market_update_available($local[$id], $item)) $updates[$id] = true;
-    $query = trim((string)($_GET['q'] ?? ''));
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $id = (string)($item['id'] ?? '');
+        if (isset($local[$id]) && self::plugin_market_update_available($local[$id], $item)) $updates[$id] = true;
+    }
     $items = array_filter($items, static function ($item) use ($query, $market_view): bool {
         if (!is_array($item)) return false;
         $id = (string)($item['id'] ?? '');
-        return plugin_id_valid($id) && (string)($item['market_status'] ?? 'certified') === $market_view && self::plugin_market_matches($item, $query);
+        return plugin_id_valid($id) && ($query !== '' || (string)($item['market_status'] ?? 'certified') === $market_view) && self::plugin_market_matches($item, $query);
     });
     uasort($items, static function (array $a, array $b) use ($updates): int {
         $a_id = (string)($a['id'] ?? '');
@@ -403,13 +418,14 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $price_points = max(0, (int)($item['price_points'] ?? 0));
         $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
         $paid = $price_points > 0 || !$online_install;
+        $item_market_view = self::plugin_market_view((string)($item['market_status'] ?? 'certified'));
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
         $topic_url = (string)($item['url'] ?? '');
         if ($paid) {
             $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
         } else {
-            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $market_view]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $item_market_view]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
         }
         if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">质量报告</a>';
         $meta = [];
@@ -420,7 +436,8 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
         $title = h((string)($item['name'] ?? $id));
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
-        $flag = (!empty($item['required']) ? '<span class="admin-flag danger">必装</span>' : '') . ($installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>');
+        $flag = $item_market_view === 'certified' ? '<span class="admin-flag on">站长认证</span>' : '';
+        $flag .= (!empty($item['required']) ? '<span class="admin-flag danger">必装</span>' : '') . ($installed ? '<span class="admin-flag ' . ($needs_update ? 'update' : 'on') . '">' . h($needs_update ? '可更新' : '已安装') . '</span>' : '<span class="admin-flag">未安装</span>');
         $class = $needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available');
         $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $flag . '</div><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div><div class="admin-content-text plugin-desc">' . h((string)($item['description'] ?? '')) . '</div><div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div><div class="admin-inline-ops plugin-ops">' . $ops . '</div></li>';
     }
