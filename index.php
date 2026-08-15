@@ -1205,7 +1205,7 @@ function tab_bar_html(array $items, string $active, string $class = ''): string
         $extra = is_array($item) ? (string)($item['class'] ?? '') : '';
         $html .= '<a class="tab' . ($active === $key ? ' active' : '') . ($extra !== '' ? ' ' . $extra : '') . '" href="' . h($href) . '">' . $label . '</a>';
     }
-    return $html . '<details class="tab-more" hidden><summary class="tab tab-more-trigger">更多</summary><div class="tab-more-menu"></div></details></div>';
+    return $html . '</div>';
 }
 function auth_tabs_html(string $active): string
 {

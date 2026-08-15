@@ -262,29 +262,23 @@ const runSettingsUpdateCheck = () => {
 };
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runSettingsUpdateCheck);
 else runSettingsUpdateCheck();
-const initTabBarMore = () => {
+const initTabBarWrap = () => {
     const bars = Array.from(document.querySelectorAll(".tab-bar"));
     if (!bars.length) return;
-    const refreshBar = bar => {
-        const more = bar.querySelector(":scope > .tab-more");
-        const menu = more?.querySelector(".tab-more-menu");
-        if (!more || !menu) return;
-        Array.from(menu.children).forEach(tab => bar.insertBefore(tab, more));
-        more.hidden = true;
-        more.open = false;
-        more.classList.remove("is-active");
-        if (!window.matchMedia("(max-width: 720px)").matches) return;
-        const tabs = Array.from(bar.children).filter(item => item.classList.contains("tab"));
-        const lastTab = tabs[tabs.length - 1];
-        if (tabs.length < 2 || lastTab.offsetLeft + lastTab.offsetWidth <= bar.clientWidth) return;
-        more.hidden = false;
-        while (tabs.length > 1 && more.offsetLeft + more.offsetWidth > bar.clientWidth) {
-            menu.prepend(tabs.pop());
-        }
-        more.classList.toggle("is-active", Boolean(menu.querySelector(".active")));
-    };
-    const refresh = () => {
-        bars.forEach(refreshBar);
+    const refresh = bar => {
+        const tabs = Array.from(bar.querySelectorAll(":scope > .tab"));
+        tabs.forEach(tab => tab.classList.remove("tab-wrapped", "tab-line-start", "tab-line-end"));
+        const first = tabs[0];
+        if (!first) return;
+        const firstTop = first.offsetTop;
+        tabs.forEach((tab, index) => {
+            const wrapped = tab.offsetTop > firstTop + 1;
+            const previous = tabs[index - 1];
+            const next = tabs[index + 1];
+            tab.classList.toggle("tab-wrapped", wrapped);
+            tab.classList.toggle("tab-line-start", Boolean(previous && tab.offsetTop > previous.offsetTop + 1));
+            tab.classList.toggle("tab-line-end", !next || next.offsetTop > tab.offsetTop + 1);
+        });
     };
     let queued = false;
     const schedule = () => {
@@ -292,18 +286,20 @@ const initTabBarMore = () => {
         queued = true;
         requestAnimationFrame(() => {
             queued = false;
-            refresh();
+            bars.forEach(refresh);
         });
     };
-    refresh();
+    schedule();
     window.addEventListener("resize", schedule);
+    window.addEventListener("load", schedule, { once: true });
+    document.fonts?.ready?.then(schedule);
     if ("ResizeObserver" in window) {
         const observer = new ResizeObserver(schedule);
         bars.forEach(bar => observer.observe(bar));
     }
 };
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initTabBarMore);
-else initTabBarMore();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initTabBarWrap);
+else initTabBarWrap();
 function avatarSeed(seed) {
     const n = String(seed || "0").replace(/\D/g, "") || "0";
     const mod = [...n].reduce((r, d) => (r * 10 + Number(d)) % 48, 0);
