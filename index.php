@@ -928,8 +928,21 @@ function create_notification(int $recipient_id, int $sender_id, string $kind, st
     if ($recipient_id === $sender_id && $kind !== 'direct') return false;
     $topic_id = $topic_id > 0 ? $topic_id : null;
     $reply_id = $reply_id > 0 ? $reply_id : null;
-    q("INSERT INTO app_notifications(recipient_id,sender_id,kind,content,topic_id,reply_id,created_at,read_at) VALUES(?,?,?,?,?,?,?,0)", [$recipient_id, $sender_id, $kind, $content, $topic_id, $reply_id, now()]);
+    $created_at = now();
+    q("INSERT INTO app_notifications(recipient_id,sender_id,kind,content,topic_id,reply_id,created_at,read_at) VALUES(?,?,?,?,?,?,?,0)", [$recipient_id, $sender_id, $kind, $content, $topic_id, $reply_id, $created_at]);
+    $notification_id = app_db_last_insert_id('app_notifications');
     q("UPDATE app_users SET unread_notifications=COALESCE(unread_notifications,0)+1 WHERE id=?", [$recipient_id]);
+    fire('notification.after_create', [
+        'id' => $notification_id,
+        'recipient_id' => $recipient_id,
+        'sender_id' => $sender_id,
+        'kind' => $kind,
+        'content' => $content,
+        'topic_id' => $topic_id,
+        'reply_id' => $reply_id,
+        'created_at' => $created_at,
+        'read_at' => 0,
+    ]);
     return true;
 }
 function user_points_change(int $user_id, int $delta, string $reason = '系统调整', bool $notify = false, array $context = []): int
