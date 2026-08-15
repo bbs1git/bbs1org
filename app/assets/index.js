@@ -262,6 +262,48 @@ const runSettingsUpdateCheck = () => {
 };
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runSettingsUpdateCheck);
 else runSettingsUpdateCheck();
+const initTabBarMore = () => {
+    const bars = Array.from(document.querySelectorAll(".tab-bar"));
+    if (!bars.length) return;
+    const refreshBar = bar => {
+        const more = bar.querySelector(":scope > .tab-more");
+        const menu = more?.querySelector(".tab-more-menu");
+        if (!more || !menu) return;
+        Array.from(menu.children).forEach(tab => bar.insertBefore(tab, more));
+        more.hidden = true;
+        more.open = false;
+        more.classList.remove("is-active");
+        if (!window.matchMedia("(max-width: 720px)").matches) return;
+        const tabs = Array.from(bar.children).filter(item => item.classList.contains("tab"));
+        const lastTab = tabs[tabs.length - 1];
+        if (tabs.length < 2 || lastTab.offsetLeft + lastTab.offsetWidth <= bar.clientWidth) return;
+        more.hidden = false;
+        while (tabs.length > 1 && more.offsetLeft + more.offsetWidth > bar.clientWidth) {
+            menu.prepend(tabs.pop());
+        }
+        more.classList.toggle("is-active", Boolean(menu.querySelector(".active")));
+    };
+    const refresh = () => {
+        bars.forEach(refreshBar);
+    };
+    let queued = false;
+    const schedule = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => {
+            queued = false;
+            refresh();
+        });
+    };
+    refresh();
+    window.addEventListener("resize", schedule);
+    if ("ResizeObserver" in window) {
+        const observer = new ResizeObserver(schedule);
+        bars.forEach(bar => observer.observe(bar));
+    }
+};
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initTabBarMore);
+else initTabBarMore();
 function avatarSeed(seed) {
     const n = String(seed || "0").replace(/\D/g, "") || "0";
     const mod = [...n].reduce((r, d) => (r * 10 + Number(d)) % 48, 0);

@@ -1205,7 +1205,7 @@ function tab_bar_html(array $items, string $active, string $class = ''): string
         $extra = is_array($item) ? (string)($item['class'] ?? '') : '';
         $html .= '<a class="tab' . ($active === $key ? ' active' : '') . ($extra !== '' ? ' ' . $extra : '') . '" href="' . h($href) . '">' . $label . '</a>';
     }
-    return $html . '</div>';
+    return $html . '<details class="tab-more" hidden><summary class="tab tab-more-trigger">更多</summary><div class="tab-more-menu"></div></details></div>';
 }
 function auth_tabs_html(string $active): string
 {
@@ -2731,6 +2731,10 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         if (is_array($hook_tabs)) $profile_tabs = $hook_tabs;
         if (!array_key_exists($profile_tab, $profile_tabs)) $profile_tab = 'topics';
     }
+    if ($own_profile) {
+        $profile_tabs['profile_settings'] = ['label' => '设置', 'href' => route_url('profile'), 'class' => 'tab-mobile-action'];
+        if (can_access_admin()) $profile_tabs['admin'] = ['label' => '后台', 'href' => route_url('admin'), 'class' => 'tab-mobile-action'];
+    }
     require_search_min_chars($q);
     if ($q !== '') {
         if (!uid()) err('请登录后操作');
@@ -2749,7 +2753,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $main = '';
     $search_query = $q !== '' ? 'q=' . rawurlencode($q) . '&field=' . $search_field . '&' : '';
     if ($profile_uid) {
-        $main .= '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab) . ($own_profile ? '<span class="tab-actions"><a href="' . h(route_url('profile')) . '">设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">后台</a>' : '') . '</span>' : '') . '</div>';
+        $main .= '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab) . '</div>';
     } else {
         if (!$profile_uid && $q === '') {
             $forum_links = '<div class="mobile-forum-strip"><a class="mobile-forum-link' . ($fid ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部</a>';
