@@ -222,6 +222,62 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
     return $result;
 }
 
+private static function plugin_manifest_code_id(string $code): string
+{
+    $tokens = token_get_all($code);
+    $return_arrays = [];
+    $brace_depth = 0;
+    $count = count($tokens);
+    $next_code_token = static function (int $offset) use ($tokens, $count): int {
+        for ($i = $offset; $i < $count; $i++) {
+            if (!is_array($tokens[$i]) || !in_array($tokens[$i][0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) return $i;
+        }
+        return -1;
+    };
+    for ($i = 0; $i < $count; $i++) {
+        $token = $tokens[$i];
+        if ($token === '{' || (is_array($token) && in_array($token[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true))) {
+            $brace_depth++;
+            continue;
+        }
+        if ($token === '}') {
+            $brace_depth = max(0, $brace_depth - 1);
+            continue;
+        }
+        if ($brace_depth !== 0 || !is_array($token) || $token[0] !== T_RETURN) continue;
+        $start = $next_code_token($i + 1);
+        if ($start < 0) continue;
+        if ($tokens[$start] === '[') {
+            $return_arrays[] = $start;
+            continue;
+        }
+        if (is_array($tokens[$start]) && $tokens[$start][0] === T_ARRAY) {
+            $open = $next_code_token($start + 1);
+            if ($open >= 0 && $tokens[$open] === '(') $return_arrays[] = $open;
+        }
+    }
+    foreach (array_reverse($return_arrays) as $start) {
+        $depth = 1;
+        for ($i = $start + 1; $i < $count && $depth > 0; $i++) {
+            $token = $tokens[$i];
+            if (in_array($token, ['[', '(', '{'], true) || (is_array($token) && in_array($token[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true))) {
+                $depth++;
+                continue;
+            }
+            if (in_array($token, [']', ')', '}'], true)) {
+                $depth--;
+                continue;
+            }
+            if ($depth !== 1 || !is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING || preg_match('/^([\'\"])([a-z0-9_-]+)\\1$/D', $token[1], $key) !== 1 || $key[2] !== 'id') continue;
+            $arrow = $next_code_token($i + 1);
+            $value = $arrow >= 0 && is_array($tokens[$arrow]) && $tokens[$arrow][0] === T_DOUBLE_ARROW ? $next_code_token($arrow + 1) : -1;
+            if ($value < 0 || !is_array($tokens[$value]) || $tokens[$value][0] !== T_CONSTANT_ENCAPSED_STRING || preg_match('/^([\'\"])([a-z0-9_-]+)\\1$/D', $tokens[$value][1], $id) !== 1) return '';
+            return (string)$id[2];
+        }
+    }
+    return '';
+}
+
 public static function plugin_market_install(string $id, int $topic_id, bool $auto_enable = false, string $market_view = 'certified'): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
@@ -235,10 +291,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     $code = (string)($item['code'] ?? '');
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)$item['sha256'] !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
-    $manifest_code = $code;
-    $return_at = strrpos($manifest_code, "\nreturn [");
-    if ($return_at !== false) $manifest_code = substr($manifest_code, $return_at);
-    if (preg_match('/[\'"]id[\'"]\s*=>\s*([\'"])(.*?)\1/s', $manifest_code, $match) !== 1 || (string)$match[2] !== $id) err('插件代码 ID 与市场 ID 不一致');
+    if (self::plugin_manifest_code_id($code) !== $id) err('插件代码 ID 与市场 ID 不一致');
     $dir = PLUGIN_DIR . '/' . $id;
     $file = $dir . '/plugin.php';
     $plugin_file_loaded = array_key_exists($file, $GLOBALS['__plugin_raw'] ?? []);
