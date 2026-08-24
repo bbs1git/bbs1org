@@ -1136,10 +1136,23 @@ function is_home_first_page_request(): bool
 {
     return (string)($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '' && max(1, (int)($_GET['p'] ?? 1)) === 1;
 }
+function sidebar_feature_links_data(): array
+{
+    if (array_key_exists('__sidebar_feature_links_data', $GLOBALS)) return (array)$GLOBALS['__sidebar_feature_links_data'];
+    $links = hook('sidebar.feature_links', [], ['is_home_first_page' => true]);
+    return $GLOBALS['__sidebar_feature_links_data'] = is_array($links) ? $links : [];
+}
+function user_menu_links_data(array $user, bool $self): array
+{
+    $key = (int)($user['id'] ?? 0) . '.' . (int)$self;
+    if (isset($GLOBALS['__user_menu_links_data'][$key])) return (array)$GLOBALS['__user_menu_links_data'][$key];
+    $links = hook('user.menu_links', [], ['user' => $user, 'self' => $self]);
+    return $GLOBALS['__user_menu_links_data'][$key] = is_array($links) ? $links : [];
+}
 function sidebar_feature_links_html(array $ctx = []): string
 {
     if (empty($ctx['is_home_first_page'])) return '';
-    $links = hook('sidebar.feature_links', [], $ctx);
+    $links = sidebar_feature_links_data();
     if (!is_array($links) || !$links) return '';
     $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">快捷功能</div><ul class="quick-links feature-links">';
     $count = 0;
@@ -1206,14 +1219,13 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
         $my_links[] = ['text' => '我的通知', 'url' => route_url('user', ['id' => $uid, 'tab' => 'notifications'])];
         $my_links[] = ['text' => '个人设置', 'url' => route_url('profile')];
         if (can_access_admin()) $my_links[] = ['text' => '后台面板', 'url' => route_url('admin')];
-        $extra_links = hook('user.menu_links', [], ['user' => $mine, 'self' => true, 'mobile' => true]);
-        if (is_array($extra_links)) foreach ($extra_links as $link) if (is_array($link)) $my_links[] = $link;
+        foreach (user_menu_links_data($mine, true) as $link) if (is_array($link)) $my_links[] = $link;
     } else {
         $my_links[] = ['text' => '登录', 'url' => route_url('login')];
         if (setting('allow_register', '1') === '1') $my_links[] = ['text' => '注册', 'url' => route_url('register')];
     }
     $quick_links = [];
-    $raw_links = is_home_first_page_request() ? hook('sidebar.feature_links', [], ['is_mobile_menu' => true, 'is_home_first_page' => true]) : [];
+    $raw_links = is_home_first_page_request() ? sidebar_feature_links_data() : [];
     if (is_array($raw_links)) {
         foreach ($raw_links as $key => $link) {
             if (is_array($link)) {
@@ -1273,17 +1285,15 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
     $prefix = $is_self ? '我的' : 'TA的';
     $unread = $is_self ? (int)($m['unread_notifications'] ?? 0) : 0;
     $links = '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'topics'])) . '">' . svg_icon('topic') . $prefix . '主题</a><a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'replies'])) . '">' . svg_icon('reply') . $prefix . '回帖</a>';
-    $extra_links = hook('user.menu_links', [], ['user' => $m, 'self' => $is_self, 'mobile' => false]);
-    if (is_array($extra_links)) {
-        foreach ($extra_links as $link) {
-            if (!is_array($link)) continue;
-            $text = trim((string)($link['text'] ?? ''));
-            $url = trim((string)($link['url'] ?? ''));
-            if ($text === '' || $url === '') continue;
-            $icon = (string)($link['icon'] ?? '');
-            $icon_html = (string)($link['icon_html'] ?? '');
-            $links .= '<a href="' . h($url) . '">' . ($icon_html !== '' ? $icon_html : ($icon !== '' ? svg_icon($icon) : '')) . h($text) . '</a>';
-        }
+    $extra_links = user_menu_links_data($m, $is_self);
+    foreach ($extra_links as $link) {
+        if (!is_array($link)) continue;
+        $text = trim((string)($link['text'] ?? ''));
+        $url = trim((string)($link['url'] ?? ''));
+        if ($text === '' || $url === '') continue;
+        $icon = (string)($link['icon'] ?? '');
+        $icon_html = (string)($link['icon_html'] ?? '');
+        $links .= '<a href="' . h($url) . '">' . ($icon_html !== '' ? $icon_html : ($icon !== '' ? svg_icon($icon) : '')) . h($text) . '</a>';
     }
     if ($is_self) $links .= '<a href="' . h(route_url('user', ['id' => (int)$m['id'], 'tab' => 'notifications'])) . '">' . svg_icon('notify') . $prefix . '通知' . notification_badge_html($unread) . '</a><a href="' . h(route_url('profile')) . '">' . svg_icon('settings') . '个人设置</a>' . (can_access_admin() ? '<a href="' . h(route_url('admin')) . '">' . svg_icon('admin') . '后台面板</a>' : '');
     $user_url = route_url('user', ['id' => (int)$m['id']]);
