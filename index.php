@@ -1189,10 +1189,12 @@ function mobile_menu_section_html(string $title, array $links): string
     }
     return $html . '</nav></section>';
 }
-function top_menu_links(bool $mobile, ?array $mine = null): array
+function top_menu_links(?array $mine = null): array
 {
-    $raw_links = hook('top.menu_links', [], ['mobile' => $mobile, 'user' => $mine]);
-    if (!is_array($raw_links)) return [];
+    $key = (int)($mine['id'] ?? 0);
+    if (isset($GLOBALS['__top_menu_links']) && array_key_exists($key, $GLOBALS['__top_menu_links'])) return (array)$GLOBALS['__top_menu_links'][$key];
+    $raw_links = hook('top.menu_links', [], ['user' => $mine]);
+    if (!is_array($raw_links)) return $GLOBALS['__top_menu_links'][$key] = [];
     $links = [];
     foreach ($raw_links as $link) {
         if (!is_array($link)) continue;
@@ -1200,7 +1202,7 @@ function top_menu_links(bool $mobile, ?array $mine = null): array
         $url = trim((string)($link['url'] ?? $link['href'] ?? ''));
         if ($text !== '' && $url !== '') $links[] = ['text' => $text, 'url' => $url];
     }
-    return $links;
+    return $GLOBALS['__top_menu_links'][$key] = $links;
 }
 function mobile_menu_html(?array $mine = null, ?array $forums = null): string
 {
@@ -1209,7 +1211,7 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
     foreach ($forums as $f) {
         $forum_links[] = ['text' => (string)$f['name'], 'url' => route_url('forum', ['id' => (int)$f['id']])];
     }
-    $forum_links = array_merge($forum_links, top_menu_links(true, $mine));
+    $forum_links = array_merge($forum_links, top_menu_links($mine));
     $my_links = [];
     if ($mine) {
         $uid = (int)$mine['id'];
@@ -2125,7 +2127,7 @@ function page_nav_html(string $site_name): string
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
-    foreach (top_menu_links(false, $mine) as $link) {
+    foreach (top_menu_links($mine) as $link) {
         $html .= '<a class="forum-link plugin-top-menu-link" href="' . h((string)$link['url']) . '">' . h((string)$link['text']) . '</a>';
     }
     $more_button_html = '';
