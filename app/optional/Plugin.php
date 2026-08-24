@@ -2,6 +2,7 @@
 namespace app\optional;
 
 use RuntimeException;
+use ReflectionFunction;
 use Throwable;
 use WeakMap;
 
