@@ -2109,8 +2109,9 @@ function page_nav_html(string $site_name): string
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
     $mine = me();
     $mine_unread = $mine ? (int)($mine['unread_notifications'] ?? 0) : 0;
-    $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => $mine_unread > 0 ? 'notifications' : null]) : route_url('login');
-    $mine_label = $mine ? '我的' . notification_badge_html($mine_unread) : '登录';
+    $mine_link = $mine ? route_url('user', ['id' => (int)$mine['id'], 'tab' => 'notifications']) : route_url('login');
+    $mobile_avatar = $mine ? avatar_tag((int)$mine['id'], (string)$mine['username'], (string)($mine['avatar_style'] ?? ''), 'mobile-nav-avatar', (string)($mine['avatar_seed'] ?? '')) : svg_icon('user');
+    $mobile_unread = $mine_unread > 0 ? '<span class="mobile-nav-unread">' . $mine_unread . '</span>' : '';
     $forums = array_values(array_filter(forums_cache(), fn($f) => forum_group_allowed($f, 'allow_view_groups')));
     $visible_limit = min(20, max(0, (int)setting('pc_nav_forum_count', '6')));
     $visible = array_slice($forums, 0, $visible_limit);
@@ -2138,8 +2139,10 @@ function page_nav_html(string $site_name): string
         foreach ($forums as $f) $more_panel_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
         $more_panel_html .= '</div></div>';
     }
-    $search_html = '<form class="search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . search_min_chars() . '"><button class="search-btn" type="submit" aria-label="搜索"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></form>';
-    return $html . '</nav>' . $more_button_html . $search_html . '<a class="nav-mine" href="' . h($mine_link) . '">' . $mine_label . '</a></div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
+    $search_icon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+    $search_html = '<form class="search-form" id="mobile-search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . search_min_chars() . '"><button class="search-btn" type="submit" aria-label="搜索">' . $search_icon . '</button></form>';
+    $mobile_actions = '<button class="mobile-search-button" type="button" data-mobile-search-toggle aria-label="打开搜索" aria-controls="mobile-search-form" aria-expanded="false">' . $search_icon . '</button><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
+    return $html . '</nav>' . $more_button_html . $search_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
 }
 function page_footer_html(string $title, string $flash): string
 {
@@ -2436,6 +2439,21 @@ function content_create_author(string $hook_name, array $content, array $context
     foreach ($limits as $field => $max) $author[$field] = cut((string)$author[$field], $max);
     return $author;
 }
+function topic_title_color(string $style): string
+{
+    return preg_match('/(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{6})(?:\s*;|$)/', $style, $matches) ? $matches[1] : '';
+}
+function topic_title_is_bold(string $style): bool
+{
+    return preg_match('/(?:^|;)\s*font-weight\s*:\s*(?:700|bold)(?:\s*;|$)/i', $style) === 1;
+}
+function topic_title_style(string $color, bool $bold): string
+{
+    $styles = [];
+    if (preg_match('/^#[0-9a-fA-F]{6}$/', $color) === 1) $styles[] = 'color:' . $color;
+    if ($bold) $styles[] = 'font-weight:700';
+    return implode(';', $styles);
+}
 function save_topic(): int
 {
     need_speak();
@@ -2466,13 +2484,24 @@ function save_topic(): int
             go(route_url('home'));
         }
         if (in_array($action, ['pin', 'unpin'], true)) {
-            set_pinned_topic((int)$t['id'], $action === 'pin');
+            $pin_action = $action === 'pin' ? (string)($_POST['topic_pin_action'] ?? 'pin') : 'unpin';
+            if (!in_array($pin_action, ['pin', 'unpin'], true)) err('请选择置顶操作');
+            set_pinned_topic((int)$t['id'], $pin_action === 'pin');
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
-        if ($action === 'highlight') {
-            $raw_color = trim((string)($_POST['highlight_style'] ?? ''));
-            $style = $raw_color === '' ? '' : 'color:' . (preg_match('/^#[0-9a-fA-F]{6}$/', $raw_color, $m) ? $m[0] : '#d94b4b');
-            q("UPDATE app_topics SET highlight_style=? WHERE id=?", [$style, (int)$t['id']]);
+        if (in_array($action, ['highlight', 'bold'], true)) {
+            $current_style = (string)($t['highlight_style'] ?? '');
+            $color = topic_title_color($current_style);
+            $bold = topic_title_is_bold($current_style);
+            if ($action === 'highlight') {
+                $raw_color = trim((string)($_POST['highlight_style'] ?? ''));
+                $color = $raw_color === '' ? '' : (preg_match('/^#[0-9a-fA-F]{6}$/', $raw_color, $m) ? $m[0] : '#d94b4b');
+            } else {
+                $bold_action = (string)($_POST['topic_bold_action'] ?? '');
+                if (!in_array($bold_action, ['bold', 'unbold'], true)) err('请选择加粗操作');
+                $bold = $bold_action === 'bold';
+            }
+            q("UPDATE app_topics SET highlight_style=? WHERE id=?", [topic_title_style($color, $bold), (int)$t['id']]);
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
         if ($action === 'mute_author') {
@@ -3010,13 +3039,17 @@ function topic_edit_page(): void
     $title = $editing ? '编辑主题' : '发表主题';
     $topic_ops = '';
     if ($editing && can_manage()) {
-        $style = preg_match('/#[0-9a-fA-F]{6}/', (string)($t['highlight_style'] ?? ''), $m) ? $m[0] : '';
+        $style = topic_title_color((string)($t['highlight_style'] ?? ''));
+        $is_bold = topic_title_is_bold((string)($t['highlight_style'] ?? ''));
+        $is_pinned = in_array((int)$t['id'], pinned_topic_ids(), true);
         $colors = ['#d94b4b', '#d97706', '#16a34a', '#2563eb', '#7c3aed'];
         $swatches = '<div class="topic-color-swatches">';
         foreach ($colors as $color) $swatches .= '<button class="topic-color-swatch' . ($style === $color ? ' active' : '') . '" type="button" data-topic-color="' . h($color) . '" style="background:' . h($color) . '" aria-label="' . h($color) . '"></button>';
         $swatches .= '<button class="topic-color-swatch topic-color-clear' . ($style === '' ? ' active' : '') . '" type="button" data-topic-color="" aria-label="取消高亮"></button>';
         $swatches .= '</div>';
-        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="unpin">取消置顶</option><option value="highlight">高亮</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-highlight-field is-hidden" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label>';
+        $pin_options = '<option value="pin"' . ($is_pinned ? '' : ' selected') . '>置顶</option><option value="unpin"' . ($is_pinned ? ' selected' : '') . '>取消置顶</option>';
+        $bold_options = '<option value="bold"' . ($is_bold ? '' : ' selected') . '>加粗</option><option value="unbold"' . ($is_bold ? ' selected' : '') . '>取消加粗</option>';
+        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="highlight">高亮</option><option value="bold">加粗</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="pin"><span>置顶</span><select name="topic_pin_action">' . $pin_options . '</select></label><label class="grid topic-highlight-field is-hidden" data-topic-action-secondary="highlight" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="bold"><span>加粗</span><select name="topic_bold_action">' . $bold_options . '</select></label>';
     }
     $reply_order = $editing ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);

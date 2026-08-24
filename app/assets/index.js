@@ -74,6 +74,17 @@ const openMobileMenu = () => {
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
+const mobileSearchToggle = document.querySelector("[data-mobile-search-toggle]");
+const mobileSearchForm = document.getElementById("mobile-search-form");
+if (mobileSearchToggle && mobileSearchForm) {
+    mobileSearchToggle.addEventListener("click", () => {
+        const bar = mobileSearchToggle.closest(".bar");
+        const open = !bar?.classList.contains("mobile-search-open");
+        bar?.classList.toggle("mobile-search-open", open);
+        mobileSearchToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) mobileSearchForm.querySelector(".search-input")?.focus();
+    });
+}
 document.addEventListener("click", e => {
     const button = e.target instanceof Element ? e.target.closest("[data-profile-toggle]") : null;
     if (!button) return;
@@ -408,8 +419,9 @@ document.addEventListener("change", e => {
     const action = e.target.closest("[data-topic-action]");
     if (!action) return;
     const form = action.closest("form");
-    const highlight = form?.querySelector("[data-topic-highlight-wrap]");
-    if (highlight) highlight.classList.toggle("is-hidden", action.value !== "highlight");
+    form?.querySelectorAll("[data-topic-action-secondary]").forEach(field => {
+        field.classList.toggle("is-hidden", field.dataset.topicActionSecondary !== action.value);
+    });
 });
 document.addEventListener("click", e => {
     const swatch = e.target.closest("[data-topic-color]");
