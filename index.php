@@ -8,7 +8,7 @@ error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
 define('APP_START_TIME', microtime(true));
 require __DIR__ . '/app/version.php';
-define('SQL_DEBUG_MODE', false);
+define('SQL_DEBUG_MODE', true);
 define('APP_ROOT', __DIR__);
 define('APP_DIR', APP_ROOT . '/app');
 define('ASSET_DIR', APP_DIR . '/assets');
@@ -2074,7 +2074,7 @@ function page_nav_html(string $site_name): string
         $more_panel_html .= '</div></div>';
     }
     $search_icon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
-    $mobile_actions = '<a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索">' . $search_icon . '</a><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
+    $mobile_actions = '<a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索"><span class="search-page-fake-input">搜索关键词</span><span class="search-page-fake-icon">' . $search_icon . '</span></a><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
     return $html . '</nav>' . $more_button_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
 }
 function page_footer_html(string $title, string $flash): string
