@@ -234,6 +234,14 @@ private static function plugin_manifest_code_id(string $code): string
         }
         return -1;
     };
+    $literal_value = static function ($token): ?string {
+        if (!is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING || strlen($token[1]) < 2) return null;
+        $quote = $token[1][0];
+        if ($quote !== "'" && $quote !== '"') return null;
+        $value = substr($token[1], 1, -1);
+        return $quote === "'" ? (string)preg_replace('/\\\\([\\\\\'])/', '$1', $value) : stripcslashes($value);
+    };
+    $constants = [];
     for ($i = 0; $i < $count; $i++) {
         $token = $tokens[$i];
         if ($token === '{' || (is_array($token) && in_array($token[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true))) {
@@ -243,6 +251,24 @@ private static function plugin_manifest_code_id(string $code): string
         if ($token === '}') {
             $brace_depth = max(0, $brace_depth - 1);
             continue;
+        }
+        if ($brace_depth === 0 && is_array($token) && $token[0] === T_CONST) {
+            for ($j = $i + 1; $j < $count && $tokens[$j] !== ';'; $j++) {
+                if (!is_array($tokens[$j]) || $tokens[$j][0] !== T_STRING) continue;
+                $equal = $next_code_token($j + 1);
+                $value = $equal >= 0 && $tokens[$equal] === '=' ? $next_code_token($equal + 1) : -1;
+                if ($value >= 0 && ($decoded = $literal_value($tokens[$value])) !== null) $constants[$tokens[$j][1]] = $decoded;
+            }
+            continue;
+        }
+        if ($brace_depth === 0 && is_array($token) && $token[0] === T_STRING && strcasecmp($token[1], 'define') === 0) {
+            $open = $next_code_token($i + 1);
+            $name_at = $open >= 0 && $tokens[$open] === '(' ? $next_code_token($open + 1) : -1;
+            $comma = $name_at >= 0 ? $next_code_token($name_at + 1) : -1;
+            $value = $comma >= 0 && $tokens[$comma] === ',' ? $next_code_token($comma + 1) : -1;
+            $name = $name_at >= 0 ? $literal_value($tokens[$name_at]) : null;
+            $decoded = $value >= 0 ? $literal_value($tokens[$value]) : null;
+            if ($name !== null && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $name) === 1 && $decoded !== null) $constants[$name] = $decoded;
         }
         if ($brace_depth !== 0 || !is_array($token) || $token[0] !== T_RETURN) continue;
         $start = $next_code_token($i + 1);
@@ -268,11 +294,13 @@ private static function plugin_manifest_code_id(string $code): string
                 $depth--;
                 continue;
             }
-            if ($depth !== 1 || !is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING || preg_match('/^([\'\"])([a-z0-9_-]+)\\1$/D', $token[1], $key) !== 1 || $key[2] !== 'id') continue;
+            if ($depth !== 1 || $literal_value($token) !== 'id') continue;
             $arrow = $next_code_token($i + 1);
             $value = $arrow >= 0 && is_array($tokens[$arrow]) && $tokens[$arrow][0] === T_DOUBLE_ARROW ? $next_code_token($arrow + 1) : -1;
-            if ($value < 0 || !is_array($tokens[$value]) || $tokens[$value][0] !== T_CONSTANT_ENCAPSED_STRING || preg_match('/^([\'\"])([a-z0-9_-]+)\\1$/D', $tokens[$value][1], $id) !== 1) return '';
-            return (string)$id[2];
+            if ($value < 0) return '';
+            $id = $literal_value($tokens[$value]);
+            if ($id === null && is_array($tokens[$value]) && $tokens[$value][0] === T_STRING) $id = $constants[$tokens[$value][1]] ?? null;
+            return is_string($id) && preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/D', $id) === 1 ? $id : '';
         }
     }
     return '';
