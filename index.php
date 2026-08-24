@@ -1154,7 +1154,7 @@ function sidebar_feature_links_html(array $ctx = []): string
     if (empty($ctx['is_home_first_page'])) return '';
     $links = sidebar_feature_links_data();
     if (!is_array($links) || !$links) return '';
-    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">快捷功能</div><ul class="quick-links feature-links">';
+    $html = '<div class="card sidebar-card quick-card"><div class="quick-wrap"><div class="quick-title">快捷功能</div><ul class="quick-links feature-links" data-slot="sidebar.feature_links">';
     $count = 0;
     foreach ($links as $key => $link) {
         if (is_array($link)) {
@@ -1243,17 +1243,17 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
         }
     }
     $quick_section = $quick_links ? mobile_menu_section_html('快捷功能', $quick_links) : '';
-    return '<div class="mobile-menu-backdrop" id="mobile-menu" hidden><aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="移动端菜单"><div class="mobile-menu-head"><strong>菜单</strong><button type="button" class="mobile-menu-close" data-mobile-menu-close aria-label="关闭菜单">×</button></div><div class="mobile-menu-body">' . mobile_menu_section_html('版块列表', $forum_links) . mobile_menu_section_html('我的菜单', $my_links) . $quick_section . '</div></aside></div>';
+    return '<div class="mobile-menu-backdrop" id="mobile-menu" hidden><aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="移动端菜单"><div class="mobile-menu-head"><strong>菜单</strong><button type="button" class="mobile-menu-close" data-mobile-menu-close aria-label="关闭菜单">×</button></div><div class="mobile-menu-body" data-slot="top.menu_links user.menu_links sidebar.feature_links">' . mobile_menu_section_html('版块列表', $forum_links) . mobile_menu_section_html('我的菜单', $my_links) . $quick_section . '</div></aside></div>';
 }
 function shell_html(string $main, string $sidebar, string $class = ''): string
 {
     $mainpanel_extra = (string)hook('mainpanel_extra', '', ['main' => $main, 'class' => $class]);
     $layout_class = 'forum-layout' . ($sidebar !== '' ? ' forum-layout-has-sidebar' : '');
-    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="' . $layout_class . '"><div class="forum-main"><div class="main-panel">' . $main . $mainpanel_extra . '</div></div>' . $sidebar . '</div></div>';
+    return '<div class="home-shell' . ($class !== '' ? ' ' . h($class) : '') . '"><div class="' . $layout_class . '"><div class="forum-main"><div class="main-panel" data-slot="mainpanel_extra">' . $main . $mainpanel_extra . '</div></div>' . $sidebar . '</div></div>';
 }
-function tab_bar_html(array $items, string $active, string $class = ''): string
+function tab_bar_html(array $items, string $active, string $class = '', string $slot = ''): string
 {
-    $html = '<div class="tab-bar' . ($class !== '' ? ' ' . $class : '') . '">';
+    $html = '<div class="tab-bar' . ($class !== '' ? ' ' . $class : '') . '"' . ($slot !== '' ? ' data-slot="' . h($slot) . '"' : '') . '>';
     foreach ($items as $key => $item) {
         $label = is_array($item) ? (string)($item['label'] ?? '') : (string)$item;
         $href = is_array($item) ? (string)($item['href'] ?? '#') : '#';
@@ -1275,7 +1275,7 @@ function sidebar_stack_html(array $parts, array $ctx = []): string
     if (is_array($filtered)) $parts = $filtered;
     $entries = array_values(array_filter([sidebar_feature_links_html($ctx)], fn($part) => $part !== ''));
     if ($entries) array_splice($parts, 1, 0, $entries);
-    $html = '<aside class="sidebar">';
+    $html = '<aside class="sidebar" data-slot="sidebar.stack">';
     foreach ($parts as $part) if ($part !== '') $html .= $part;
     return $html . '</aside>';
 }
@@ -1301,7 +1301,7 @@ function sidebar_user_card_html(?array $m = null, bool $reply_button = false, in
     $user_url = route_url('user', ['id' => (int)$m['id']]);
     $rank = h($m['group_name'] ?? '用户') . ' · 积分 ' . (int)($m['points'] ?? 0);
     $state_tags = user_state_tag_html($m);
-    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><a class="user-avatar-big" href="' . $user_url . '">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</a><div><a class="user-name" href="' . $user_url . '">' . h($m['username']) . '</a><div class="user-rank">' . $rank . $state_tags . '</div></div></div></div><div class="user-links">' . $links . '</div></div>';
+    $html = '<div class="card sidebar-card user-card"><div class="user-wrap"><div class="user-header"><div class="user-header-info"><a class="user-avatar-big" href="' . $user_url . '">' . avatar_tag((int)$m['id'], (string)$m['username'], (string)($m['avatar_style'] ?? ''), '', (string)($m['avatar_seed'] ?? '')) . '</a><div><a class="user-name" href="' . $user_url . '">' . h($m['username']) . '</a><div class="user-rank">' . $rank . $state_tags . '</div></div></div></div><div class="user-links" data-slot="user.menu_links">' . $links . '</div></div>';
     if (can_speak()) $html .= '<a class="btn-post' . ($is_self ? '' : ' notify-link') . '" href="' . h($reply_button ? '#reply' : ($is_self ? route_url('topic_edit', ['fid' => $fid ?: null]) : route_url('notify', ['id' => (int)$m['id']]))) . '"' . ($is_self || $reply_button ? '' : ' onclick="openNotify(this.href);return false"') . '>' . ($reply_button ? '回帖' : ($is_self ? '+ 发帖' : '私信TA')) . '</a>';
     return $html . '</div>';
 }
@@ -1844,11 +1844,11 @@ function content_special_links_html(string $escaped_text, int $topic_id = 0): st
     $escaped_text = preg_replace_callback('/@([^\s@#<]{1,32})\s+#(\d+)/u', function ($m) use (&$tokens, $topic_id) {
         if ($topic_id <= 0) return $m[0];
         $url = route_url('topic', ['id' => $topic_id, 'floor' => (int)$m[2]]);
-        return content_html_token($tokens, '<a href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
+        return content_html_token($tokens, '<a class="post-mention post-floor-mention" href="' . h($url) . '" target="_blank" rel="noopener">@' . $m[1] . ' #' . (int)$m[2] . '</a>');
     }, $escaped_text) ?? $escaped_text;
     $escaped_text = preg_replace_callback('/(?<![\p{L}\p{N}._%+\-])@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/u', function ($m) {
         $username = html_entity_decode((string)$m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return '<a href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
+        return '<a class="post-mention" href="' . h(route_url('user', ['username' => $username])) . '">@' . $m[1] . '</a>';
     }, $escaped_text) ?? $escaped_text;
     return strtr($escaped_text, $tokens);
 }
@@ -1901,8 +1901,9 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $avatar = avatar_link_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
     $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
     $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '';
-    $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops">' . $ops . $floor_html . '</div>' : '';
-    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-header-row"><div class="post-info"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div>' . $ops_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
+    $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops"' . ($is_reply ? '' : ' data-slot="topic.actions"') . '>' . $ops . $floor_html . '</div>' : '';
+    $row_slots = $is_reply ? 'reply.after_render' : 'topic.after_render topic.content_after';
+    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-header-row"><div class="post-info"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div>' . $ops_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
     $html = (string)hook($is_reply ? 'reply.after_render' : 'topic.after_render', $html, ['row' => $row, 'body' => $body] + $ctx);
     if ($is_reply) return $html;
     $content_after = (string)hook('topic.content_after', '', ['row' => $row, 'body' => $body, 'topic_id' => $topic_id] + $ctx);
@@ -2067,7 +2068,7 @@ function topic_list_row(array $t, string $sort): string
         $reply_excerpt = trim((string)($t['my_reply_excerpt'] ?? ''));
         $reply_excerpt_html = $reply_excerpt !== '' ? '<div class="profile-reply-excerpt">' . h($reply_excerpt) . '</div>' : '';
         $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
-        $html = '<li class="post-item"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
+        $html = '<li class="post-item" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
         return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
     }
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
@@ -2088,7 +2089,7 @@ function topic_list_row(array $t, string $sort): string
     $style = (string)($t['highlight_style'] ?? '') !== '' ? ' style="' . h((string)$t['highlight_style']) . '"' : '';
     $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t, 'list' => true, 'sort' => $sort]);
     $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
-    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
+    $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row" data-slot="topic.title_suffix">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
     return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
 }
 function topic_stats_html(int $view_count, int $reply_count): string
@@ -2124,7 +2125,7 @@ function page_nav_html(string $site_name): string
             }
         }
     }
-    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" aria-label="顶部版块">';
+    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" data-slot="top.menu_links" aria-label="顶部版块">';
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
@@ -2149,7 +2150,7 @@ function page_footer_html(string $title, string $flash): string
     $footer_html = (string)hook('page.footer', '', ['title' => $title]);
     $plugin_js = plugin_asset_tag('js');
     $footer_html .= sql_debug_html();
-    return '<footer class="footer">' . $footer_html . '</footer>' . project_modal_html() . '<script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
+    return '<footer class="footer" data-slot="page.footer">' . $footer_html . '</footer>' . project_modal_html() . '<script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
 }
 function project_modal_html(): string
 {
@@ -2184,7 +2185,7 @@ function page(string $title, string $body, array $seo = []): void
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
     if ($flash !== '' && !headers_sent()) app_cookie('__flash', '', time() - 3600, true, false);
     $header_html = (string)hook('page.header', '', ['title' => $title]);
-    echo page_head_html($page_title, $meta, $head_extra) . page_nav_html($site_name) . $header_html . '<main class="wrap">' . $body . '</main>' . page_footer_html($title, $flash);
+    echo page_head_html($page_title, $meta, $head_extra) . page_nav_html($site_name) . $header_html . '<main class="wrap" data-slot="page.before_render">' . $body . '</main>' . page_footer_html($title, $flash);
 }
 function form_field_caption(string $label, string $help = ''): string
 {
@@ -2652,7 +2653,7 @@ function login_page(): void
     ]);
     $form_extra = (string)hook('login.form_extra', '', []);
     $auth_extra = (string)hook('login.after_form', '', []);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel"><h2>登录</h2><form method="post">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form>' . $auth_extra . '</div>', $sidebar));
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel" data-slot="login.after_form"><h2>登录</h2><form method="post" data-slot="login.form_extra">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form>' . $auth_extra . '</div>', $sidebar));
 }
 function register_page(): void
 {
@@ -2671,7 +2672,7 @@ function register_page(): void
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
     $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文</small></span><input name="username" type="text" maxlength="20" required></label>';
-    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
+    page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post" data-slot="register.form_extra">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
 {
@@ -2685,7 +2686,7 @@ function profile_page(): void
     $account_cards = '<div class="profile-account-grid"><div class="profile-account-card"><span>用户名</span><strong>' . h($u['username']) . '</strong></div><div class="profile-account-card"><span>用户 UID</span><strong>' . (int)$u['id'] . '</strong></div><div class="profile-account-card"><span>邮箱</span><strong title="' . h($u['email']) . '">' . h($u['email']) . '</strong></div><div class="profile-account-card"><span>注册时间</span><strong>' . date('Y-m-d H:i', (int)$u['created_at']) . '</strong></div><div class="profile-account-card"><span>积分</span><strong>' . (int)$u['points'] . '</strong></div><div class="profile-account-card profile-account-logout"><form class="post-action-form" method="post" action="' . h(route_url('logout')) . '">' . form_token() . '<button class="profile-exit-button" type="submit"><span>账号安全</span><strong>安全退出</strong></button></form></div></div>';
     $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>密码</span><small>不修改密码</small></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
     $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-    page('个人资料', form_shell('<div class="form-panel"><h2>个人资料</h2>' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>', $u));
+    page('个人资料', form_shell('<div class="form-panel" data-slot="profile.after_form"><h2>个人资料</h2>' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>', $u));
 }
 function user_page(): void
 {
@@ -2843,7 +2844,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $main = '';
     $search_query = $q !== '' ? 'q=' . rawurlencode($q) . '&field=' . $search_field . '&' : '';
     if ($profile_uid) {
-        $main .= '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab) . '</div>';
+        $main .= '<div class="profile-toolbar" data-slot="user.profile_tabs">' . tab_bar_html($profile_tabs, $profile_tab) . '</div>';
     } else {
         if (!$profile_uid && $q === '') {
             $forum_links = '<div class="mobile-forum-strip"><a class="mobile-forum-link' . ($fid ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部</a>';
@@ -2860,7 +2861,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $hook_tabs = hook('topic.index_tabs', $tab_items, ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
         if (is_array($hook_tabs)) $tab_items = $hook_tabs;
         $toolbar_actions = (string)hook('topic.toolbar_actions', '', ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
-        $main .= '<div class="topic-toolbar">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
+        $main .= '<div class="topic-toolbar" data-slot="topic.index_tabs topic.toolbar_actions">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
     }
     $profile_header = $profile_uid
         ? (string)hook('user.profile_tab_header', '', [
@@ -3014,7 +3015,7 @@ function topic_page(): void
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>发表回复</h3>' . $help . '</div>';
     if (can_speak() && $can_reply_forum) {
         $reply_form_extra = (string)hook('reply.form_extra', '', ['topic' => $t, 'editing' => false]);
-        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . $reply_form_extra . '<button type="submit" data-loading-text="正在回复">回复</button></form>';
+        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '" data-slot="reply.form_extra">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('内容', 'body', '', true) . $reply_form_extra . '<button type="submit" data-loading-text="正在回复">回复</button></form>';
     } elseif (!uid()) {
         $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">登录后回复</a></div>';
     } elseif (!$can_reply_forum) {
@@ -3056,7 +3057,7 @@ function topic_edit_page(): void
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => $editing]);
     $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => $editing]);
     $topic_loading_text = $editing ? '正在保存' : '正在发帖';
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post" data-slot="attachment.uploader topic.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {
@@ -3093,7 +3094,7 @@ function reply_edit_page(): void
     }
     $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
     $reply_form_extra = (string)hook('reply.form_extra', '', ['reply' => $r, 'editing' => (int)$r['id'] > 0]);
-    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . (string)hook('attachment.uploader', '', ['muted' => true]) . $reply_form_extra . '<button type="submit" data-loading-text="正在保存">保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post" data-slot="attachment.uploader reply.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . (string)hook('attachment.uploader', '', ['muted' => true]) . $reply_form_extra . '<button type="submit" data-loading-text="正在保存">保存</button></form></div>'));
 }
 function admin_tabs(string $tab): string
 {
@@ -3102,7 +3103,7 @@ function admin_tabs(string $tab): string
         $items[$key] = ['label' => $label, 'href' => admin_url(['tab' => $key])];
     }
     $hook_items = hook('admin.tabs', $items, ['active' => $tab]);
-    return tab_bar_html(is_array($hook_items) ? $hook_items : $items, $tab, 'admin-tabs');
+    return tab_bar_html(is_array($hook_items) ? $hook_items : $items, $tab, 'admin-tabs', 'admin.tabs');
 }
 function admin_layout(string $tab, string $body): string
 {
