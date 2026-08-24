@@ -1038,9 +1038,15 @@ function notification_row_html(array $n): string
     if ((int)($n['topic_id'] ?? 0) > 0 || (int)($n['reply_id'] ?? 0) > 0) {
         $url = notification_link($n);
         if ($url !== '') {
-            $linked = preg_replace_callback('/《((?:[^《》]|(?R))*)》/u', static fn(array $match): string => '《<a href="' . h($url) . '">' . $match[1] . '</a>》', $content_html, 1, $count);
-            if (is_string($linked) && $count > 0) {
-                $content_html = $linked;
+            $title_marker = "\x1ENOTIFICATION_TOPIC_TITLE\x1E";
+            $topic_title = '';
+            $source = preg_replace_callback('/《((?:[^《》]|(?R))*)》/u', static function (array $match) use (&$topic_title, $title_marker): string {
+                $topic_title = $match[1];
+                return '《' . $title_marker . '》';
+            }, $body, 1, $count);
+            if (is_string($source) && $count > 0) {
+                // Render the title as one link so mentions in it cannot create nested anchors.
+                $content_html = str_replace($title_marker, '<a href="' . h($url) . '">' . h($topic_title) . '</a>', markdown_html($source));
             } else {
                 $view_link = '<a href="' . h($url) . '">查看主题</a>';
                 $content_html = preg_replace('/<\/p>\s*$/u', ' ' . $view_link . '</p>', $content_html, 1, $paragraph_count) ?? $content_html;
