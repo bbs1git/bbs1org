@@ -67,11 +67,24 @@ const closeMobileMenu = () => {
     document.body.classList.remove("mobile-menu-open");
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "false");
 };
-const openMobileMenu = () => {
+const openMobileMenu = async () => {
     if (!mobileMenu) return;
     mobileMenu.hidden = false;
     document.body.classList.add("mobile-menu-open");
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
+    const body = mobileMenu.querySelector(".mobile-menu-body");
+    if (!body || body.dataset.loaded) return;
+    body.dataset.loaded = "loading";
+    body.textContent = "加载中…";
+    try {
+        const response = await fetch(mobileMenu.dataset.mobileMenuUrl, {headers: {"X-Requested-With": "XMLHttpRequest"}});
+        if (!response.ok) throw new Error();
+        body.innerHTML = await response.text();
+        body.dataset.loaded = "1";
+    } catch {
+        delete body.dataset.loaded;
+        body.textContent = "加载失败，请重新打开菜单";
+    }
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
 document.addEventListener("click", e => {

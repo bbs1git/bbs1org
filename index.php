@@ -1189,7 +1189,7 @@ function top_menu_links(?array $mine = null): array
     }
     return $GLOBALS['__top_menu_links'][$key] = $links;
 }
-function mobile_menu_html(?array $mine = null, ?array $forums = null): string
+function mobile_menu_content_html(?array $mine = null, ?array $forums = null): string
 {
     $forums ??= array_values(array_filter(forums_cache(), fn($forum) => forum_group_allowed($forum, 'allow_view_groups')));
     $forum_links = [['text' => '全部版块', 'url' => route_url('home')]];
@@ -1212,7 +1212,7 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
         if (setting('allow_register', '1') === '1') $my_links[] = ['text' => '注册', 'url' => route_url('register')];
     }
     $quick_links = [];
-    $raw_links = is_home_first_page_request() ? sidebar_feature_links_data() : [];
+    $raw_links = sidebar_feature_links_data();
     if (is_array($raw_links)) {
         foreach ($raw_links as $key => $link) {
             if (is_array($link)) {
@@ -1228,7 +1228,11 @@ function mobile_menu_html(?array $mine = null, ?array $forums = null): string
         }
     }
     $quick_section = $quick_links ? mobile_menu_section_html('快捷功能', $quick_links) : '';
-    return '<div class="mobile-menu-backdrop" id="mobile-menu" hidden><aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="移动端菜单"><div class="mobile-menu-head"><strong>菜单</strong><button type="button" class="mobile-menu-close" data-mobile-menu-close aria-label="关闭菜单">×</button></div><div class="mobile-menu-body" data-slot="top.menu_links user.menu_links sidebar.feature_links">' . mobile_menu_section_html('版块列表', $forum_links) . mobile_menu_section_html('我的菜单', $my_links) . $quick_section . '</div></aside></div>';
+    return mobile_menu_section_html('版块列表', $forum_links) . mobile_menu_section_html('我的菜单', $my_links) . $quick_section;
+}
+function mobile_menu_html(): string
+{
+    return '<div class="mobile-menu-backdrop" id="mobile-menu" data-mobile-menu-url="' . h(route_url('mobile_menu')) . '" hidden><aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="移动端菜单"><div class="mobile-menu-head"><strong>菜单</strong><button type="button" class="mobile-menu-close" data-mobile-menu-close aria-label="关闭菜单">×</button></div><div class="mobile-menu-body" data-slot="top.menu_links user.menu_links sidebar.feature_links"></div></aside></div>';
 }
 function shell_html(string $main, string $sidebar, string $class = ''): string
 {
@@ -2075,7 +2079,7 @@ function page_nav_html(string $site_name): string
     }
     $search_icon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
     $mobile_actions = '<a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索"><span class="search-page-fake-input">搜索关键词</span><span class="search-page-fake-icon">' . $search_icon . '</span></a><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
-    return $html . '</nav>' . $more_button_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
+    return $html . '</nav>' . $more_button_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html();
 }
 function page_footer_html(string $title, string $flash): string
 {
@@ -3258,6 +3262,11 @@ function admin_route(): void
     del($type, id());
     go(admin_url(['tab' => $type]));
 }
+function mobile_menu_route(): void
+{
+    header('Content-Type: text/html; charset=utf-8');
+    echo mobile_menu_content_html(me());
+}
 function core_routes(): array
 {
     return [
@@ -3267,6 +3276,7 @@ function core_routes(): array
         'apple-touch-icon.png' => 'favicon_page',
         'apple-touch-icon-precomposed.png' => 'favicon_page',
         'search' => 'search_page',
+        'mobile_menu' => 'mobile_menu_route',
         'forum' => 'forum_page',
         'topic' => 'topic_page',
         'user' => 'user_page',
