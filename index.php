@@ -205,18 +205,6 @@ function app_db_create_table(string $table, string $definition): void
     if (db_driver() === 'mysql') $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     db()->exec($sql);
 }
-function app_db_create_fts5_table(PDO $db, string $table, string $columns, bool $if_not_exists = true): bool
-{
-    $create = 'CREATE VIRTUAL TABLE ' . ($if_not_exists ? 'IF NOT EXISTS ' : '') . app_db_identifier('sqlite', $table) . ' USING fts5(' . $columns;
-    try {
-        $db->exec($create . ", tokenize='trigram')");
-        return true;
-    } catch (PDOException $e) {
-        $message = strtolower($e->getMessage());
-        if (!str_contains($message, 'no such tokenizer') && !str_contains($message, 'no such module: fts5')) throw $e;
-        return false;
-    }
-}
 function app_db_drop_table(string $table): void
 {
     db()->exec('DROP TABLE IF EXISTS ' . app_db_identifier(db_driver(), $table));
@@ -426,9 +414,6 @@ function default_settings(): array
         'replies_per_page' => '50',
         'max_pagination_pages' => '50',
         'search_min_chars' => '2',
-        'mysql_search_index_topics_title' => '0',
-        'mysql_search_index_topics_body' => '0',
-        'mysql_search_index_replies_body' => '0',
         'post_interval_seconds' => '5',
         'stats_topics' => '0',
         'stats_replies' => '0',
@@ -1927,22 +1912,6 @@ function topic_list_select_columns(): string
     $extra = array_values(array_intersect($allowed, array_filter($extra, 'is_string')));
     return $cached = implode(',', array_values(array_unique(array_merge(explode(',', $columns), $extra))));
 }
-function topic_fts_query(string $query, string $field = ''): string
-{
-    $query = trim($query);
-    if ($query === '') $query = '__nomatch__';
-    $quoted = '"' . str_replace('"', '""', $query) . '"';
-    $field = in_array($field, ['title', 'body'], true) ? $field : '';
-    return $field !== '' ? $field . ':' . $quoted : $quoted;
-}
-function sqlite_fts_uses_trigram(): bool
-{
-    static $enabled;
-    if ($enabled !== null) return $enabled;
-    if (db_driver() !== 'sqlite') return $enabled = false;
-    $sql = (string)val("SELECT sql FROM sqlite_master WHERE type='table' AND name='app_topics_fts'");
-    return $enabled = preg_match('/tokenize\s*=\s*[\'\"]trigram[\'\"]/i', $sql) === 1;
-}
 function search_min_chars(): int
 {
     return min(20, max(1, (int)setting('search_min_chars', '2')));
@@ -1951,10 +1920,6 @@ function search_char_count(string $query): int
 {
     $count = preg_match_all('/./us', trim($query));
     return $count === false ? 0 : $count;
-}
-function sqlite_search_uses_fts(string $query): bool
-{
-    return sqlite_fts_uses_trigram() && search_char_count($query) >= 3;
 }
 function require_search_min_chars(string $query): void
 {
@@ -1971,68 +1936,38 @@ function search_like_pattern(string $query): string
 {
     return '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($query)) . '%';
 }
-function mysql_search_index_definitions(): array
-{
-    return [
-        'idx_topics_search_title' => ['app_topics', 'mysql_search_index_topics_title'],
-        'idx_topics_search_body' => ['app_topics', 'mysql_search_index_topics_body'],
-        'idx_replies_search_body' => ['app_replies', 'mysql_search_index_replies_body'],
-    ];
-}
-function mysql_search_index_settings(PDO $db, string $driver): array
-{
-    $settings = [];
-    foreach (mysql_search_index_definitions() as $index => [$table, $setting]) {
-        $settings[$setting] = $driver === 'mysql' && app_db_index_exists($db, $driver, $index, $table) ? '1' : '0';
-    }
-    return $settings;
-}
-function mysql_search_index_available(string $index): bool
-{
-    $definition = mysql_search_index_definitions()[$index] ?? null;
-    return db_driver() === 'mysql' && $definition !== null && setting($definition[1], '0') === '1';
-}
 function content_search_condition(string $query, string $field = 'title'): array
 {
     $field = in_array($field, ['title', 'body', 'reply'], true) ? $field : 'title';
-    $reply = $field === 'reply';
     $column = $field === 'title' ? 'title' : 'body';
-    $mysql_index = $reply ? 'idx_replies_search_body' : 'idx_topics_search_' . $field;
-    if (mysql_search_index_available($mysql_index)) {
-        $value = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], trim($query)) . '"';
-        return ['MATCH(' . $column . ') AGAINST(? IN BOOLEAN MODE)', [$value]];
-    }
-    if (db_driver() === 'pgsql') {
-        return [$column . " ILIKE ? ESCAPE '!'", [search_like_pattern($query)]];
-    }
-    if (!sqlite_search_uses_fts($query)) return [$column . " LIKE ? ESCAPE '!'", [search_like_pattern($query)]];
-    $fts_table = $reply ? 'app_replies_fts' : 'app_topics_fts';
-    return [
-        "id IN (SELECT rowid FROM $fts_table WHERE $fts_table MATCH ?)",
-        [topic_fts_query($query, $reply ? '' : $field)],
-    ];
+    $fallback = [$column . (db_driver() === 'pgsql' ? " ILIKE ? ESCAPE '!'" : " LIKE ? ESCAPE '!'"), [search_like_pattern($query)]];
+    $condition = hook('search.condition', $fallback, ['query' => trim($query), 'field' => $field, 'column' => $column]);
+    return is_array($condition) && isset($condition[0], $condition[1]) && is_string($condition[0]) && is_array($condition[1]) ? $condition : $fallback;
 }
 function topic_fts_sync(int $id, string $title, string $body): void
 {
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
-    q("DELETE FROM app_topics_fts WHERE rowid=?", [$id]);
-    q("INSERT INTO app_topics_fts(rowid,title,body) VALUES(?,?,?)", [$id, $title, $body]);
+    fire('search.topic_sync', ['id' => $id, 'title' => $title, 'body' => $body]);
 }
 function topic_fts_delete(int $id): void
 {
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
-    q("DELETE FROM app_topics_fts WHERE rowid=?", [$id]);
+    fire('search.topic_delete', ['id' => $id]);
 }
 function reply_fts_sync(int $id, string $body): void
 {
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
-    q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
-    q("INSERT INTO app_replies_fts(rowid,body) VALUES(?,?)", [$id, $body]);
+    fire('search.reply_sync', ['id' => $id, 'body' => $body]);
 }
 function reply_fts_delete(int $id): void
 {
-    if (db_driver() !== 'sqlite' || !sqlite_fts_uses_trigram()) return;
-    q("DELETE FROM app_replies_fts WHERE rowid=?", [$id]);
+    fire('search.reply_delete', ['id' => $id]);
+}
+function search_index_available(): bool
+{
+    return (bool)hook('search.index_available', false, ['driver' => db_driver()]);
+}
+function search_index_rebuild(string $type = 'all', int $start_id = 1): int
+{
+    $type = in_array($type, ['topics', 'replies'], true) ? $type : 'all';
+    return max(0, (int)hook('search.rebuild', 0, ['type' => $type, 'start_id' => max(1, $start_id)]));
 }
 function topic_list_rows_for_replies(array $reply_rows): array
 {
@@ -2105,8 +2040,6 @@ function page_head_html(string $page_title, string $meta, string $head_extra = '
 }
 function page_nav_html(string $site_name): string
 {
-    $q = trim((string)($_GET['q'] ?? ''));
-    $search_field = topic_search_field((string)($_GET['field'] ?? 'title'));
     $active_forum = ($_GET['a'] ?? '') === 'forum' ? id() : 0;
     $mine = me();
     $mine_unread = $mine ? (int)($mine['unread_notifications'] ?? 0) : 0;
@@ -2141,9 +2074,8 @@ function page_nav_html(string $site_name): string
         $more_panel_html .= '</div></div>';
     }
     $search_icon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
-    $search_html = '<form class="search-form" id="mobile-search-form" method="get" action="' . h(index_url()) . '" data-no-ajax="1"><select class="search-field" name="field" aria-label="搜索范围"><option value="title"' . ($search_field === 'title' ? ' selected' : '') . '>标题</option><option value="body"' . ($search_field === 'body' ? ' selected' : '') . '>内容</option><option value="reply"' . ($search_field === 'reply' ? ' selected' : '') . '>回帖</option></select><input class="search-input" type="search" name="q" placeholder="搜索关键词" value="' . h($q) . '" minlength="' . search_min_chars() . '"><button class="search-btn" type="submit" aria-label="搜索">' . $search_icon . '</button></form>';
-    $mobile_actions = '<button class="mobile-search-button" type="button" data-mobile-search-toggle aria-label="打开搜索" aria-controls="mobile-search-form" aria-expanded="false">' . $search_icon . '</button><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
-    return $html . '</nav>' . $more_button_html . $search_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
+    $mobile_actions = '<a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索">' . $search_icon . '</a><a class="nav-mine" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
+    return $html . '</nav>' . $more_button_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html($mine, $forums);
 }
 function page_footer_html(string $title, string $flash): string
 {
@@ -2810,8 +2742,8 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     $off = ($p - 1) * $size;
     $profile_tab = (string)($_GET['tab'] ?? 'topics');
     $sort = topic_index_sort($profile_uid > 0);
-    $q = trim((string)($_GET['q'] ?? ''));
-    $search_field = topic_search_field((string)($_GET['field'] ?? 'title'));
+    $q = '';
+    $search_field = 'title';
     $profile_tabs = [
         'topics' => ['label' => '主题', 'href' => $url('tab=topics')],
         'replies' => ['label' => '回帖', 'href' => $url('tab=replies')],
@@ -2825,16 +2757,6 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     if ($own_profile) {
         $profile_tabs['profile_settings'] = ['label' => '设置', 'href' => route_url('profile'), 'class' => 'tab-mobile-action'];
         if (can_access_admin()) $profile_tabs['admin'] = ['label' => '后台', 'href' => route_url('admin'), 'class' => 'tab-mobile-action'];
-    }
-    require_search_min_chars($q);
-    if ($q !== '') {
-        if (!uid()) err('请登录后操作');
-        $seconds = post_interval_seconds();
-        if ($seconds > 0) {
-            $wait = $seconds - (time() - (int)(row('app_users', 'id', uid())['last_post_at'] ?? 0));
-            if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
-            q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
-        }
     }
     $data = topic_index_data($fid, $filter_user, $profile_tab, $q, $search_field, $sort, $p, $size);
     $rows = $data['rows'];
@@ -2913,14 +2835,60 @@ function home_page(): void
 {
     topic_index_page();
 }
+function search_post_pagination_html(bool $has_prev, bool $has_next, int $page, string $query, string $field): string
+{
+    if ($page >= max_pagination_pages()) $has_next = false;
+    if (!$has_prev && !$has_next) return '';
+    $button = function (int $target, string $label) use ($query, $field): string {
+        return '<form method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(['q' => $query, 'field' => $field, 'p' => $target]) . '<button type="submit">' . $label . '</button></form>';
+    };
+    return '<div class="pagination-bar search-page-pagination"><div class="pagination"><ul>'
+        . ($has_prev ? '<li>' . $button(max(1, $page - 1), '上一页') . '</li>' : '')
+        . '<li class="active"><span>' . $page . '</span></li>'
+        . ($has_next ? '<li>' . $button($page + 1, '下一页') . '</li>' : '')
+        . '</ul></div></div>';
+}
 function search_page(): void
 {
     if (!uid()) err('请登录后操作');
-    if (!is_post_request()) go(route_url('home'));
-    $q = post('q', 120);
-    if ($q === '') go(route_url('home'));
-    require_search_min_chars($q);
-    go(route_url('home', ['q' => $q]));
+    $submitted = is_post_request();
+    $q = $submitted ? post('q', 120) : '';
+    $field = topic_search_field($submitted ? (string)($_POST['field'] ?? 'title') : 'title');
+    $page_number = $submitted ? min(max_pagination_pages(), max(1, (int)($_POST['p'] ?? 1))) : 1;
+    if ($q !== '') require_search_min_chars($q);
+    $options = ['title' => '标题', 'body' => '内容', 'reply' => '回帖'];
+    $radios = '';
+    foreach ($options as $value => $label) {
+        $radios .= '<label class="search-page-radio"><input type="radio" name="field" value="' . $value . '"' . ($field === $value ? ' checked' : '') . '><span>' . $label . '</span></label>';
+    }
+    $form = '<form class="search-page-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<div class="search-page-query"><input type="search" name="q" value="' . h($q) . '" placeholder="搜索关键词" minlength="' . search_min_chars() . '" maxlength="120" required autofocus><button type="submit">搜索</button></div><div class="search-page-types" role="radiogroup" aria-label="搜索范围">' . $radios . '</div></form>';
+    $main = '<div class="search-page-head"><h2>搜索</h2>' . $form . '</div>';
+    if ($submitted && $q === '') $main .= '<div class="empty-state">请输入搜索关键词</div>';
+    if ($q !== '') {
+        if ($page_number === 1) {
+            $seconds = post_interval_seconds();
+            if ($seconds > 0) {
+                $user = row('app_users', 'id', uid());
+                $wait = $seconds - (time() - (int)($user['last_post_at'] ?? 0));
+                if ($wait > 0) err('搜索太频繁，请 ' . $wait . ' 秒后再试');
+                q("UPDATE app_users SET last_post_at=? WHERE id=?", [time(), uid()]);
+            }
+        }
+        $size = max(1, (int)setting('topics_per_page', '30'));
+        $data = topic_index_data(0, null, 'topics', $q, $field, 'comment', $page_number, $size);
+        $main .= '<div class="search-page-summary">搜索“' . h($q) . '” · ' . $options[$field] . '</div><ul class="post-list search-page-results">';
+        if (!$data['rows']) {
+            $main .= '<li class="empty-state">没有找到匹配的' . ($field === 'reply' ? '回帖' : '主题') . '</li>';
+        } else {
+            foreach ($data['rows'] as $row) {
+                $row['time'] = (int)($row['list_time'] ?? $row['my_reply_at'] ?? ($row['last_reply_at'] ?: $row['created_at']));
+                $row['forum'] = forum_by_id((int)$row['forum_id']) ?: ['id' => 0, 'name' => ''];
+                $main .= topic_list_row($row, 'comment');
+            }
+        }
+        $main .= '</ul>' . search_post_pagination_html($page_number > 1, (bool)$data['has_next_page'], $page_number, $q, $field);
+    }
+    page('搜索', shell_html($main, '', 'search-page'));
 }
 function forum_page(): void
 {
@@ -3143,7 +3111,7 @@ function admin_settings_html(): string
         'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
         'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
         'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'],
-        'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；SQLite 的1至2字符搜索使用 LIKE，3字符及以上优先使用 trigram。'],
+        'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；未启用全文搜索插件时使用基础 LIKE 搜索。'],
         'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
         'site_closed' => ['label' => '是否关闭站点进行维护', 'type' => 'checkbox'],
         'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],

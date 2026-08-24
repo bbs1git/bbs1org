@@ -74,17 +74,6 @@ const openMobileMenu = () => {
     if (mobileMenuOpen) mobileMenuOpen.setAttribute("aria-expanded", "true");
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
-const mobileSearchToggle = document.querySelector("[data-mobile-search-toggle]");
-const mobileSearchForm = document.getElementById("mobile-search-form");
-if (mobileSearchToggle && mobileSearchForm) {
-    mobileSearchToggle.addEventListener("click", () => {
-        const bar = mobileSearchToggle.closest(".bar");
-        const open = !bar?.classList.contains("mobile-search-open");
-        bar?.classList.toggle("mobile-search-open", open);
-        mobileSearchToggle.setAttribute("aria-expanded", open ? "true" : "false");
-        if (open) mobileSearchForm.querySelector(".search-input")?.focus();
-    });
-}
 document.addEventListener("click", e => {
     const button = e.target instanceof Element ? e.target.closest("[data-profile-toggle]") : null;
     if (!button) return;

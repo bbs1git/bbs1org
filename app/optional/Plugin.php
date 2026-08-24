@@ -1331,13 +1331,15 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
         if (isset($table_conflicts[$file])) err('检测到数据表重复建表，为避免删除其他插件数据，不能执行删表卸载：' . implode('；', $table_conflicts[$file]));
     }
     self::plugin_backup_php_files($id, $dir);
-    if (!$keep_data) {
-        plugin_call($plugin, function () use ($plugin, $id): void {
-            $fn = (string)($plugin['uninstall'] ?? '');
-            if (!plugin_callback_exists($fn)) $fn = str_replace('-', '_', $id) . '_uninstall';
-            if (plugin_callback_exists($fn)) call_user_func($fn, $plugin);
-        });
-    }
+    plugin_call($plugin, function () use ($plugin, $id, $keep_data): void {
+        $fn = (string)($plugin['uninstall'] ?? '');
+        if (!plugin_callback_exists($fn)) $fn = str_replace('-', '_', $id) . '_uninstall';
+        if (!plugin_callback_exists($fn)) return;
+        $accepts_keep_data = (new ReflectionFunction($fn))->getNumberOfParameters() >= 2;
+        if ($keep_data && !$accepts_keep_data) return;
+        if ($accepts_keep_data) call_user_func($fn, $plugin, $keep_data);
+        else call_user_func($fn, $plugin);
+    });
     self::plugin_remove_directory($dir);
     q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
     q("DELETE FROM app_plugins WHERE id=?", [$id]);

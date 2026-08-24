@@ -146,38 +146,7 @@ public static function app_db_schema(string $driver): array
     foreach ($indexes as $name => &$target) $target = 'CREATE INDEX ' . $name . ' ON ' . $target;
     unset($target);
     $indexes['idx_attachments_user_hash'] = 'CREATE UNIQUE INDEX idx_attachments_user_hash ON app_attachments(user_id,hash)';
-    if ($driver === 'mysql') {
-        $indexes['idx_topics_search_title'] = 'CREATE FULLTEXT INDEX idx_topics_search_title ON app_topics(title) WITH PARSER ngram';
-        $indexes['idx_topics_search_body'] = 'CREATE FULLTEXT INDEX idx_topics_search_body ON app_topics(body) WITH PARSER ngram';
-        $indexes['idx_replies_search_body'] = 'CREATE FULLTEXT INDEX idx_replies_search_body ON app_replies(body) WITH PARSER ngram';
-    } elseif ($driver === 'pgsql') {
-        $indexes['idx_topics_search_title'] = 'CREATE INDEX idx_topics_search_title ON app_topics USING gin (title gin_trgm_ops)';
-        $indexes['idx_topics_search_body'] = 'CREATE INDEX idx_topics_search_body ON app_topics USING gin (body gin_trgm_ops)';
-        $indexes['idx_replies_search_body'] = 'CREATE INDEX idx_replies_search_body ON app_replies USING gin (body gin_trgm_ops)';
-    }
     return [$tables, $indexes];
-}
-
-public static function app_db_prepare_search(PDO $db, string $driver): void
-{
-    if ($driver === 'pgsql') $db->exec('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-}
-
-public static function app_db_create_schema_index(PDO $db, string $driver, string $index, string $sql): bool
-{
-    try {
-        $db->exec($sql);
-        return true;
-    } catch (Throwable $e) {
-        $optional = array_keys(mysql_search_index_definitions());
-        if ($driver === 'mysql' && in_array($index, $optional, true)) return false;
-        throw $e;
-    }
-}
-
-public static function app_db_search_fallback_notice(): string
-{
-    return '当前 MySQL 环境无法创建 ngram 全文索引，已自动跳过；站内搜索将使用 LIKE，功能可用，但数据量较大时速度可能较慢。';
 }
 
 public static function app_db_index_table(string $sql): string
@@ -315,15 +284,9 @@ public static function setup_install_run(): never
     self::i_save_db_config($config);
     [$tables, $indexes] = self::app_db_schema($driver);
     foreach ($tables as $table => $sql) if (!app_db_table_exists($db, $driver, $table)) $db->exec($sql);
-    if ($driver === 'sqlite') {
-        app_db_create_fts5_table($db, 'app_topics_fts', 'title, body');
-        app_db_create_fts5_table($db, 'app_replies_fts', 'body');
-    }
-    self::app_db_prepare_search($db, $driver);
-    $search_fallback = false;
     foreach ($indexes as $index => $sql) {
         if (app_db_index_exists($db, $driver, $index, self::app_db_index_table($sql))) continue;
-        if (!self::app_db_create_schema_index($db, $driver, $index, $sql)) $search_fallback = true;
+        $db->exec($sql);
     }
     $seed = $db->prepare(app_db_upsert_sql($driver, 'app_groups', ['id', 'name', 'allow_manage', 'allow_admin'], ['id']));
     $seed->execute([1, '管理员', 1, 1]); $seed->execute([2, '会员', 0, 0]);
@@ -333,7 +296,7 @@ public static function setup_install_run(): never
         $db->exec("SELECT setval(pg_get_serial_sequence('app_groups','id'), (SELECT MAX(id) FROM app_groups))");
         $db->exec("SELECT setval(pg_get_serial_sequence('app_forums','id'), (SELECT MAX(id) FROM app_forums))");
     }
-    $settings = array_merge(default_settings(), mysql_search_index_settings($db, $driver));
+    $settings = default_settings();
     $settings['site_name'] = $site_name;
     $stmt = $db->prepare(app_db_upsert_sql($driver, 'app_settings', ['name', 'value'], ['name']));
     foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
@@ -347,7 +310,7 @@ public static function setup_install_run(): never
     Plugin::plugin_assets_rebuild();
     if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) self::i_install_error('安装失败', '安装锁文件写入失败。');
     $database_label = $driver === 'sqlite' ? 'app/data/' . $config['database'] : strtoupper($driver === 'pgsql' ? 'PostgreSQL' : 'MySQL') . ' / ' . $config['database'];
-    self::i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label, $search_fallback ? self::app_db_search_fallback_notice() : '');
+    self::i_result('安装完成', $admin_username, $admin_pass, $admin_email, $site_name, $database_label);
 }
 
 public static function us_unlock(): void
@@ -847,12 +810,7 @@ public static function us_install_schema(): array
         $table = self::us_parse_table_sql($sql);
         if ($table) $tables[$table['name']] = $table;
     }
-    $virtual_tables = [];
-    if ($driver === 'sqlite') {
-        $virtual_tables['app_topics_fts'] = 'title, body';
-        $virtual_tables['app_replies_fts'] = 'body';
-    }
-    return [$tables, $virtual_tables, $schema_indexes];
+    return [$tables, $schema_indexes];
 }
 
 public static function us_column_type(PDO $db, string $driver, string $table, string $column): string
@@ -890,17 +848,7 @@ public static function us_rename_legacy_system_tables(PDO $db, string $driver): 
     }
     foreach ($tables as $table => $target) {
         if (!app_db_table_exists($db, $driver, $table)) continue;
-        if ($driver === 'sqlite' && $table === 'topics_fts') {
-            $fts_created = app_db_create_fts5_table($db, $target, 'title, body', false);
-            if ($fts_created && app_db_table_exists($db, $driver, 'app_topics')) {
-                $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
-            }
-            $db->exec('DROP TABLE ' . app_db_identifier($driver, $table));
-            $changes[] = $fts_created ? '重命名系统表：' . $table . ' -> ' . $target : '删除不兼容的旧搜索表：' . $table;
-            continue;
-        } else {
-            $db->exec('ALTER TABLE ' . app_db_identifier($driver, $table) . ' RENAME TO ' . app_db_identifier($driver, $target));
-        }
+        $db->exec('ALTER TABLE ' . app_db_identifier($driver, $table) . ' RENAME TO ' . app_db_identifier($driver, $target));
         $changes[] = '重命名系统表：' . $table . ' -> ' . $target;
     }
     return $changes;
@@ -962,7 +910,7 @@ public static function us_migrate_legacy_plugin_settings(): int
 
 public static function us_sync_schema(): array
 {
-    [$tables, $virtual_tables, $indexes] = self::us_install_schema();
+    [$tables, $indexes] = self::us_install_schema();
     if (!$tables) throw new RuntimeException('未读取到当前程序的数据表结构。');
     $db = db();
     $transactional = db_driver() !== 'mysql';
@@ -970,15 +918,6 @@ public static function us_sync_schema(): array
     try {
         if ($transactional) $db->beginTransaction();
         $changes = array_merge($changes, self::us_rename_legacy_system_tables($db, db_driver()));
-        self::app_db_prepare_search($db, db_driver());
-        $created_virtual_tables = [];
-        foreach ($virtual_tables as $table => $columns) {
-            if (!app_db_table_exists($db, db_driver(), $table)) {
-                if (!app_db_create_fts5_table($db, $table, $columns)) continue;
-                $created_virtual_tables[] = $table;
-                $changes[] = '新增虚拟表：' . $table;
-            }
-        }
         foreach ($tables as $table => $schema) {
             if (!app_db_table_exists($db, db_driver(), $table)) {
                 $db->exec($schema['sql']);
@@ -992,19 +931,24 @@ public static function us_sync_schema(): array
                 $changes[] = '新增字段：' . $table . '.' . $column;
             }
         }
-        if (in_array('app_topics_fts', $created_virtual_tables, true)) {
-            $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
-            $changes[] = '初始化主题搜索索引';
-        }
-        if (in_array('app_replies_fts', $created_virtual_tables, true)) {
-            $db->exec('INSERT INTO app_replies_fts(rowid,body) SELECT id,body FROM app_replies');
-            $changes[] = '初始化回帖搜索索引';
-        }
         foreach (['idx_attachments_hash'=>'app_attachments', 'idx_topics_user'=>'app_topics', 'idx_topics_user_updated'=>'app_topics', 'idx_topics_forum_updated'=>'app_topics', 'idx_users_created'=>'app_users', 'idx_replies_user'=>'app_replies', 'idx_replies_user_topic_time'=>'app_replies', 'idx_notifications_recipient_read'=>'app_notifications', 'idx_notifications_sender'=>'app_notifications', 'idx_cron_logs_started'=>'app_cron_logs'] as $index => $table) {
             if (!app_db_index_exists($db, db_driver(), $index, $table)) continue;
             app_db_drop_index($index, $table);
             $changes[] = '删除索引：' . $index;
         }
+        foreach (['idx_topics_search_title' => 'app_topics', 'idx_topics_search_body' => 'app_topics', 'idx_replies_search_body' => 'app_replies'] as $index => $table) {
+            if (!app_db_index_exists($db, db_driver(), $index, $table)) continue;
+            app_db_drop_index($index, $table);
+            $changes[] = '移除核心全文索引：' . $index;
+        }
+        if (db_driver() === 'sqlite') {
+            foreach (['app_topics_fts', 'app_replies_fts', 'topics_fts', 'replies_fts'] as $table) {
+                if (!app_db_table_exists($db, db_driver(), $table)) continue;
+                $db->exec('DROP TABLE ' . app_db_identifier(db_driver(), $table));
+                $changes[] = '移除核心全文索引：' . $table;
+            }
+        }
+        $db->exec("DELETE FROM app_settings WHERE name IN ('mysql_search_index_topics_title','mysql_search_index_topics_body','mysql_search_index_replies_body')");
         $topics_table = 'app_topics';
         $topic_columns = app_db_columns($db, db_driver(), $topics_table);
         if (isset($topic_columns['updated_at'])) {
@@ -1044,11 +988,10 @@ public static function us_sync_schema(): array
                     $removed = $db->exec('DELETE FROM app_attachments WHERE id NOT IN (SELECT keep_id FROM (SELECT MIN(id) keep_id FROM app_attachments GROUP BY user_id,hash) attachment_dedup)');
                     if ($removed) $changes[] = '清理重复附件：' . $removed . ' 条';
                 }
-                if (self::app_db_create_schema_index($db, db_driver(), $index, $sql)) $changes[] = '新增索引：' . $index;
-                elseif (!in_array(self::app_db_search_fallback_notice(), $changes, true)) $changes[] = self::app_db_search_fallback_notice();
+                $db->exec($sql);
+                $changes[] = '新增索引：' . $index;
             }
         }
-        save_settings_values(mysql_search_index_settings($db, db_driver()));
         if ($transactional) $db->commit();
         $legacy_plugin_count = self::us_migrate_legacy_plugin_settings();
         if ($legacy_plugin_count > 0) $changes[] = '迁移旧插件配置：' . $legacy_plugin_count . ' 个';
@@ -1453,8 +1396,6 @@ public static function migrate_core_table_map(): array
         'settings' => 'app_settings',
         'plugins' => 'app_plugins',
         'cron_tasks' => 'app_cron_tasks',
-        'topics_fts' => 'app_topics_fts',
-        'replies_fts' => 'app_replies_fts',
     ];
 }
 
@@ -1474,19 +1415,6 @@ public static function migrate_value(mixed $value): mixed
 {
     if (is_resource($value)) return stream_get_contents($value);
     return is_bool($value) ? (int)$value : $value;
-}
-
-public static function migrate_rebuild_search(PDO $db, string $driver): void
-{
-    if ($driver !== 'sqlite') return;
-    if (app_db_table_exists($db, $driver, 'app_topics_fts')) {
-        $db->exec('DELETE FROM app_topics_fts');
-        $db->exec('INSERT INTO app_topics_fts(rowid,title,body) SELECT id,title,body FROM app_topics');
-    }
-    if (app_db_table_exists($db, $driver, 'app_replies_fts')) {
-        $db->exec('DELETE FROM app_replies_fts');
-        $db->exec('INSERT INTO app_replies_fts(rowid,body) SELECT id,body FROM app_replies');
-    }
 }
 
 public static function migrate_reset_sequences(PDO $db, string $driver, array $tables): void
@@ -1568,7 +1496,7 @@ public static function migrate_run(PDO $source, array $source_config): array
             }
             $counts[$source_table] = $count;
         }
-        self::migrate_rebuild_search($target, $target_config['driver']);
+        search_index_rebuild();
         self::migrate_reset_sequences($target, $target_config['driver'], array_column($plans, 'target'));
         $source->commit();
         $target->commit();
