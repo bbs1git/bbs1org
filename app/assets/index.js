@@ -425,6 +425,15 @@ document.addEventListener("change", e => {
         field.classList.toggle("is-hidden", field.dataset.topicActionSecondary !== action.value);
     });
 });
+function syncTopicExtensionFields(toggle) {
+    const panel = toggle.closest("[data-topic-extension]");
+    const fields = panel?.querySelector("[data-topic-extension-fields]");
+    if (fields) fields.disabled = !toggle.checked;
+}
+document.addEventListener("change", e => {
+    const toggle = e.target instanceof Element ? e.target.closest("[data-topic-extension-toggle]") : null;
+    if (toggle instanceof HTMLInputElement) syncTopicExtensionFields(toggle);
+});
 document.addEventListener("click", e => {
     const swatch = e.target.closest("[data-topic-color]");
     if (!swatch) return;
@@ -439,6 +448,7 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-topic-action]").forEach(action => {
         action.dispatchEvent(new Event("change", {bubbles: true}));
     });
+    document.querySelectorAll("input[data-topic-extension-toggle]").forEach(syncTopicExtensionFields);
 });
 document.addEventListener("click", e => {
     if (e.target?.closest("[data-modal-close]")) closeModal();

@@ -3033,9 +3033,10 @@ function topic_edit_page(): void
     $reply_order = $editing ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);
     $form_extra = (string)hook('topic.form_extra', '', ['topic' => $t, 'editing' => $editing]);
+    if ($form_extra !== '') $form_extra = '<div class="topic-extension-list">' . $form_extra . '</div>';
     $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => $editing]);
     $topic_loading_text = $editing ? '正在保存' : '正在发帖';
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post" data-slot="attachment.uploader topic.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post" enctype="multipart/form-data" data-slot="attachment.uploader topic.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {

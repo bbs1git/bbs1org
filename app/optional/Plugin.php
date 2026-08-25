@@ -686,10 +686,25 @@ public static function admin_plugin_tab_html(string $tab): ?string
         $fn = $plugin['admin_tabs'][$tab] ?? null;
         if ($fn !== null) {
             $html = plugin_call($plugin, fn(): ?string => plugin_callback_exists($fn) ? (string)$fn($plugin) : null);
-            if ($html !== null) return $html;
+            if ($html !== null) return self::admin_plugin_page_html($plugin, $html);
         }
     }
     return null;
+}
+
+private static function admin_plugin_page_html(array $plugin, string $html): string
+{
+    $id = (string)($plugin['id'] ?? 'plugin');
+    if (!str_contains($html, 'admin-list-panel')) {
+        $registered = $id !== '' ? (self::plugin_registry($id)[$id] ?? []) : [];
+        $name = trim((string)($registered['name'] ?? $plugin['name'] ?? '')) ?: $id;
+        $description = trim((string)($registered['description'] ?? $plugin['description'] ?? ''));
+        $head = '<div class="admin-plugin-summary"><strong>' . h($name) . '</strong>'
+            . ($description !== '' ? '<span>' . h($description) . '</span>' : '') . '</div>';
+        $html = '<section class="admin-list-panel plugin-manage-panel plugin-admin-legacy-panel">'
+            . admin_list_head($head, '') . '<div class="plugin-panel-body plugin-admin-legacy-body">' . $html . '</div></section>';
+    }
+    return '<div class="plugin-admin-page plugin-admin-page-' . h($id) . '" data-plugin-admin-page="' . h($id) . '">' . $html . '</div>';
 }
 
 public static function plugin_disable_after_exception(string $id, Throwable $e): void
