@@ -133,7 +133,7 @@ h3{margin-bottom:8px;font-size:var(--font-size-lg);color:var(--text)}
 .avatar-img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .avatar-profile-link{display:block;width:100%;height:100%;border-radius:inherit;overflow:hidden}
 .post-body{flex:1;min-width:0}
-.post-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:var(--font-size-md);line-height:1.4}
+.post-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:var(--font-size-md);line-height:1.4;font-weight:500}
 .post-title:hover{color:var(--brand)}
 .post-title-row{min-width:0}
 .post-title-row .post-title{display:inline;overflow:visible;white-space:normal;text-overflow:clip}
