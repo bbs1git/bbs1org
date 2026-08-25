@@ -28,11 +28,11 @@
     --focus-ring:rgba(46,204,113,.3);
     --transition-normal:.2s ease;
     --font-size-xxs:10px;
-    --font-size-xs:12px;
-    --font-size-sm:14px;
-    --font-size-md:16px;
-    --font-size-lg:18px;
-    --font-size-xl:20px;
+    --font-size-xs:11px;
+    --font-size-sm:12px;
+    --font-size-md:14px;
+    --font-size-lg:16px;
+    --font-size-xl:18px;
     --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --radius:6px;
     --radius-sm:4px
