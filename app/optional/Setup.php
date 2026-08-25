@@ -22,7 +22,7 @@ define('UPDATE_REPOSITORY', 'bbs1org/bbs1org');
 define('UPDATE_SOURCE_ENDPOINT', 'https://bbs1.org/plugin_market_source');
 define('UPDATE_MAX_ARCHIVE_BYTES', 52428800);
 define('UPDATE_NOTICE_CHECK_INTERVAL', 21600);
-define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', '.git']);
+define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/upload', 'app/assets/plugins.css', 'app/assets/plugins.js', 'app/assets/index.svg', '.git']);
 
 final class Setup
 {
