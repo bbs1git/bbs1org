@@ -630,10 +630,12 @@ table.list.admin-bulk-list{width:100%;min-width:0;table-layout:auto}
     .search-page-fake-icon{width:24px;height:24px;flex-basis:24px}
     .mobile-menu-button{order:3;display:inline-flex}
     .nav-mine{position:relative;order:4;display:inline-flex;overflow:visible}
+    .bar .nav-mine.nav-mine-guest{border-radius:50%;background:var(--bg)}
+    .bar .nav-mine.nav-mine-guest:hover{background:var(--brand-soft)}
     .mobile-menu-button:hover,.search-page-link:hover{background:var(--bg);color:var(--text)}
     .search-page-link svg,.mobile-menu-button svg{width:24px;height:24px;flex:0 0 24px;color:inherit}
     .nav-mine .avatar-img{width:26px;height:26px;border-radius:50%}
-    .nav-mine>.meta-icon{width:19px;height:19px;color:inherit}
+    .nav-mine>.meta-icon{width:24px;height:24px;color:inherit}
     .mobile-nav-unread{position:absolute;top:-4px;right:-4px;display:flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border:2px solid var(--panel);border-radius:999px;background:var(--danger);color:var(--inverse-text);font-size:var(--font-size-xxs);font-weight:700;line-height:1}
     body.mobile-menu-open{overflow:hidden}
     .wrap{padding:5px}
