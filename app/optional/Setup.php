@@ -26,6 +26,28 @@ define('UPDATE_PROTECTED_DIRS', ['app/data', 'app/plugins', 'app/avatars', 'app/
 
 final class Setup
 {
+public const TERMS_VERSION = '2026-08-26';
+
+public static function terms_html(string $context = 'install'): string
+{
+    $title = $context === 'upgrade' ? '升级前请阅读软件使用条款' : '安装前请阅读软件使用条款';
+    return '<details class="software-terms" open><summary>' . h($title) . '（版本 ' . self::TERMS_VERSION . '）</summary><div class="software-terms-body"><p>点击“我已阅读并同意”或继续安装、升级，即表示您已阅读、理解并接受本条款。</p><h3>1. 授权与范围</h3><p>本软件按随附开源许可证授权。您可在许可证允许范围内使用、复制、修改和再分发，并应保留版权、许可证和免责声明。</p><h3>2. 使用者责任</h3><p>您应确保部署环境、域名、服务器、数据库及上传内容拥有合法权利并遵守适用法律。您对网站、发布的信息和用户活动独立负责。</p><h3>3. 内容与账号</h3><p>您应审核用户内容、处理侵权或违法信息，并保护账号、口令、密钥和个人数据。软件作者不对您的内容或账号管理负责。</p><h3>4. 无担保</h3><p>在法律允许的最大范围内，本软件按“现状”和“可用”基础提供，不作适销性、特定用途适用性、持续可用、无错误或数据准确性的担保。</p><h3>5. 风险与备份</h3><p>安装、升级、迁移、插件运行可能导致中断、覆盖、丢失或不兼容。操作前必须完成可恢复备份并在测试环境验证，相关风险由您承担。</p><h3>6. 责任限制</h3><p>在法律允许的最大范围内，作者及贡献者不对间接、附带、特殊、惩罚性或后果性损害，以及利润、收入、商誉、业务机会或数据损失负责。累计责任不超过您实际支付的金额；免费获得时责任上限为零。</p><h3>7. 第三方组件与服务</h3><p>第三方组件受其各自许可证和条款约束。作者不控制其可用性、收费、隐私或安全性，您应自行评估风险。</p><h3>8. 更新与变更</h3><p>升级器可能下载并覆盖程序文件，数据库同步可能改变结构。您应核对来源、版本和文件清单；作者不保证升级成功或兼容定制代码。条款可随版本更新。</p><h3>9. 安全与隐私</h3><p>您应自行配置访问控制、加密、日志和数据删除策略。软件不承诺满足特定行业合规要求，也不替代安全或法律评估。</p><h3>10. 适用法律</h3><p>争议解决适用软件运营者所在地的强制性法律规定；限制按当地法律允许的最大范围执行，其余条款继续有效。</p><p class="software-terms-note">本条款是通用模板，不构成法律意见。部署前请让专业人士审阅并补充主体、联系方式、适用法律和隐私政策。</p></div></details>';
+}
+
+public static function terms_consent(string $context = 'install', string $form_id = ''): string
+{
+    $form = $form_id === '' ? '' : ' form="' . h($form_id) . '"';
+    $checked = $context === 'install' ? '' : ' checked';
+    return self::terms_html($context) . '<label class="terms-consent"><input type="checkbox" name="terms_agree" value="1" required' . $checked . $form . '><span>我已完整阅读、理解并同意以上软件使用条款（版本 ' . self::TERMS_VERSION . '）。</span></label><input type="hidden" name="terms_version" value="' . h(self::TERMS_VERSION) . '"' . $form . '>';
+}
+
+public static function terms_accepted(array $values): bool
+{
+    return isset($values['terms_agree'])
+        && (string)$values['terms_agree'] === '1'
+        && hash_equals(self::TERMS_VERSION, (string)($values['terms_version'] ?? ''));
+}
+
 public static function debug_log_write(string $message, ?Throwable $e = null): void
 {
     $exception_text = $e ? exception_detail($e) : '';
@@ -88,7 +110,7 @@ public static function setup_html(string $title, string $body, bool $project_mod
     .card .hd{padding:16px 18px;border-bottom:1px solid var(--line2)}.card .hd h2{margin:0;font-size:16px}.card .bd{padding:16px 18px}
     .note{margin:10px 0;padding:12px 14px;border:1px solid #dbeafe;background:#eff6ff;color:#1e3a8a;border-radius:8px}.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
     .form{display:grid;gap:12px}.row{display:grid;gap:6px}.row label{font-size:12px;color:var(--muted)}.row small{color:var(--muted);font-size:11px;line-height:1.4}.row.compact{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.row.compact .field{display:grid;gap:6px}.db-fields[hidden]{display:none}input[type=text],input[type=password],input[type=email],select,textarea{width:100%;border:1px solid #d6dbe3;border-radius:8px;padding:10px 12px;font:inherit;background:#fff;color:var(--text)}textarea{min-height:128px;resize:vertical}
-    input:focus,select:focus,textarea:focus{outline:0;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}.db-fields{display:grid;gap:12px;padding:12px;border:1px solid var(--line2);border-radius:8px;background:#fafcff}.checks{display:grid;gap:10px}.check{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line2);border-radius:8px;background:#fafcff}.check input{margin-top:3px}
+    input:focus,select:focus,textarea:focus{outline:0;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}.db-fields{display:grid;gap:12px;padding:12px;border:1px solid var(--line2);border-radius:8px;background:#fafcff}.checks{display:grid;gap:10px}.check,.terms-consent{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line2);border-radius:8px;background:#fafcff}.terms-consent{margin:12px 0}.check input,.terms-consent input{margin-top:3px}.software-terms{border:1px solid var(--line);border-radius:8px;background:#fff}.software-terms summary{padding:11px 12px;cursor:pointer;font-weight:600}.software-terms-body{max-height:150px;overflow:auto;padding:0 12px 12px;border-top:1px solid var(--line2);color:#374151;font-size:13px}.software-terms-body h3{margin:16px 0 4px;font-size:14px}.software-terms-body p{margin:6px 0}.software-terms-note{color:var(--muted)}
     .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border:0;border-radius:8px;background:var(--brand);color:#fff;cursor:pointer;font:inherit;font-weight:600}.btn:hover{background:var(--brand2);color:#fff}.btn.alt{background:#fff;color:#374151;border:1px solid #d1d5db}.btn.alt:hover{background:#f8fafc;color:#111;border-color:#cbd5e1}
     .list{margin:0;padding-left:18px;color:#374151}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;word-break:break-word}.kv{display:grid;width:100%;min-width:0;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;font-size:13px}.kv div{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}.kv div:nth-child(odd){color:var(--muted)}.admin-pass{padding:14px;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:8px;word-break:break-all}.footer{margin-top:16px;color:var(--muted);font-size:12px;text-align:center}
     @media (max-width:860px){.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.wrap{padding:18px 12px 30px}}
@@ -230,7 +252,7 @@ public static function i_locked(): void
 {
     self::setup_html('安装已锁定', '<div class="hero"><h1>安装已锁定</h1><p>安装入口当前不可访问。</p></div><div class="card"><div class="bd"><div class="note warn">如需重新安装，请先删除安装锁文件后再访问。</div><div style="height:14px"></div><div class="actions"><a class="btn" href="index.php">进入首页</a></div></div></div>');
 }
-public static function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, array $values = []): void
+public static function i_form(string $site_name, string $admin_user, string $admin_email, string $admin_pass, string $default_forum, array $values = [], string $error = ''): void
 {
     $type = in_array((string)($values['db_type'] ?? 'sqlite'), ['sqlite', 'mysql', 'pgsql'], true) ? (string)($values['db_type'] ?? 'sqlite') : 'sqlite';
     $option = fn(string $value, string $label): string => '<option value="' . $value . '"' . ($type === $value ? ' selected' : '') . '>' . $label . '</option>';
@@ -238,7 +260,8 @@ public static function i_form(string $site_name, string $admin_user, string $adm
     $default_host = $type === 'pgsql' ? 'postgres' : 'mysql';
     $default_port = $type === 'pgsql' ? '5432' : '3306';
     $db_fields = '<div class="db-fields" id="server-db-fields"' . ($type === 'sqlite' ? ' hidden' : '') . '><div class="row compact"><div class="field"><label>数据库地址</label><input type="text" name="db_host" value="' . $v('db_host', $default_host) . '"></div><div class="field"><label>端口</label><input type="text" name="db_port" value="' . $v('db_port', $default_port) . '"></div></div><div class="row"><label>数据库名</label><input type="text" name="db_name" value="' . $v('db_name') . '"><small>数据库需要提前创建，安装器会创建其中的数据表。</small></div><div class="row compact"><div class="field"><label>数据库用户</label><input type="text" name="db_user" value="' . $v('db_user') . '"></div><div class="field"><label>数据库密码</label><input type="password" name="db_password" value="' . $v('db_password') . '"></div></div></div>';
-    $body = '<div class="hero"><h1>安装</h1><p>一页完成初始化，创建管理员和默认版块。</p></div><div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>数据库类型</label><select name="db_type" id="db-type">' . $option('sqlite', 'SQLite（默认）') . $option('mysql', 'MySQL') . $option('pgsql', 'PostgreSQL') . '</select></div>' . $db_fields . '<div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . h($admin_user) . '" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . h($admin_email) . '" required><small>用于找回密码与通知。</small></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . h($admin_pass) . '" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . h($admin_pass) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . h($default_forum) . '" required></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label></div><div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>SQLite 无需填写连接信息</li><li>MySQL/PostgreSQL 数据库需提前创建</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li></ul></div></aside></div><script>const type=document.getElementById("db-type"),fields=document.getElementById("server-db-fields"),host=fields.querySelector("[name=db_host]"),port=fields.querySelector("[name=db_port]"),defaults={mysql:["mysql","3306"],pgsql:["postgres","5432"]};function toggleDb(change){const values=defaults[type.value]||null;fields.hidden=!values;if(change&&values){host.value=values[0];port.value=values[1]}}type.addEventListener("change",()=>toggleDb(true));addEventListener("pageshow",()=>toggleDb(false));toggleDb(false);</script>';
+    $error_html = $error === '' ? '' : '<div class="note warn">' . h($error) . '</div>';
+    $body = '<div class="hero"><h1>安装</h1><p>一页完成初始化，创建管理员和默认版块。</p></div>' . $error_html . '<div class="grid"><section class="card"><div class="hd"><h2>安装配置</h2></div><div class="bd"><form class="form" method="post"><input type="hidden" name="step" value="install"><div class="row"><label>数据库类型</label><select name="db_type" id="db-type">' . $option('sqlite', 'SQLite（默认）') . $option('mysql', 'MySQL') . $option('pgsql', 'PostgreSQL') . '</select></div>' . $db_fields . '<div class="row"><label>站点名称</label><input type="text" name="site_name" value="' . h($site_name) . '" required></div><div class="row"><label>管理员用户名</label><input type="text" name="admin_username" value="' . h($admin_user) . '" required></div><div class="row"><label>管理员邮箱</label><input type="email" name="admin_email" value="' . h($admin_email) . '" required><small>用于找回密码与通知。</small></div><div class="row"><label>管理员密码</label><input type="password" name="admin_password" value="' . h($admin_pass) . '" required></div><div class="row"><label>确认管理员密码</label><input type="password" name="admin_password2" value="' . h($admin_pass) . '" required></div><div class="row"><label>默认版块名称</label><input type="text" name="forum_name" value="' . h($default_forum) . '" required></div><div class="checks"><label class="check"><input type="checkbox" name="confirm_clean" value="1" required><span>我确认这是全新安装，数据将被清理。</span></label><label class="check"><input type="checkbox" name="confirm_admin" value="1" required><span>我确认需要手工设置第一个管理员密码。</span></label></div>' . self::terms_consent('install') . '<div class="actions"><button class="btn" type="submit">开始安装</button></div></form></div></section><aside class="card"><div class="hd"><h2>安装说明</h2></div><div class="bd"><ul class="list"><li>SQLite 无需填写连接信息</li><li>MySQL/PostgreSQL 数据库需提前创建</li><li>第一个管理员将拥有全部权限</li><li>管理员邮箱可用于找回密码</li></ul></div></aside></div><script>const type=document.getElementById("db-type"),fields=document.getElementById("server-db-fields"),host=fields.querySelector("[name=db_host]"),port=fields.querySelector("[name=db_port]"),defaults={mysql:["mysql","3306"],pgsql:["postgres","5432"]};function toggleDb(change){const values=defaults[type.value]||null;fields.hidden=!values;if(change&&values){host.value=values[0];port.value=values[1]}}type.addEventListener("change",()=>toggleDb(true));addEventListener("pageshow",()=>toggleDb(false));toggleDb(false);</script>';
     self::setup_html('安装', $body);
 }
 
@@ -276,6 +299,7 @@ public static function setup_install_run(): never
     $forum_name = trim((string)($_POST['forum_name'] ?? '默认版块'));
     if ($site_name === '' || $admin_username === '' || $admin_email === '' || $admin_password === '' || $forum_name === '') self::i_form($site_name ?: '我的论坛', $admin_username ?: 'admin', $admin_email, $admin_password, $forum_name ?: '默认版块', $form_values);
     if ($admin_password !== $admin_password2) self::i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $form_values);
+    if (!self::terms_accepted($form_values)) self::i_form($site_name, $admin_username, $admin_email, $admin_password, $forum_name, $form_values, '请先阅读完整软件使用条款并勾选同意。');
     if (is_file(INSTALL_LOCK_FILE)) self::i_locked();
     $db = self::i_db($config);
     $install_state = self::i_database_install_state($db, $driver);
@@ -298,6 +322,8 @@ public static function setup_install_run(): never
     }
     $settings = default_settings();
     $settings['site_name'] = $site_name;
+    $settings['software_terms_version'] = self::TERMS_VERSION;
+    $settings['software_terms_accepted_at'] = (string)now();
     $stmt = $db->prepare(app_db_upsert_sql($driver, 'app_settings', ['name', 'value'], ['name']));
     foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
     $admin_pass = $admin_password;
@@ -390,7 +416,7 @@ public static function us_legacy_upgrade_page(string $error = ''): never
     $token = csrf_token();
     $body = '<h1 class="update-title">旧版本数据库升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">检测到数据库仍使用无 app_ 前缀的旧系统表。升级将原子改名系统表并同步当前结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';
-    $body .= '<div class="update-warning"><strong>操作前必须完整备份数据库。</strong>若旧库结构不完整，请重新安装后使用“数据迁入”。</div><form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="legacy_upgrade" value="1"><div class="update-grid"><label class="update-panel"><strong>旧版管理员用户名</strong><input type="text" name="username" required autocomplete="username"></label><label class="update-panel"><strong>旧版管理员密码</strong><input type="password" name="password" required autocomplete="current-password"></label></div><label class="update-warning"><input type="checkbox" name="confirm_backup" value="1" required> 已完成数据库备份</label><div class="update-actions"><button class="primary" type="submit">升级旧数据库</button></div></form>';
+    $body .= '<div class="update-warning"><strong>操作前必须完整备份数据库。</strong>若旧库结构不完整，请重新安装后使用“数据迁入”。</div><form method="post"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="legacy_upgrade" value="1"><div class="update-grid"><label class="update-panel"><strong>旧版管理员用户名</strong><input type="text" name="username" required autocomplete="username"></label><label class="update-panel"><strong>旧版管理员密码</strong><input type="password" name="password" required autocomplete="current-password"></label></div><label class="update-warning"><input type="checkbox" name="confirm_backup" value="1" required> 已完成数据库备份</label>' . self::terms_consent('upgrade') . '<div class="update-actions"><button class="primary" type="submit">升级旧数据库</button></div></form>';
     self::setup_html('旧版本数据库升级', '<style>' . self::us_styles() . '</style><section class="update-card">' . $body . '</section>');
 }
 
@@ -399,6 +425,7 @@ public static function us_handle_legacy_upgrade(): never
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') self::us_legacy_upgrade_page();
     if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) self::us_legacy_upgrade_page('请求已过期，请返回重试。');
     if (!isset($_POST['confirm_backup'])) self::us_legacy_upgrade_page('请先确认已完成数据库备份。');
+    if (!self::terms_accepted($_POST)) self::us_legacy_upgrade_page('请先阅读完整软件使用条款并勾选同意。');
     $user_id = self::us_legacy_admin_id((string)($_POST['username'] ?? ''), (string)($_POST['password'] ?? ''));
     if ($user_id <= 0) self::us_legacy_upgrade_page('管理员账号或密码错误。');
     self::us_acquire_lock();
@@ -591,8 +618,10 @@ public static function us_update_page(?array $release = null, string $error = ''
         $changes = [];
         $body .= '<div class="update-notice">点击“检测更新”读取官方源码下载清单并核对当前程序。</div>';
     }
+    $form_id = (!$release || !$changes) ? 'schema-update-form' : 'online-update-form';
+    $body .= self::terms_consent('upgrade', $form_id);
     $body .= '<div class="update-actions"><a href="index.php">返回首页</a><a href="index.php?a=migrate">数据迁入</a><a href="index.php?a=update&amp;check=1">检测更新</a>';
-    if (!$release || !$changes) $body .= '<form method="post" data-no-ajax="1"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
+    if (!$release || !$changes) $body .= '<form id="schema-update-form" method="post" data-no-ajax="1"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="schema"><button type="submit">同步数据库</button></form>';
     if ($release && $changes) $body .= '<form id="online-update-form" method="post" data-no-ajax="1" data-confirm="确定下载并覆盖已勾选的程序文件？"><input type="hidden" name="_csrf" value="' . h($token) . '"><input type="hidden" name="action" value="online"><input type="hidden" name="sha" value="' . h($release['sha']) . '"><button class="primary" type="submit">在线升级</button></form>';
     $body .= '</div>';
     self::us_unlock();
@@ -1076,6 +1105,7 @@ public static function setup_update_run(): never
         }
     }
     if (!hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) self::us_result_page('升级失败', [], '请求已过期，请返回重试。');
+    if (!self::terms_accepted($_POST)) self::us_result_page('升级失败', [], '请先阅读完整软件使用条款并勾选同意。');
 
     self::us_acquire_lock();
 
@@ -1526,6 +1556,7 @@ public static function migrate_page(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             if (!isset($_POST['confirm_replace'])) throw new RuntimeException('请确认清空当前新数据库。');
+            if (!self::terms_accepted($_POST)) throw new RuntimeException('请先阅读完整软件使用条款并勾选同意。');
             $source_config = self::migrate_source_config();
             $counts = self::migrate_run(self::migrate_source_db($source_config), $source_config);
         } catch (Throwable $e) {
@@ -1546,7 +1577,7 @@ public static function migrate_page(): void
     $message = $error !== '' ? '<div class="note warn">' . h($error) . '</div>' : '';
     $sqlite_fields = '<div class="db-fields" id="sqlite-fields"><div class="row"><label>SQLite 文件路径</label><input type="text" name="source_sqlite" value="' . h($v('source_sqlite', 'app/data/old.sqlite')) . '"></div></div>';
     $server_fields = '<div class="db-fields" id="server-fields"><div class="row compact"><div class="field"><label>数据库地址</label><input type="text" name="source_host" value="' . h($v('source_host', '127.0.0.1')) . '"></div><div class="field"><label>端口</label><input type="text" name="source_port" value="' . h($v('source_port', $driver === 'pgsql' ? '5432' : '3306')) . '"></div></div><div class="row"><label>数据库名</label><input type="text" name="source_database" value="' . h($v('source_database')) . '"></div><div class="row compact"><div class="field"><label>用户名</label><input type="text" name="source_username" value="' . h($v('source_username')) . '"></div><div class="field"><label>密码</label><input type="password" name="source_password"></div></div></div>';
-    $form = '<form class="form" method="post" action="' . h(route_url('migrate')) . '" autocomplete="off">' . form_token() . '<div class="row"><label>旧数据库类型</label><select name="source_driver" id="source-driver">' . $options . '</select></div>' . $sqlite_fields . $server_fields . '<div class="checks"><label class="check"><input type="checkbox" name="confirm_replace" value="1" required><span>确认清空当前数据库中的同名数据表。</span></label></div><div class="actions"><a class="btn alt" href="' . h(route_url('update')) . '">取消</a><button class="btn" type="submit">开始迁入</button></div></form>';
+    $form = '<form class="form" method="post" action="' . h(route_url('migrate')) . '" autocomplete="off">' . form_token() . '<div class="row"><label>旧数据库类型</label><select name="source_driver" id="source-driver">' . $options . '</select></div>' . $sqlite_fields . $server_fields . '<div class="checks"><label class="check"><input type="checkbox" name="confirm_replace" value="1" required><span>确认清空当前数据库中的同名数据表。</span></label></div>' . self::terms_consent('upgrade') . '<div class="actions"><a class="btn alt" href="' . h(route_url('update')) . '">取消</a><button class="btn" type="submit">开始迁入</button></div></form>';
     $body = '<div class="hero"><h1>数据迁入</h1><p>从旧数据库迁入当前已安装数据库。</p></div>' . $message . '<div class="grid"><section class="card"><div class="hd"><h2>旧数据库配置</h2></div><div class="bd">' . $form . '</div></section><aside class="card"><div class="hd"><h2>迁入说明</h2></div><div class="bd"><ul class="list"><li>目标数据库：' . h($target_label) . '</li><li>仅迁入系统定义的数据表</li><li>其他表不读取、不创建、不修改</li><li>缺少的数据表会自动创建</li><li>同名数据表将清空后替换</li><li>附件、头像和插件文件需单独复制</li></ul></div></aside></div><script>const type=document.getElementById("source-driver"),sqlite=document.getElementById("sqlite-fields"),server=document.getElementById("server-fields"),port=document.querySelector("[name=source_port]");function toggle(change){sqlite.hidden=type.value!=="sqlite";server.hidden=type.value==="sqlite";if(change)port.value=type.value==="pgsql"?"5432":"3306"}type.addEventListener("change",()=>toggle(true));toggle(false);</script>';
     self::setup_html('数据迁入', $body);
 }
