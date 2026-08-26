@@ -1318,7 +1318,7 @@ function topic_user_group_html(array $row): string
     $default_gid = (int)setting('default_group_id', '2');
     if ($gid <= 0 || $gid === $default_gid) return '';
     $g = group_by_id($gid);
-    return $g ? '<span class="post-user-group">' . h($g['name']) . '</span>' : '';
+    return $g ? '<span class="post-user-group"><span class="post-user-group-icon" aria-hidden="true">' . svg_icon('user') . '</span>' . h($g['name']) . '</span>' : '';
 }
 function form_shell(string $body, ?array $m = null): string
 {
@@ -1693,6 +1693,7 @@ function svg_icon(string $name): string
 {
     static $icons = [
         'user' => '<circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 21c1.8-4 4.5-6 8-6s6.2 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        'id' => '<rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="10" r="2" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 15c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2M13 10h5M13 14h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
         'reply' => '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
         'notify' => '<path d="M12 18.5a2.5 2.5 0 0 0 2.4-1.8H9.6a2.5 2.5 0 0 0 2.4 1.8Zm7-4.5-1.6-1.9V10a5.4 5.4 0 0 0-4.4-5.3V4a1 1 0 1 0-2 0v.7A5.4 5.4 0 0 0 6.6 10v2.1L5 14v1h14z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
         'forum' => '<path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
@@ -1898,7 +1899,9 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '';
     $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops"' . ($is_reply ? '' : ' data-slot="topic.actions"') . '>' . $ops . $floor_html . '</div>' : '';
     $row_slots = $is_reply ? 'reply.after_render' : 'topic.after_render topic.content_after';
-    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-header-row"><div class="post-info"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a>' . topic_user_group_html($row) . user_state_tag_html($row) . '</div><div class="post-meta"><span>' . human_time($time) . '</span></div></div>' . $ops_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
+    $uid_html = ((int)($row['user_id'] ?? 0) > 0 && empty($row['plugin_anonymous_posting_masked']) && (string)($row['username'] ?? '') !== '匿名') ? '<span class="post-user-group user-uid-badge" title="用户 UID"><span class="user-uid-icon" aria-hidden="true">' . svg_icon('id') . '</span>' . (int)$row['user_id'] . '</span>' : '';
+    $tags_html = topic_user_group_html($row) . user_state_tag_html($row) . $uid_html;
+    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><div class="post-info"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a><span class="post-time">' . human_time($time) . '</span></div>' . $ops_html . '</div><div class="post-meta">' . $tags_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
     $html = (string)hook($is_reply ? 'reply.after_render' : 'topic.after_render', $html, ['row' => $row, 'body' => $body] + $ctx);
     if ($is_reply) return $html;
     $content_after = (string)hook('topic.content_after', '', ['row' => $row, 'body' => $body, 'topic_id' => $topic_id] + $ctx);
