@@ -4246,7 +4246,7 @@ table.list.admin-bulk-list {
 
 .plugin-admin-page {
     display: grid;
-    gap: 12px;
+    gap: 4px;
     min-width: 0
 }
 
