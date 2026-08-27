@@ -2227,7 +2227,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     if ($admin && $user_id === 1 && !is_super_user()) err('无权限');
     if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限');
     if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
-    if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP 1小时内注册次数已达上限');
+    if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP操作次数已达上限');
     $is_registration = !$admin && !$user_id;
     $username = post('username', 40);
     $email = post('email', 120);
@@ -2582,7 +2582,7 @@ function login_page(): void
     if (uid()) go(consume_auth_return_url());
     if (is_post_request()) {
         $ip = ip_addr();
-        if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'login_fail']) === false) err('同一IP 1小时内错误次数已达上限');
+        if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'login_fail']) === false) err('同一IP操作次数已达上限');
         hook('login.before_submit', true, []);
         $u = one("SELECT id,password FROM app_users WHERE username=?", [post('username', 40)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
