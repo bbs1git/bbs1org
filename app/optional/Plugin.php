@@ -11,7 +11,6 @@ if (!defined('APP_ROOT')) {
 }
 
 const PLUGIN_MARKET_ENDPOINT = 'https://bbs1.org/index.php';
-const PLUGIN_MARKET_SHARE_MAX = 200000;
 const PLUGIN_MARKET_CACHE_TTL = 900;
 const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
 const PLUGIN_MARKET_PAGE_SIZE = 40;
@@ -383,7 +382,6 @@ public static function plugin_market_share_page(): void
     if (!is_string($code) || trim($code) === '') err('插件文件不存在或为空');
     if (preg_match('/^\s*```\s*[\w-]*\s*$/m', $code)) err('插件代码包含独立的 Markdown 代码块标记，无法安全分享');
     $body = "```php\n" . rtrim($code) . "\n```";
-    if (strlen($body) > PLUGIN_MARKET_SHARE_MAX) err('插件代码超过分享长度限制');
     $name = trim((string)($target['name'] ?? '')) ?: $id;
     $share_form = '<form class="post-action-form" method="post" action="' . h(self::plugin_market_url('plugin_share_receive')) . '" data-no-ajax="1" data-plugin-share-auto="1"><input type="hidden" name="title" value="' . h('[' . $id . ']' . $name) . '"><textarea name="body" hidden>' . h($body) . '</textarea><button type="submit" class="plugin-enable">立即继续</button></form>';
     $author = trim((string)($target['author'] ?? ''));
