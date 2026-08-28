@@ -4628,7 +4628,6 @@ table.list.admin-bulk-list {
         flex: 0 0 auto;
         min-height: 24px;
         color: var(--text-muted);
-        font-size: var(--font-size-sm);
         line-height: 1
     }
 
