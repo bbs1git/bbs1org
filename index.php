@@ -614,6 +614,7 @@ function plugin_entry_definitions(): array
         'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
         'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
         'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单'],
+        'top_actions' => ['hook' => 'top.bar.actions', 'label' => '顶部栏入口'],
     ];
 }
 function plugin_entry_hook_name(string $entry): string
