@@ -1195,10 +1195,35 @@ function top_menu_links(?array $mine = null): array
     }
     return $GLOBALS['__top_menu_links'][$key] = $links;
 }
+function top_bar_actions(?array $mine = null): array
+{
+    $defaults = [
+        'left' => [],
+        'right_before_search' => [],
+        'right_after_search' => [],
+    ];
+    $registered = hook('top.bar.actions', $defaults, ['user' => $mine]);
+    if (!is_array($registered)) return $defaults;
+    foreach ($defaults as $region => $_items) {
+        if (!isset($registered[$region]) || !is_array($registered[$region])) $registered[$region] = [];
+    }
+    return $registered;
+}
+function top_bar_actions_html(array $actions, string $region): string
+{
+    $items = $actions[$region] ?? [];
+    if (!is_array($items)) return '';
+    $html = '';
+    foreach ($items as $item) {
+        if (is_string($item)) $html .= $item;
+        elseif (is_array($item)) $html .= (string)($item['html'] ?? '');
+    }
+    return $html;
+}
 function mobile_menu_content_html(?array $mine = null, ?array $forums = null): string
 {
     $forums ??= array_values(array_filter(forums_cache(), fn($forum) => forum_group_allowed($forum, 'allow_view_groups')));
-    $forum_links = [['text' => '全部版块', 'url' => route_url('home')]];
+    $forum_links = [['text' => '全部', 'url' => route_url('home')]];
     foreach ($forums as $f) {
         $forum_links[] = ['text' => (string)$f['name'], 'url' => route_url('forum', ['id' => (int)$f['id']])];
     }
@@ -2071,7 +2096,7 @@ function page_nav_html(string $site_name): string
             }
         }
     }
-    $html = '<div class="top"><div class="bar"><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" data-slot="top.menu_links" aria-label="顶部版块">';
+    $html = '<div class="top"><div class="bar"><div class="bar-left"><a class="brand" href="' . h(route_url('home')) . '">' . h($site_name) . '</a><nav class="forum-nav" data-slot="top.menu_links" aria-label="顶部版块">';
     foreach ($visible as $f) {
         $html .= '<a class="forum-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
     }
@@ -2081,14 +2106,18 @@ function page_nav_html(string $site_name): string
     $more_button_html = '';
     $more_panel_html = '';
     if (count($forums) > $visible_limit) {
-        $more_button_html = '<button class="forum-more-toggle" type="button" data-forum-more-toggle aria-expanded="false" aria-controls="forum-more-region">全部版块</button>';
+        $more_button_html = '<button class="forum-more-toggle" type="button" data-forum-more-toggle aria-expanded="false" aria-controls="forum-more-region">全部</button>';
         $more_panel_html .= '<div class="forum-more-region" id="forum-more-region" hidden><div class="forum-more-panel"><a class="forum-more-link' . ($active_forum ? '' : ' active') . '" href="' . h(route_url('home')) . '">全部主题</a>';
         foreach ($forums as $f) $more_panel_html .= '<a class="forum-more-link' . ((int)$f['id'] === $active_forum ? ' active' : '') . '" href="' . h(route_url('forum', ['id' => (int)$f['id']])) . '">' . h($f['name']) . '</a>';
         $more_panel_html .= '</div></div>';
     }
     $search_icon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
-    $mobile_actions = '<a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索"><span class="search-page-fake-input">搜索关键词</span><span class="search-page-fake-icon">' . $search_icon . '</span></a><a class="nav-mine' . ($mine ? '' : ' nav-mine-guest') . '" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a>';
-    return $html . '</nav>' . $more_button_html . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html();
+    $top_actions = top_bar_actions($mine);
+    $left_actions = top_bar_actions_html($top_actions, 'left');
+    $before_search = top_bar_actions_html($top_actions, 'right_before_search');
+    $after_search = top_bar_actions_html($top_actions, 'right_after_search');
+    $mobile_actions = '<div class="bar-right" data-slot="top.actions"><div class="bar-action-group bar-action-group-before-search" data-slot="top.actions.right.before-search">' . $before_search . '</div><a class="search-page-link" href="' . h(route_url('search')) . '" aria-label="搜索"><span class="search-page-fake-input">搜索关键词</span><span class="search-page-fake-icon">' . $search_icon . '</span></a><div class="bar-action-group bar-action-group-after-search" data-slot="top.actions.right.after-search">' . $after_search . '</div><button class="mobile-menu-button" type="button" data-mobile-menu-open aria-label="打开菜单" aria-controls="mobile-menu-drawer" aria-expanded="false"><svg width="19" height="19" viewBox="0 0 19 19" fill="none" aria-hidden="true"><path d="M3.5 5.5H15.5M3.5 9.5H15.5M3.5 13.5H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button><a class="nav-mine' . ($mine ? '' : ' nav-mine-guest') . '" href="' . h($mine_link) . '" aria-label="' . ($mine ? '通知' : '登录') . '">' . $mobile_avatar . $mobile_unread . '</a></div>';
+    return $html . '</nav><div class="bar-left-actions" data-slot="top.actions.left">' . $left_actions . '</div>' . $more_button_html . '</div>' . $mobile_actions . '</div></div>' . $more_panel_html . mobile_menu_html();
 }
 function page_footer_html(string $title, string $flash): string
 {

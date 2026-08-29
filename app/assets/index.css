@@ -96,11 +96,39 @@ h3 {
     max-width: 1200px;
     margin: auto;
     padding: 0 12px;
-    display: grid;
-    grid-template-columns: auto minmax(0,max-content) auto minmax(12px,1fr) auto auto;
-    grid-template-rows: 48px;
+    display: flex;
+    height: 48px;
     align-items: center;
-    column-gap: 4px
+    gap: 4px
+}
+
+.bar-left {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0
+}
+
+.bar-left-actions,.bar-action-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0
+}
+
+.bar-right {
+    flex: 0 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    min-width: 0
+}
+
+.bar-right .search-page-link {
+    flex: 1 1 180px;
+    min-width: 0
 }
 
 .brand {
@@ -124,8 +152,6 @@ h3 {
 }
 
 .forum-nav {
-    grid-column: 2;
-    grid-row: 1;
     position: relative;
     display: flex;
     align-items: center;
@@ -160,8 +186,6 @@ h3 {
 }
 
 .forum-more-toggle {
-    grid-column: 3;
-    grid-row: 1;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -244,9 +268,6 @@ h3 {
 }
 
 .search-page-link {
-    grid-column: 5 / -1;
-    grid-row: 1;
-    justify-self: end;
     display: flex;
     align-items: center;
     width: 180px;
@@ -4415,8 +4436,29 @@ table.list.admin-bulk-list {
         height: 44px
     }
 
+    .bar-left {
+        flex: 1 1 auto;
+        min-width: 0
+    }
+
+    .bar-right {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        min-width: 0
+    }
+
+    .bar-left-actions {
+        display: none
+    }
+
+    .bar-right .search-page-link {
+        flex: 0 0 28px
+    }
+
     .brand {
-        order: 1;
         flex: 0 1 auto;
         min-width: 0;
         margin-right: auto;
@@ -4455,7 +4497,6 @@ table.list.admin-bulk-list {
     }
 
     .search-page-link {
-        order: 2;
         display: inline-flex
     }
 
@@ -4470,13 +4511,11 @@ table.list.admin-bulk-list {
     }
 
     .mobile-menu-button {
-        order: 3;
         display: inline-flex
     }
 
     .nav-mine {
         position: relative;
-        order: 4;
         display: inline-flex;
         overflow: visible
     }
