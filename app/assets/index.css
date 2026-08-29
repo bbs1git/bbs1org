@@ -127,7 +127,7 @@ h3 {
 }
 
 .bar-right .search-page-link {
-    flex: 1 1 180px;
+    flex: 1 1 50px;
     min-width: 0
 }
 
@@ -749,7 +749,8 @@ h3 {
     background: var(--brand-soft);
     color: var(--brand);
     font-size: var(--font-size-lg);
-    font-weight: 700
+    font-weight: 700;
+    margin-top: 3px
 }
 
 .avatar-img {
@@ -1019,7 +1020,7 @@ h3 {
     align-items: center;
     flex-wrap: wrap;
     gap: 2px 4px;
-    margin-top: -3px;
+    margin-top: 0;
     padding-right: 2px;
     line-height: 1.2
 }
