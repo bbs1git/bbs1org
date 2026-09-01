@@ -88,6 +88,39 @@ docker compose down               # 停止并保留数据卷
 - 启用 PDO；SQLite 需 `pdo_sqlite`，MySQL 需 `pdo_mysql`，PostgreSQL 需 `pdo_pgsql`
 - SQLite 3、MySQL 8.0+ 或 PostgreSQL 13+
 - Web 服务运行用户对 `app/data/` 有写入权限；使用 SQLite 时数据库文件也保存在该目录
+- **必须禁止 Web 直接访问 `app/data/`**，该目录包含数据库、配置和运行缓存；部署完成后请确认访问 `https://你的域名/app/data/` 返回 `403` 或 `404`
+
+Nginx 站点配置应包含：
+
+```nginx
+location ~ ^/app/(?:data|cache|plugins|optional)(?:/|$) {
+    deny all;
+}
+```
+
+Apache 可在网站根目录的 `.htaccess` 中加入：
+
+```apache
+RewriteEngine On
+RewriteRule ^app/(data|cache|plugins|optional)(/|$) - [F,L]
+```
+
+启用伪静态（Rewrite）时，Nginx 在站点配置中使用：
+
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+```
+
+Apache 在启用 `mod_rewrite` 且允许 `.htaccess`（`AllowOverride FileInfo` 或 `All`）后，在网站根目录 `.htaccess` 中追加：
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L,QSA]
+```
 
 - 打开 [源码下载](https://bbs1.org/plugin_market_source)，下载 `bbs1org.zip`。
 - 解压 ZIP，将该目录内的全部文件上传到网站目录，确保 `index.php` 位于网站根目录。
