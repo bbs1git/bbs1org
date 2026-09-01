@@ -14,8 +14,18 @@
 
 ## 环境
 
-- PHP 8.1+
-- PDO SQLite、PDO MySQL 或 PDO PostgreSQL 扩展
+源码部署最低要求：
+
+| 软件 | 版本要求 | 说明 |
+| --- | --- | --- |
+| PHP | 8.1 及以上 | PHP 8.5 与当前 Docker 镜像一致 |
+| PDO | 随 PHP 安装 | 至少启用下方所选数据库对应的扩展 |
+| SQLite | SQLite 3 | 通过 `pdo_sqlite` 使用 |
+| MySQL | 8.0 及以上 | 通过 `pdo_mysql` 使用 |
+| PostgreSQL | 13 及以上 | 通过 `pdo_pgsql` 使用 |
+| Web 服务 | Nginx 或 Apache | Apache 需启用 PHP-FPM/模块及 URL 重写 |
+
+使用 Docker 部署还需要 Docker Engine 24 及以上、Docker Compose v2 和 `unzip`。Docker Compose 当前配置使用 PHP `8.5-fpm`、MySQL `8.4`、PostgreSQL `18` 和 Nginx Alpine 镜像；源码运行时仍以 PHP `8.1+` 为最低要求。
 
 ## 演示
 
@@ -23,7 +33,7 @@ https://bbs1.org
 
 ## Docker 源码部署
 
-服务器需先安装 Docker 和 `unzip`。Docker 可使用以下命令安装：
+服务器需先安装 Docker Engine 24+、Docker Compose v2 和 `unzip`。Docker 可使用以下命令安装：
 
 ```bash
 curl -fsSL https://get.docker.com -o install-docker.sh
@@ -76,6 +86,7 @@ docker compose down               # 停止并保留数据卷
 
 - PHP 8.1+
 - 启用 PDO；SQLite 需 `pdo_sqlite`，MySQL 需 `pdo_mysql`，PostgreSQL 需 `pdo_pgsql`
+- SQLite 3、MySQL 8.0+ 或 PostgreSQL 13+
 - Web 服务运行用户对 `app/data/` 有写入权限；使用 SQLite 时数据库文件也保存在该目录
 
 - 打开 [源码下载](https://bbs1.org/plugin_market_source)，下载 `bbs1org.zip`。
