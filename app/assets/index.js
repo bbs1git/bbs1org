@@ -634,6 +634,7 @@ document.addEventListener("submit", async e => {
     }
     const form = e.target.closest("form");
     if (!form) return;
+    const modalForm = form.closest("#notify-modal");
     if (form.dataset.noAjax === "1") {
         markButtonPending(e.submitter || form.querySelector("button[type=submit],button:not([type]),input[type=submit]"));
         return;
@@ -680,6 +681,7 @@ document.addEventListener("submit", async e => {
             resetButton();
             return;
         }
+        if (modalForm) closeModal();
         const replaceTarget = form.dataset.replaceTarget || "";
         const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
         if (data.refresh && replaceEl) {
