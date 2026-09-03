@@ -378,7 +378,7 @@ public static function plugin_market_install_page(): void
     $message = $auto_enable ? '插件已安装或更新并启用。' : '插件已安装或更新，已停用。';
     if (ajax_request()) {
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1, 'redirect' => admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $market_view === 'beta' ? 'beta' : null])], JSON_UNESCAPED_UNICODE);
         exit;
     }
     set_flash($message);
