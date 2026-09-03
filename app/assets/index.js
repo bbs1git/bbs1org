@@ -683,7 +683,7 @@ document.addEventListener("submit", async e => {
         }
         if (modalForm) closeModal();
         const replaceTarget = form.dataset.replaceTarget || "";
-        const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
+        const replaceEl = replaceTarget ? (form.closest(replaceTarget) || document.querySelector(replaceTarget)) : null;
         if (data.refresh && replaceEl) {
             try {
                 const panelResponse = await fetch(window.location.href, {credentials: "same-origin"});
