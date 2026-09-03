@@ -254,7 +254,7 @@ function hello_collect(array $plugin, array $task): string
 ## 官方资源
 
 - [bbs1org 源码下载](https://bbs1.org/plugin_market_source?path=bbs1org.zip&download=1)
-- [插件安装方法](https://bbs1.org/topic/21)
+- [bbs1org 安装方法](https://bbs1.org/topic/21)
 - [官方推荐插件专辑](https://bbs1.org/topic_collection/1)
 - [图文教程](https://bbs1.org/topic/365)
 
