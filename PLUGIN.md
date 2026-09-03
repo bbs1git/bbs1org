@@ -179,6 +179,53 @@ app_db_upsert('plugin_hello_items', [
 - 只有还原第三方品牌或表达数据类别时才能在插件作用域内使用额外颜色；禁止无理由使用 `!important`。
 - 前后台界面都要处理窄屏、长文本、空数据、失败、权限不足和交互状态，避免固定宽度导致溢出。
 
+### 前端 `data-slot` 接口
+
+核心页面会在稳定的承载元素上输出 `data-slot`，供插件 JavaScript 查找和绑定交互。属性值以空格分隔；选择单个插槽必须使用 `[data-slot~="..."]`，不能使用模糊的 `[data-slot*="..."]`。下表是当前核心提供的插槽，名称以源码为准：
+
+| `data-slot` 值 | 页面位置 / 用途 | 相关 PHP Hook |
+| --- | --- | --- |
+| `sidebar.feature_links` | 首页侧栏“快捷功能”链接列表 | `sidebar.feature_links` |
+| `top.menu_links` | 桌面端顶部版块导航；移动端菜单也复用 | `top.menu_links` |
+| `user.menu_links` | 用户侧栏菜单；移动端菜单也复用 | `user.menu_links` |
+| `sidebar.stack` | 整个侧栏容器 | `sidebar.stack` |
+| `mainpanel_extra` | 主内容面板，扩展内容追加在主内容之后 | `mainpanel_extra` |
+| `topic.actions` | 主题主楼操作区（引用、管理等） | `topic.actions` |
+| `topic.after_render` | 主题列表项或主题/回帖帖子项 | `topic.after_render` |
+| `topic.content_after` | 主题主楼内容之后的扩展区域 | `topic.content_after` |
+| `topic.title_suffix` | 主题列表标题链接之后 | `topic.title_suffix` |
+| `top.actions` | 顶部操作栏整体 | `top.bar.actions` |
+| `top.actions.left` | 顶部版块导航右侧的操作区 | `top.bar.actions` |
+| `top.actions.right.before-search` | 顶部搜索框左侧操作区 | `top.bar.actions` |
+| `top.actions.right.after-search` | 顶部搜索框右侧操作区 | `top.bar.actions` |
+| `page.before_render` | 页面主内容 `<main>` 容器 | `page.before_render` |
+| `page.footer` | 页面页脚容器 | `page.footer` |
+| `login.after_form` | 登录面板（登录表单之后可追加内容） | `login.after_form` |
+| `login.form_extra` | 登录表单内部扩展字段 | `login.form_extra` |
+| `register.form_extra` | 注册表单内部扩展字段 | `register.form_extra` |
+| `profile.after_form` | 个人资料面板（资料表单之后可追加内容） | `profile.after_form` |
+| `user.profile_tabs` | 用户资料页标签栏 | `user.profile_tabs` |
+| `topic.index_tabs` | 首页 / 版块主题列表标签栏 | `topic.index_tabs` |
+| `topic.toolbar_actions` | 首页 / 版块主题列表工具栏操作区 | `topic.toolbar_actions` |
+| `reply.form_extra` | 回帖表单内部扩展字段 | `reply.form_extra` |
+| `attachment.uploader` | 发帖或回帖表单的附件上传区域 | `attachment.uploader` |
+| `admin.plugin.actions` | 后台每个插件条目的操作区 | `admin.plugins.view`（数据来源） |
+
+同一元素可能声明多个值，例如发帖表单的 `data-slot="attachment.uploader topic.form_extra"`。JavaScript 示例：
+
+```js
+(function () {
+    const form = document.querySelector('[data-slot~="topic.form_extra"]');
+    if (!form) return;
+    form.addEventListener('change', function (event) {
+        // 只处理插件自己的控件。
+        if (!event.target.matches('[data-my-plugin-field]')) return;
+    });
+}());
+```
+
+`data-slot` 只保证核心扩展位置和语义，不保证内部子元素层级或每页出现次数。主题列表、主题详情和回帖中的 `topic.after_render` 可能出现多次，必须结合 `id="post-..."`、`data-floor` 或插件自己的根容器缩小范围；页面级插槽通常每页只有一个。通过 AJAX 返回的局部 HTML 也可能重新生成插槽，插件应使用事件委托或在替换后重新初始化。
+
 manifest 注册形式：
 
 ```php

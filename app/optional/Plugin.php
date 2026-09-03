@@ -363,9 +363,13 @@ public static function plugin_market_install_page(): void
     $topic_id = max(0, (int)($_POST['topic_id'] ?? 0));
     $authorization_code = trim((string)($_POST['authorization_code'] ?? ''));
     if ($authorization_code === '') {
-        $market = self::plugin_market_fetch(false, true, '', 0, $market_view);
-        $item = is_array($market['plugins'][$plugin_id] ?? null) ? $market['plugins'][$plugin_id] : null;
-        if (is_array($item) && (int)($item['price_points'] ?? 0) > 0) {
+        $requires_authorization = (string)($_POST['authorization_required'] ?? '') === '1';
+        if (!$requires_authorization) {
+            $market = self::plugin_market_fetch(false, true, '', 0, $market_view);
+            $item = is_array($market['plugins'][$plugin_id] ?? null) ? $market['plugins'][$plugin_id] : null;
+            $requires_authorization = is_array($item) && (int)($item['price_points'] ?? 0) > 0;
+        }
+        if ($requires_authorization) {
             $form = '<form class="plugin-market-authorization-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $plugin_id, 'topic_id' => $topic_id, 'auto_enable' => $auto_enable ? '1' : '0', 'market_view' => $market_view]) . '<label class="grid"><span>授权码</span><input type="text" name="authorization_code" maxlength="40" autocomplete="off" required></label><p>请在插件页面购买后点击“授权码”获取。在线安装或更新需要填写一次性授权码。</p><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="btn plugin-enable" data-loading-text="安装中">在线' . ($auto_enable ? '安装/更新' : '安装') . '</button></div></form>';
             json_response(['ok' => 1, 'modal' => ['title' => '填写授权码', 'html' => $form]]);
         }
@@ -515,7 +519,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $topic_url = (string)($item['url'] ?? '');
         if ($paid) {
             $online_label = $installed ? ($needs_update ? '在线更新' : '在线重装') : '在线安装';
-            $online_form = '<form class="post-action-form plugin-market-online-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $item_market_view]) . '<button type="submit" class="plugin-enable" data-loading-text="准备中">' . h($online_label) . '</button></form>';
+            $online_form = '<form class="post-action-form plugin-market-online-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $item_market_view, 'authorization_required' => '1']) . '<button type="submit" class="plugin-enable" data-loading-text="准备中">' . h($online_label) . '</button></form>';
             $purchase_link = $topic_url !== '' ? '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
             $ops = $online_form . $purchase_link;
         } elseif ($online_install) {
