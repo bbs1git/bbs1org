@@ -158,7 +158,7 @@ private static function plugin_market_cache_write(array $data, string $market_vi
     @file_put_contents(self::plugin_market_cache_file($market_view), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), LOCK_EX);
 }
 
-public static function plugin_market_fetch(bool $need_code = false, bool $force = false, string $plugin_id = '', int $topic_id = 0, string $market_view = 'certified'): array
+public static function plugin_market_fetch(bool $need_code = false, bool $force = false, string $plugin_id = '', int $topic_id = 0, string $market_view = 'certified', string $authorization_code = ''): array
 {
     $market_view = self::plugin_market_view($market_view);
     if (!$need_code && !$force) {
@@ -168,7 +168,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
     $feed_url = append_url_query(self::plugin_market_url('plugin_market_feed'), ['mode' => $need_code ? 'install' : 'list', 'market_view' => $market_view === 'beta' ? 'beta' : null]);
     if ($need_code) {
         if (!plugin_id_valid($plugin_id) || $topic_id < 1) return ['ok' => 0, 'message' => '插件市场参数无效', 'plugins' => []];
-        $feed_url = append_url_query($feed_url, ['id' => $plugin_id, 'topic_id' => $topic_id]);
+        $feed_url = append_url_query($feed_url, ['id' => $plugin_id, 'topic_id' => $topic_id, 'authorization_code' => trim($authorization_code) !== '' ? trim($authorization_code) : null]);
     }
     $response = self::remote_http_request($feed_url, $need_code ? 8 : 5, ['Accept: application/json']);
     if (!$response['ok']) {
@@ -306,16 +306,16 @@ private static function plugin_manifest_code_id(string $code): string
     return '';
 }
 
-public static function plugin_market_install(string $id, int $topic_id, bool $auto_enable = false, string $market_view = 'certified'): void
+public static function plugin_market_install(string $id, int $topic_id, bool $auto_enable = false, string $market_view = 'certified', string $authorization_code = ''): void
 {
     if (!plugin_id_valid($id)) err('插件不存在');
     if ($id === 'plugin_market') err('该插件 ID 为系统保留');
     require_writable_dir(PLUGIN_DIR, '插件目录不可写，请检查 app/plugins/ 目录权限');
     $market_view = self::plugin_market_view($market_view);
-    $market = self::plugin_market_fetch(true, true, $id, $topic_id, $market_view);
+    $market = self::plugin_market_fetch(true, true, $id, $topic_id, $market_view, $authorization_code);
     $item = $market['plugins'][$id] ?? null;
     if (!is_array($item)) err((string)($market['message'] ?? '') ?: '插件市场没有返回该插件');
-    if (empty($item['online_install']) || (int)($item['price_points'] ?? 0) > 0) err('付费插件不支持在线安装，请前往插件页面购买并下载');
+    if (empty($item['online_install'])) err((int)($item['price_points'] ?? 0) > 0 ? '授权码无效、已使用或已过期，请在插件页面重新获取' : '该插件暂不支持在线安装');
     $code = (string)($item['code'] ?? '');
     if (!str_starts_with(ltrim($code), '<?php')) err('插件代码格式错误');
     if ((string)$item['sha256'] !== '' && !hash_equals((string)$item['sha256'], hash('sha256', $code))) err('插件代码校验失败');
@@ -359,7 +359,18 @@ public static function plugin_market_install_page(): void
     require_post();
     $auto_enable = (string)($_POST['auto_enable'] ?? '') === '1';
     $market_view = self::plugin_market_view((string)($_POST['market_view'] ?? ''));
-    self::plugin_market_install((string)($_POST['plugin_id'] ?? ''), max(0, (int)($_POST['topic_id'] ?? 0)), $auto_enable, $market_view);
+    $plugin_id = (string)($_POST['plugin_id'] ?? '');
+    $topic_id = max(0, (int)($_POST['topic_id'] ?? 0));
+    $authorization_code = trim((string)($_POST['authorization_code'] ?? ''));
+    if ($authorization_code === '') {
+        $market = self::plugin_market_fetch(false, true, '', 0, $market_view);
+        $item = is_array($market['plugins'][$plugin_id] ?? null) ? $market['plugins'][$plugin_id] : null;
+        if (is_array($item) && (int)($item['price_points'] ?? 0) > 0) {
+            $form = '<form class="plugin-market-authorization-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $plugin_id, 'topic_id' => $topic_id, 'auto_enable' => $auto_enable ? '1' : '0', 'market_view' => $market_view]) . '<label class="grid"><span>授权码</span><input type="text" name="authorization_code" maxlength="40" autocomplete="off" required></label><p>请在插件页面购买后点击“授权码”获取。在线安装或更新需要填写一次性授权码。</p><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="btn plugin-enable" data-loading-text="安装中">在线' . ($auto_enable ? '安装/更新' : '安装') . '</button></div></form>';
+            json_response(['ok' => 1, 'modal' => ['title' => '填写授权码', 'html' => $form]]);
+        }
+    }
+    self::plugin_market_install($plugin_id, $topic_id, $auto_enable, $market_view, $authorization_code);
     $message = $auto_enable ? '插件已安装或更新并启用。' : '插件已安装或更新，已停用。';
     if (ajax_request()) {
         header('Content-Type: application/json; charset=utf-8');
@@ -483,7 +494,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
     $page = min($page, $pages);
     $items = array_slice($items, ($page - 1) * PLUGIN_MARKET_PAGE_SIZE, PLUGIN_MARKET_PAGE_SIZE, true);
     $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $market_view === 'beta' ? 'beta' : null]);
-    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>免费插件支持在线安装，付费插件请前往插件页面购买并下载。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
+    $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>免费插件可直接在线安装；付费插件购买后，在插件页面获取一次性授权码即可在线安装或更新。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
     $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query, $market_view) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $market_view === 'beta' ? 'beta' : null, 'q' => $query !== '' ? $query : null, 'refresh' => '1'])) . '">刷新</a></div>';
     $market_tabs = tab_bar_html([
         'certified' => ['label' => '站长认证', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
@@ -497,15 +508,20 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $needs_update = isset($updates[$id]);
         $price_points = max(0, (int)($item['price_points'] ?? 0));
         $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
-        $paid = $price_points > 0 || !$online_install;
+        $paid = $price_points > 0;
         $item_market_view = self::plugin_market_view((string)($item['market_status'] ?? 'certified'));
         $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
         $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
         $topic_url = (string)($item['url'] ?? '');
         if ($paid) {
-            $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
-        } else {
+            $online_label = $installed ? ($needs_update ? '在线更新' : '在线重装') : '在线安装';
+            $online_form = '<form class="post-action-form plugin-market-online-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $item_market_view]) . '<button type="submit" class="plugin-enable" data-loading-text="准备中">' . h($online_label) . '</button></form>';
+            $purchase_link = $topic_url !== '' ? '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">购买 / 下载 · ' . $price_points . ' 积分</a>' : '';
+            $ops = $online_form . $purchase_link;
+        } elseif ($online_install) {
             $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => $item_market_view]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        } else {
+            $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">下载</a>' : '';
         }
         if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">质量报告</a>';
         $meta = [];
