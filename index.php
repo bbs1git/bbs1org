@@ -2249,6 +2249,13 @@ function require_password_length(string $password): void
 {
     if ((int)preg_match_all('/./us', $password) < PASSWORD_MIN_LENGTH) err('密码至少' . PASSWORD_MIN_LENGTH . '位');
 }
+function require_valid_username(string $username): void
+{
+    if ($username === '') err('用户名不能为空');
+    $result = preg_match('/[\s\p{Z}\p{C}]/u', $username);
+    if ($result === false) err('用户名包含非法字符');
+    if ($result === 1) err('用户名不能包含空白或不可见字符');
+}
 function save_user(bool $admin = false, ?int $target_user_id = null): void
 {
     $ip = ip_addr();
@@ -2309,7 +2316,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $username = (string)$old_user['username'];
         $email = (string)$old_user['email'];
     }
-    if ($username === '') err('用户名不能为空');
+    if (!$old_user || (string)$old_user['username'] !== $username) require_valid_username($username);
     if ($is_registration && preg_match_all('/./us', $username) > 20) err('用户名不能超过20个汉字或英文');
     $exists = $user_id ? one("SELECT id FROM app_users WHERE username=? AND id<>?", [$username, $user_id]) : one("SELECT id FROM app_users WHERE username=?", [$username]);
     if ($exists) err('用户名已存在');
@@ -2646,7 +2653,7 @@ function register_page(): void
         sidebar_notice_card_html('注册注意事项', ['邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
-    $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文</small></span><input name="username" type="text" maxlength="20" required></label>';
+    $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文，不能包含空白字符</small></span><input name="username" type="text" maxlength="20" pattern="\\S+" title="用户名不能包含空白字符" required></label>';
     page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post" data-slot="register.form_extra">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
