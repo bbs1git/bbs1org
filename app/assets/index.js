@@ -127,6 +127,11 @@ const finishConfirm = (ok) => {
 };
 const _openModalBox = (title, fallback, builderFn) => new Promise(resolve => {
     if (!modal || !modalBody) { resolve(fallback); return; }
+    if (confirmResolve) {
+        const previous = confirmResolve;
+        confirmResolve = null;
+        previous(false);
+    }
     confirmResolve = resolve;
     if (modalTitle) modalTitle.textContent = title;
     modalBody.innerHTML = "";
@@ -352,7 +357,6 @@ function refreshAvatarPicker(p) {
 }
 function rebuildLocalAvatarPicker(p) {
     if (p?.dataset.avatarLocalOnly !== "1") return;
-    const style = avatarPickerStyle(p);
     const seeds = Array.from({length: 48}, (_, i) => String(i + 1));
     const options = p.querySelector(".avatar-options");
     const hidden = p.querySelector("input[name=avatar_seed]");
@@ -444,7 +448,55 @@ document.addEventListener("click", e => {
     input.value = swatch.dataset.topicColor || "";
     wrap.querySelectorAll("[data-topic-color]").forEach(btn => btn.classList.toggle("active", btn === swatch));
 });
+const initTopicExtensions = () => {
+    document.querySelectorAll(".topic-extension").forEach(container => {
+        if (container.dataset.extensionInit) return;
+        const panels = Array.from(container.children).filter(el => el instanceof HTMLElement && (el.matches("[data-topic-extension]") || el.querySelector(":scope > details > summary")));
+        if (!panels.length) return;
+        container.dataset.extensionInit = "1";
+        const cards = document.createElement("div");
+        cards.className = "topic-extension-list";
+        const form = document.createElement("div");
+        form.className = "topic-extension-form";
+        const select = (panel, card) => {
+            const activate = !card.classList.contains("active");
+            cards.querySelectorAll(".topic-extension-card").forEach(item => item.classList.remove("active"));
+            panels.forEach(item => { item.hidden = true; });
+            if (activate) {
+                card.classList.add("active");
+                panel.hidden = false;
+                form.hidden = false;
+            } else {
+                form.hidden = true;
+            }
+        };
+        let initial = null;
+        panels.forEach(panel => {
+            const summary = panel.querySelector("details > summary");
+            const label = (summary?.querySelector("span")?.textContent || summary?.textContent || "扩展功能").trim() || "扩展功能";
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = "topic-extension-card";
+            const labelEl = document.createElement("span");
+            labelEl.textContent = label;
+            card.appendChild(labelEl);
+            card.addEventListener("click", () => select(panel, card));
+            cards.appendChild(card);
+            const details = panel.querySelector(":scope > details");
+            if (details) details.open = true;
+            panel.hidden = true;
+            form.appendChild(panel);
+            const boxes = panel.querySelectorAll('input[type="checkbox"]');
+            const enabled = panel.querySelector('input[type="checkbox"][data-topic-extension-toggle]:checked') || (boxes.length === 1 && boxes[0].checked ? boxes[0] : null);
+            if (!initial && enabled) initial = { panel, card };
+        });
+        if (initial) select(initial.panel, initial.card);
+        form.hidden = !initial;
+        container.append(cards, form);
+    });
+};
 window.addEventListener("DOMContentLoaded", () => {
+    initTopicExtensions();
     document.querySelectorAll("[data-topic-action]").forEach(action => {
         action.dispatchEvent(new Event("change", {bubbles: true}));
     });
@@ -612,10 +664,12 @@ document.addEventListener("submit", async e => {
     const notifyForm = e.target.closest(".notify-form");
     if (notifyForm) {
         e.preventDefault();
-        const button = notifyForm.querySelector("button");
+        const button = e.submitter?.form === notifyForm ? e.submitter : notifyForm.querySelector("button[type=submit],button:not([type]),input[type=submit]");
         const status = notifyForm.querySelector(".notify-status");
-        button.disabled = true;
-        button.setAttribute("aria-busy", "true");
+        if (button) {
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+        }
         if (status) status.textContent = "发送中";
         try {
             const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
@@ -630,8 +684,10 @@ document.addEventListener("submit", async e => {
         } catch (err) {
             showToast(err?.message || "发送失败");
         } finally {
-            button.disabled = false;
-            button.removeAttribute("aria-busy");
+            if (button) {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+            }
             if (status) status.textContent = "";
         }
         return;

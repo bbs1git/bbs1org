@@ -191,8 +191,10 @@ app_db_upsert('plugin_hello_items', [
 | `sidebar.stack` | 整个侧栏容器 | `sidebar.stack` |
 | `mainpanel_extra` | 主内容面板，扩展内容追加在主内容之后 | `mainpanel_extra` |
 | `topic.actions` | 主题主楼操作区（引用、管理等） | `topic.actions` |
-| `topic.after_render` | 主题列表项或主题/回帖帖子项 | `topic.after_render` |
+| `topic.after_render` | 主题列表项或主题 | `topic.after_render` |
+| `reply.after_render` | 回帖帖子项 | `reply.after_render` |
 | `topic.content_after` | 主题主楼内容之后的扩展区域 | `topic.content_after` |
+| `reply.content_after` | 回帖楼层内容之后的扩展区域 | `reply.content_after` |
 | `topic.title_suffix` | 主题列表标题链接之后 | `topic.title_suffix` |
 | `top.actions` | 顶部操作栏整体 | `top.bar.actions` |
 | `top.actions.left` | 顶部版块导航右侧的操作区 | `top.bar.actions` |
@@ -327,7 +329,8 @@ function hello_collect(array $plugin, array $task): string
 | --- | --- | --- |
 | `app.boot` | 全站每个请求启动一次 | 预加载数据的最佳位置 |
 | `topic.before_render` / `reply.before_render` | 主题/回帖渲染前 | 红区，调用链零 DB 读 |
-| `topic.after_render` / `reply.after_render` | 主题/回帖渲染后 | 循环内零 DB 读 |
+| `topic.after_render` / `reply.after_render` | 主题/回帖渲染后 | 循环内零 DB 读；用于修改楼层 HTML 本身（徽章、样式等） |
+| `topic.content_after` / `reply.content_after` | 主题主楼/回帖楼层正文末尾追加内容 | 追加式管道：返回 `$value . 自身输出`，无输出必须原样返回 `$value`（返回空串会覆盖他人输出）；插入位置与锚点由核心维护，插件勿自行 strrpos 定位 |
 | `topic.before_save` / `topic.after_save` | 主题保存前后 | 处理主题数据 |
 | `reply.before_save` / `reply.after_save` | 回帖保存前后 | 处理回帖数据 |
 | `topic.replies` | 主题页回帖集合 | 每页一次，可整体预加载 |
