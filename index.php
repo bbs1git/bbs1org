@@ -3013,7 +3013,9 @@ function topic_page(): void
     $topic_ops = (string)hook('topic.actions', $topic_ops, ['topic' => $t]);
     if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
     $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
-    $main = $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title">' . h($t['title']) . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
+    $topic_url = route_url('topic', ['id' => (int)$t['id']]);
+    $title_link = '<a href="' . h($topic_url) . '">' . h($t['title']) . '</a>';
+    $main = $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title">' . $title_link . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
     if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops);
     foreach ($replies as $i => $r) {
         $reply_floor = $reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1;
