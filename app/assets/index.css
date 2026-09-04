@@ -1383,15 +1383,6 @@ h3 {
     margin-bottom: 6px
 }
 
-.post-content ul {
-    margin: 4px 0 8px 18px;
-    padding: 0
-}
-
-.post-content li {
-    margin: 2px 0
-}
-
 .post-content .markdown-table-wrap,.markdown-table-wrap {
     box-sizing: border-box;
     width: 100%;
