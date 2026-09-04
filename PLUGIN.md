@@ -211,7 +211,7 @@ app_db_upsert('plugin_hello_items', [
 | `topic.toolbar_actions` | 首页 / 版块主题列表工具栏操作区 | `topic.toolbar_actions` |
 | `reply.form_extra` | 回帖表单内部扩展字段 | `reply.form_extra` |
 | `attachment.uploader` | 发帖或回帖表单的附件上传区域 | `attachment.uploader` |
-| `admin.plugin.actions` | 后台每个插件条目的操作区 | `admin.plugins.view`（数据来源） |
+| `admin.plugin.actions` | 后台每个插件条目的操作区 | `admin.plugin.actions` |
 
 同一元素可能声明多个值，例如发帖表单的 `data-slot="attachment.uploader topic.form_extra"`。JavaScript 示例：
 
@@ -344,6 +344,9 @@ function hello_collect(array $plugin, array $task): string
 | `register.form_extra` / `login.form_extra` | 注册/登录表单附加区 | 仅渲染表单扩展 |
 | `profile.after_form` | 个人资料页附加区 | ctx 含 user |
 | `admin.tabs` | 后台顶栏标签 | value 为 items 数组 |
+| `admin.plugins.tabs` | 后台“插件”页顶部标签 | value 为 items 数组，后台插件页标题栏（Plugin.php）|
+| `admin.plugin.actions` | 后台每个插件条目的操作区 | 逐插件行追加操作按钮（Plugin.php）|
+| `admin.plugins.view` | 后台插件页整体视图扩展 | 返回附加 HTML（index.php）|
 | `notification.after_create` | 通知写入后 | 仅入队，勿同步请求外部服务 |
 | `markdown.render` / `markdown.after` | Markdown 渲染前后 | after 可能逐行调用，禁止查库 |
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
