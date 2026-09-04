@@ -550,15 +550,17 @@ document.addEventListener("submit", async e => {
         e.preventDefault();
         if (replyForm.dataset.submitting === "1") return;
         replyForm.dataset.submitting = "1";
-        const button = replyForm.querySelector("button");
+        const button = e.submitter?.form === replyForm ? e.submitter : replyForm.querySelector("button[type=submit],button:not([type]),input[type=submit]");
         const status = replyForm.querySelector(".reply-status");
         const list = document.querySelector(".topic-post-list");
         const loadingText = button?.dataset?.loadingText || "";
         const buttonText = button?.textContent || "";
-        button.disabled = true;
-        button.setAttribute("aria-busy", "true");
-        if (loadingText) {
-            button.textContent = loadingText;
+        if (button) {
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            if (loadingText) {
+                button.textContent = loadingText;
+            }
         }
         if (status) status.textContent = "提交中";
         try {
@@ -597,10 +599,12 @@ document.addEventListener("submit", async e => {
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
         } finally {
             delete replyForm.dataset.submitting;
-            button.disabled = false;
-            button.removeAttribute("aria-busy");
-            if (loadingText) {
-                button.textContent = buttonText;
+            if (button) {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+                if (loadingText) {
+                    button.textContent = buttonText;
+                }
             }
         }
         return;
