@@ -628,7 +628,7 @@ document.addEventListener("submit", async e => {
         if (status) status.textContent = "提交中";
         try {
             window.bbs1AttachmentUpload?.beforeSubmit(replyForm);
-            const response = await fetch(replyForm.action, {method: "POST", body: new FormData(replyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
+            const response = await fetch(formActionUrl(replyForm), {method: "POST", body: new FormData(replyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
             if (!data.ok) throw new Error(data.message || "提交失败");
             window.bbs1AttachmentUpload?.afterSubmit();
@@ -683,7 +683,7 @@ document.addEventListener("submit", async e => {
         }
         if (status) status.textContent = "发送中";
         try {
-            const response = await fetch(notifyForm.action, {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
+            const response = await fetch(formActionUrl(notifyForm), {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
             if (!data.ok) throw new Error(data.message || "发送失败");
             if (data.redirect) {
