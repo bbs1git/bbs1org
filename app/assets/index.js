@@ -7,6 +7,17 @@ const showToast = (message) => {
     clearTimeout(window.__toastTimer);
     window.__toastTimer = setTimeout(() => toast.hidden = true, 1800);
 };
+const formActionUrl = (form) => {
+    if (!form) return window.location.href;
+    const attr = typeof form.getAttribute === "function" ? form.getAttribute("action") : null;
+    if (typeof attr === "string" && attr !== "") return attr;
+    try {
+        const prop = form.action;
+        if (typeof prop === "string" && prop !== "") return prop;
+    } catch (_) {}
+    return window.location.href;
+};
+window.formActionUrl = formActionUrl;
 const filterLocalPlugins = e => {
     const input = e.target instanceof HTMLInputElement && e.target.matches("[data-plugin-local-search]") ? e.target : null;
     if (!input) return;
@@ -403,7 +414,7 @@ document.addEventListener("change", async e => {
     const body = new FormData(form);
     input.disabled = true;
     try {
-        const response = await fetch(form.action || window.location.href, {method: "POST", body, credentials: "same-origin", headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const response = await fetch(formActionUrl(form), {method: "POST", body, credentials: "same-origin", headers: {"X-Requested-With": "XMLHttpRequest"}});
         const data = await response.json();
         if (!data?.ok) throw new Error(data?.message || "保存失败");
         const replaceTarget = form.dataset.replaceTarget || "";
@@ -723,7 +734,7 @@ document.addEventListener("submit", async e => {
         window.bbs1AttachmentUpload?.beforeSubmit(form);
         const body = new FormData(form);
         if (button?.name) body.append(button.name, button.value ?? "1");
-        const response = await fetch(form.action || window.location.href, {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
+        const response = await fetch(formActionUrl(form), {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
         const text = await response.text();
         let data;
         try {
