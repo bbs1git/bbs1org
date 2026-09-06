@@ -140,6 +140,7 @@ public static function app_db_schema(string $driver): array
         'app_notifications' => "CREATE TABLE app_notifications(id $id,recipient_id $uint NOT NULL,sender_id $uint DEFAULT NULL,kind $short NOT NULL DEFAULT 'direct',content $long NOT NULL,topic_id $uint DEFAULT NULL,reply_id $uint DEFAULT NULL,read_at $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_forums' => "CREATE TABLE app_forums(id $id,name $short NOT NULL,description $long NOT NULL,sort $uint NOT NULL DEFAULT 0,allow_view_groups $short NOT NULL DEFAULT '',allow_post_groups $short NOT NULL DEFAULT '',allow_reply_groups $short NOT NULL DEFAULT '')",
         'app_topics' => "CREATE TABLE app_topics(id $id,forum_id $uint NOT NULL,user_id $uint NOT NULL,title $short NOT NULL,body $long NOT NULL,highlight_style $short NOT NULL DEFAULT '',reply_order INTEGER NOT NULL DEFAULT 0,reply_count $uint NOT NULL DEFAULT 0,view_count $uint NOT NULL DEFAULT 0,last_reply_at $uint NOT NULL DEFAULT 0,last_reply_user_id $uint NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
+        'app_topics_del' => "CREATE TABLE app_topics_del(id $id,topic_id $uint NOT NULL,reply_id $uint NOT NULL,created_at $uint NOT NULL)",
         'app_replies' => "CREATE TABLE app_replies(id $id,topic_id $uint NOT NULL,user_id $uint NOT NULL,body $long NOT NULL,created_at $uint NOT NULL,updated_at $uint NOT NULL)",
         'app_attachments' => "CREATE TABLE app_attachments(id $id,user_id $uint NOT NULL,hash $short NOT NULL,file_name $short NOT NULL,original_name $short NOT NULL DEFAULT '',ext $short NOT NULL DEFAULT '',mime $short NOT NULL DEFAULT '',size $uint NOT NULL DEFAULT 0,is_image INTEGER NOT NULL DEFAULT 0,created_at $uint NOT NULL)",
         'app_cron_logs' => "CREATE TABLE app_cron_logs(id $id,plugin_id $short NOT NULL,task_name $short NOT NULL,status $short NOT NULL,message $long NOT NULL,started_at $uint NOT NULL,finished_at $uint NOT NULL DEFAULT 0)",
@@ -154,6 +155,8 @@ public static function app_db_schema(string $driver): array
     $indexes = [
         'idx_users_group' => 'app_users(group_id)', 'idx_users_email' => 'app_users(email)', 'idx_forums_sort' => 'app_forums(sort,id)',
         'idx_replies_topic_time' => 'app_replies(topic_id,created_at,id)',
+        'idx_topics_del_topic' => 'app_topics_del(topic_id,created_at,id)',
+        'idx_topics_del_reply' => 'app_topics_del(reply_id)',
         'idx_replies_user_time' => 'app_replies(user_id,created_at DESC,id DESC)',
         'idx_attachments_user' => 'app_attachments(user_id,created_at DESC,id DESC)',
         'idx_notifications_recipient_unread' => 'app_notifications(recipient_id,read_at)',

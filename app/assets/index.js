@@ -440,6 +440,12 @@ document.addEventListener("change", e => {
         field.classList.toggle("is-hidden", field.dataset.topicActionSecondary !== action.value);
     });
 });
+document.addEventListener("change", e => {
+    const select = e.target.closest("select[data-reply-actions]");
+    if (!select) return;
+    const form = select.closest("form");
+    if (form) form.dataset.confirm = select.options[select.selectedIndex]?.dataset?.confirm || "";
+});
 function syncTopicExtensionFields(toggle) {
     const panel = toggle.closest("[data-topic-extension]");
     const fields = panel?.querySelector("[data-topic-extension-fields]");

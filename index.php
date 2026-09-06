@@ -1728,6 +1728,7 @@ function svg_icon(string $name): string
         'settings' => '<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
         'admin' => '<path d="M12 3 4 6v6c0 5 3.4 7.8 8 9 4.6-1.2 8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
         'pages' => '<path d="M8 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.5 9h6M9.5 12.5h6M9.5 16h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        'upload' => '<path d="M12 15V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m8 9 4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
     ];
     return isset($icons[$name]) ? '<svg class="meta-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">' . $icons[$name] . '</svg>' : '';
 }
@@ -2461,8 +2462,8 @@ function save_topic(): int
         $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
         if (!can_manage_topic($t)) err('无权限');
         if ($action !== '' && !can_manage()) err('无权限');
-        if ($action === 'delete') {
-            del('topics', (int)$t['id']);
+        if (in_array($action, ['delete_topic', 'delete_topic_replies'], true)) {
+            del('topics', (int)$t['id'], true);
             go(route_url('home'));
         }
         if (in_array($action, ['pin', 'unpin'], true)) {
@@ -2573,7 +2574,82 @@ function save_reply(): array
     fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => $author_id, 'editing' => false]);
     return ['topic_id' => $tid, 'reply_id' => $rid];
 }
-function del(string $table, int $id): void
+function content_delete_notify(array $row, bool $is_reply, int $topic_id = 0): void
+{
+    $author_id = (int)($row['user_id'] ?? 0);
+    if ($author_id <= 0 || $author_id === uid()) return;
+    if ($is_reply) {
+        create_notification($author_id, uid(), 'delete', '您的回帖已被删除。', max(0, $topic_id));
+        return;
+    }
+    $title = trim((string)($row['title'] ?? ''));
+    create_notification($author_id, uid(), 'delete', '您的主题《' . ($title !== '' ? $title : '#' . (int)($row['id'] ?? 0)) . '》已被删除。');
+}
+function app_topics_del_ready(): bool
+{
+    static $ready = null;
+    if ($ready === null) $ready = app_db_table_exists(db(), db_driver(), 'app_topics_del');
+    return $ready;
+}
+function floor_index_clear(): void
+{
+    unset($GLOBALS['__floor_cache']);
+}
+function floor_index_record(int $topic_id, int $reply_id, int $created_at): void
+{
+    if (!app_topics_del_ready()) return;
+    q('INSERT INTO app_topics_del(topic_id,reply_id,created_at) VALUES(?,?,?)', [$topic_id, $reply_id, $created_at]);
+    floor_index_clear();
+}
+function topic_floor_index(int $topic_id): array
+{
+    if (isset($GLOBALS['__floor_cache'][$topic_id])) return $GLOBALS['__floor_cache'][$topic_id];
+    if (!app_topics_del_ready()) return $GLOBALS['__floor_cache'][$topic_id] = [];
+    $rows = q('SELECT reply_id AS id,created_at FROM app_topics_del WHERE topic_id=? ORDER BY created_at,id', [$topic_id])->fetchAll();
+    return $GLOBALS['__floor_cache'][$topic_id] = array_map(static fn(array $r): array => ['id' => (int)$r['id'], 'created_at' => (int)$r['created_at']], $rows);
+}
+function gap_before(array $del, int $created_at, int $reply_id): int
+{
+    $lo = 0;
+    $hi = count($del);
+    while ($lo < $hi) {
+        $mid = ($lo + $hi) >> 1;
+        if ($del[$mid]['created_at'] < $created_at || ($del[$mid]['created_at'] === $created_at && $del[$mid]['id'] < $reply_id)) $lo = $mid + 1;
+        else $hi = $mid;
+    }
+    return $lo;
+}
+function reply_position_floor(int $topic_id, int $created_at, int $reply_id): int
+{
+    $floor = 1 + (int)q('SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<?))', [$topic_id, $created_at, $created_at, $reply_id])->fetchColumn();
+    foreach (topic_floor_index($topic_id) as $gap) {
+        if ($gap['created_at'] < $created_at || ($gap['created_at'] === $created_at && $gap['id'] < $reply_id)) $floor++;
+    }
+    return $floor;
+}
+function floor_live_position(int $topic_id, int $floor): int
+{
+    $pos = $floor;
+    $i = 0;
+    foreach (topic_floor_index($topic_id) as $gap) {
+        $i++;
+        $live_before = (int)q('SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<?))', [$topic_id, (int)$gap['created_at'], (int)$gap['created_at'], (int)$gap['id']])->fetchColumn();
+        if ($live_before + $i < $floor) $pos--;
+    }
+    return max(1, $pos);
+}
+function apply_reply_floors(array $replies, array $topic, int $page, int $size, bool $reply_desc): array
+{
+    $off = ($page - 1) * $size;
+    $del_index = topic_floor_index((int)$topic['id']);
+    foreach ($replies as $i => $reply) {
+        if (!is_array($reply)) continue;
+        $floor = $reply_desc ? (int)$topic['reply_count'] - $off - $i + gap_before($del_index, (int)($reply['created_at'] ?? 0), (int)($reply['id'] ?? 0)) : $off + $i + 1 + gap_before($del_index, (int)($reply['created_at'] ?? 0), (int)($reply['id'] ?? 0));
+        $replies[$i]['reply_floor'] = max(1, $floor);
+    }
+    return $replies;
+}
+function del(string $table, int $id, bool $with_replies = false): void
 {
     $tables = [
         'users' => 'app_users',
@@ -2591,17 +2667,30 @@ function del(string $table, int $id): void
     if (in_array($table, ['users', 'topics', 'replies'], true)) {
         $record = row($tables[$table], 'id', $id) ?: err('记录不存在');
         $affected_topics = $table === 'users' ? q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll() : [];
-        tx(function () use ($table, $tables, $id, $record, $affected_topics) {
+        tx(function () use ($table, $tables, $id, $record, $affected_topics, $with_replies) {
             if ($table === 'replies') {
                 if (trim((string)$record['body']) === '') err('回复已删除');
+                fire('content.before_delete', ['table' => 'replies', 'row' => $record]);
                 reply_fts_delete($id);
-                q("UPDATE app_replies SET body='' WHERE id=?", [$id]);
+                floor_index_record((int)$record['topic_id'], $id, (int)$record['created_at']);
+                q('DELETE FROM app_replies WHERE id=?', [$id]);
+                refresh_topic_stats((int)$record['topic_id']);
+                content_delete_notify($record, true, (int)$record['topic_id']);
                 return;
+            }
+            if ($table === 'topics' && $with_replies) {
+                foreach (q("SELECT * FROM app_replies WHERE topic_id=?", [$id])->fetchAll() as $reply) {
+                    fire('content.before_delete', ['table' => 'replies', 'row' => $reply]);
+                    reply_fts_delete((int)$reply['id']);
+                    floor_index_record((int)$reply['topic_id'], (int)$reply['id'], (int)$reply['created_at']);
+                    q('DELETE FROM app_replies WHERE id=?', [(int)$reply['id']]);
+                }
             }
             if ($table === 'topics') fire('topic.before_delete', ['id' => $id, 'row' => $record]);
             fire('content.before_delete', ['table' => $table, 'row' => $record]);
             if ($table === 'topics') topic_fts_delete($id);
             q('DELETE FROM ' . $tables[$table] . ' WHERE id=?', [$id]);
+            if ($table === 'topics') content_delete_notify($record, false);
             if ($table === 'users') {
                 foreach ($affected_topics as $topic) refresh_topic_stats((int)$topic['topic_id']);
             }
@@ -2980,16 +3069,19 @@ function topic_page(): void
     $floor = id('floor');
     $reply_desc = (int)($t['reply_order'] ?? 0) === 1;
     if ($floor > 0) {
-        if ($floor > (int)$t['reply_count']) $floor = (int)$t['reply_count'];
-        $display_position = $reply_desc ? (int)$t['reply_count'] - $floor + 1 : $floor;
-        $_GET['p'] = (string)max(1, (int)ceil($display_position / $size));
+        $gap_count = count(topic_floor_index((int)$t['id']));
+        if ($floor > (int)$t['reply_count'] + $gap_count) {
+            $floor = (int)$t['reply_count'] + $gap_count;
+            $_GET['floor'] = (string)$floor;
+        }
+        $anchor_pos = floor_live_position((int)$t['id'], $floor);
+        $_GET['p'] = (string)max(1, $reply_desc ? (int)(((int)$t['reply_count'] - $anchor_pos) / $size) + 1 : (int)(($anchor_pos - 1) / $size) + 1);
     } elseif ($replyid > 0) {
         $reply = row('app_replies', 'id', $replyid);
         if ($reply && (int)$reply['topic_id'] !== (int)$t['id']) $reply = null;
         if ($reply) {
-            $position_sql = $reply_desc ? '(created_at>? OR (created_at=? AND id>=?))' : '(created_at<? OR (created_at=? AND id<=?))';
-            $before = (int)q("SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND $position_sql", [(int)$t['id'], (int)$reply['created_at'], (int)$reply['created_at'], $replyid])->fetchColumn();
-            $_GET['p'] = (string)max(1, (int)ceil($before / $size));
+            $anchor_pos = floor_live_position((int)$t['id'], reply_position_floor((int)$t['id'], (int)$reply['created_at'], $replyid));
+            $_GET['p'] = (string)max(1, $reply_desc ? (int)(((int)$t['reply_count'] - $anchor_pos) / $size) + 1 : (int)(($anchor_pos - 1) / $size) + 1);
         } else {
             err('你访问的帖子可能已经删除', 404);
         }
@@ -2998,7 +3090,7 @@ function topic_page(): void
     $off = ($p - 1) * $size;
     $page_data = topic_page_replies($t, $p, $size, $off, $reply_desc);
     $t = $page_data['topic'];
-    $replies = $page_data['replies'];
+    $replies = apply_reply_floors($page_data['replies'], $t, $p, $size, $reply_desc);
     $filtered_replies = hook('topic.replies', $replies, [
         'topic' => $t,
         'page' => $p,
@@ -3018,7 +3110,7 @@ function topic_page(): void
     $main = $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title">' . $title_link . '</h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div><ul class="post-list topic-post-list">';
     if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops);
     foreach ($replies as $i => $r) {
-        $reply_floor = $reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1;
+        $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
         if (trim((string)$r['body']) === '') continue;
         $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
         if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
@@ -3069,7 +3161,7 @@ function topic_edit_page(): void
         $swatches .= '</div>';
         $pin_options = '<option value="pin"' . ($is_pinned ? '' : ' selected') . '>置顶</option><option value="unpin"' . ($is_pinned ? ' selected' : '') . '>取消置顶</option>';
         $bold_options = '<option value="bold"' . ($is_bold ? '' : ' selected') . '>加粗</option><option value="unbold"' . ($is_bold ? ' selected' : '') . '>取消加粗</option>';
-        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete">删除</option><option value="pin">置顶</option><option value="highlight">高亮</option><option value="bold">加粗</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="pin"><span>置顶</span><select name="topic_pin_action">' . $pin_options . '</select></label><label class="grid topic-highlight-field is-hidden" data-topic-action-secondary="highlight" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="bold"><span>加粗</span><select name="topic_bold_action">' . $bold_options . '</select></label>';
+        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete_topic">删除主题及回帖</option><option value="pin">置顶</option><option value="highlight">高亮</option><option value="bold">加粗</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="pin"><span>置顶</span><select name="topic_pin_action">' . $pin_options . '</select></label><label class="grid topic-highlight-field is-hidden" data-topic-action-secondary="highlight" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="bold"><span>加粗</span><select name="topic_bold_action">' . $bold_options . '</select></label>';
     }
     $reply_order = $editing ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);
@@ -3094,6 +3186,18 @@ function reply_edit_page(): void
             q("UPDATE app_users SET is_muted=1 WHERE id=?", [(int)$r['user_id']]);
             go(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]));
         }
+        if (is_post_request() && ($_POST['do'] ?? '') === 'delete') {
+            if (trim((string)$r['body']) === '') err('回复已删除');
+            tx(function () use ($r) {
+                fire('content.before_delete', ['table' => 'replies', 'row' => $r]);
+                reply_fts_delete((int)$r['id']);
+                floor_index_record((int)$r['topic_id'], (int)$r['id'], (int)$r['created_at']);
+                q('DELETE FROM app_replies WHERE id=?', [(int)$r['id']]);
+                refresh_topic_stats((int)$r['topic_id']);
+                content_delete_notify($r, true, (int)$r['topic_id']);
+            });
+            go(route_url('topic', ['id' => (int)$r['topic_id']]));
+        }
         if (trim((string)$r['body']) === '') err('回复已删除，无法编辑');
     }
     if (is_post_request()) {
@@ -3104,7 +3208,7 @@ function reply_edit_page(): void
             $row = row('app_replies', 'id', $saved['reply_id']) ?: err('回复不存在');
             $row = attach_users([$row])[0];
             $topic = row('app_topics', 'id', $saved['topic_id']) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
-            $floor = (int)$topic['reply_count'];
+            $floor = reply_position_floor((int)$topic['id'], (int)$row['created_at'], (int)$row['id']);
             $ops = quote_reply_action($row, $floor);
             if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
@@ -3112,9 +3216,9 @@ function reply_edit_page(): void
         }
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
-    $ops = (int)$r['id'] > 0 ? '<span class="reply-edit-ops">' . (can_manage() ? post_action_form(route_url('reply_edit'), '禁言作者', ['id' => (int)$r['id'], 'do' => 'mute_author'], 'reply-mute-link', '确定禁言作者？') : '') . post_action_form(route_url('delete'), '删除', ['type' => 'replies', 'id' => (int)$r['id'], 'back' => 'topic', 'tid' => (int)$r['topic_id']], 'reply-delete-link', '确定删除？') . '</span>' : '';
+    $reply_ops = (int)$r['id'] > 0 ? '<label class="grid reply-action-field"><span>操作</span><select name="do" data-reply-actions aria-label="回复操作"><option value="">不操作</option><option value="delete" data-confirm="确定删除该回复？">删除</option>' . (can_manage() ? '<option value="mute_author" data-confirm="确定禁言该作者？">禁言作者</option>' : '') . '</select></label>' : '';
     $reply_form_extra = (string)hook('reply.form_extra', '', ['reply' => $r, 'editing' => (int)$r['id'] > 0]);
-    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2>' . $ops . '</div><form method="post" data-slot="attachment.uploader reply.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . (string)hook('attachment.uploader', '', ['muted' => true]) . $reply_form_extra . '<button type="submit" data-loading-text="正在保存">保存</button></form></div>'));
+    page('编辑回复', form_shell('<div class="form-panel reply-edit-panel"><div class="reply-edit-head"><h2>编辑回复</h2></div><form method="post" data-slot="attachment.uploader reply.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$r['id'] . '"><input type="hidden" name="topic_id" value="' . (int)$r['topic_id'] . '">' . textarea('内容', 'body', $r['body'], true) . (string)hook('attachment.uploader', '', ['muted' => true]) . $reply_form_extra . $reply_ops . '<button type="submit" data-loading-text="正在保存">保存</button></form></div>'));
 }
 function admin_tabs(string $tab): string
 {
