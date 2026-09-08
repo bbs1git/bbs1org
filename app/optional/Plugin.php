@@ -15,7 +15,7 @@ const PLUGIN_MARKET_CACHE_TTL = 900;
 const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
 const PLUGIN_MARKET_PAGE_SIZE = 40;
 const PLUGIN_UPLOAD_FILE = 'plugin_upload.data';
-const PLUGIN_UPLOAD_MAX = 2097152;
+const PLUGIN_UPLOAD_MAX = 20971520;
 
 final class Plugin
 {
@@ -1240,7 +1240,7 @@ private static function plugin_upload(array $file): array
     $tmp = (string)($file['tmp_name'] ?? '');
     $size = (int)($file['size'] ?? 0);
     if (!is_uploaded_file($tmp) || $size <= 0) err('插件文件无效');
-    if ($size > PLUGIN_UPLOAD_MAX) err('插件文件不能超过2MB');
+    if ($size > PLUGIN_UPLOAD_MAX) err('插件文件不能超过20MB');
     require_writable_dir(DATA_DIR, 'app/data 目录不可写');
     $upload_file = DATA_DIR . '/' . PLUGIN_UPLOAD_FILE;
     if (!move_uploaded_file($tmp, $upload_file)) err('插件上传失败');
