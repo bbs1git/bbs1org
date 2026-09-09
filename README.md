@@ -31,6 +31,10 @@
 
 https://bbs1.org
 
+## 代码仓库
+
+https://github.com/bbs1git/bbs1org
+
 ## Docker 源码部署
 
 服务器需先安装 Docker Engine 24+、Docker Compose v2 和 `unzip`。Docker 可使用以下命令安装：
