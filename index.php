@@ -610,6 +610,7 @@ function plugin_entry_definitions(): array
         'sidebar_cards' => ['hook' => 'sidebar.stack', 'label' => '边栏卡片'],
         'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab'],
         'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab'],
+        'profile_settings_tabs' => ['hook' => 'profile.settings_tabs', 'label' => '个人设置Tab'],
         'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片'],
         'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
         'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
@@ -2748,15 +2749,35 @@ function profile_page(): void
 {
     need_login();
     $u = me();
-    if (is_post_request()) {
-        save_user(false, uid());
-        set_flash('个人资料已保存');
-        go(route_url('profile'));
+    $profile_tab_input = $_GET['tab'] ?? 'profile';
+    $profile_tab = is_string($profile_tab_input) ? cut(trim($profile_tab_input), 64) : 'profile';
+    if ($profile_tab === '') $profile_tab = 'profile';
+    $default_profile_tabs = [
+        'home' => ['label' => '我的主页', 'href' => route_url('user', ['id' => (int)$u['id']])],
+        'profile' => ['label' => '个人设置', 'href' => route_url('profile')],
+    ];
+    $profile_tabs = $default_profile_tabs;
+    $hook_tabs = hook('profile.settings_tabs', $profile_tabs, ['user' => $u, 'tab' => $profile_tab]);
+    if (is_array($hook_tabs)) $profile_tabs = $hook_tabs;
+    $profile_tabs += $default_profile_tabs;
+    if (!array_key_exists($profile_tab, $profile_tabs)) $profile_tab = 'profile';
+
+    $body = '<div class="profile-toolbar">' . tab_bar_html($profile_tabs, $profile_tab, '', 'profile.settings_tabs') . '</div>';
+    if ($profile_tab === 'profile') {
+        if (is_post_request()) {
+            save_user(false, uid());
+            set_flash('个人资料已保存');
+            go(route_url('profile'));
+        }
+        $account_cards = '<div class="profile-account-grid"><div class="profile-account-card"><span>用户名</span><strong>' . h($u['username']) . '</strong></div><div class="profile-account-card"><span>用户 UID</span><strong>' . (int)$u['id'] . '</strong></div><div class="profile-account-card"><span>邮箱</span><strong title="' . h($u['email']) . '">' . h($u['email']) . '</strong></div><div class="profile-account-card"><span>注册时间</span><strong>' . date('Y-m-d H:i', (int)$u['created_at']) . '</strong></div><div class="profile-account-card"><span>积分</span><strong>' . (int)$u['points'] . '</strong></div><div class="profile-account-card profile-account-logout"><form class="post-action-form" method="post" action="' . h(route_url('logout')) . '">' . form_token() . '<button class="profile-exit-button" type="submit"><span>账号安全</span><strong>安全退出</strong></button></form></div></div>';
+        $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>密码</span><small>不修改密码</small></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
+        $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
+        $body .= '<div class="form-panel" data-slot="profile.after_form">' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>';
+    } else {
+        $tab_content = (string)hook('profile.settings_tab_content', '', ['user' => $u, 'tab' => $profile_tab, 'tabs' => $profile_tabs]);
+        $body .= '<div data-slot="profile.settings_tab_content">' . $tab_content . '</div>';
     }
-    $account_cards = '<div class="profile-account-grid"><div class="profile-account-card"><span>用户名</span><strong>' . h($u['username']) . '</strong></div><div class="profile-account-card"><span>用户 UID</span><strong>' . (int)$u['id'] . '</strong></div><div class="profile-account-card"><span>邮箱</span><strong title="' . h($u['email']) . '">' . h($u['email']) . '</strong></div><div class="profile-account-card"><span>注册时间</span><strong>' . date('Y-m-d H:i', (int)$u['created_at']) . '</strong></div><div class="profile-account-card"><span>积分</span><strong>' . (int)$u['points'] . '</strong></div><div class="profile-account-card profile-account-logout"><form class="post-action-form" method="post" action="' . h(route_url('logout')) . '">' . form_token() . '<button class="profile-exit-button" type="submit"><span>账号安全</span><strong>安全退出</strong></button></form></div></div>';
-    $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>密码</span><small>不修改密码</small></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
-    $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-    page('个人资料', form_shell('<div class="form-panel" data-slot="profile.after_form"><h2>个人资料</h2>' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>', $u));
+    page('个人设置', form_shell($body, $u));
 }
 function user_page(): void
 {

@@ -206,6 +206,8 @@ app_db_upsert('plugin_hello_items', [
 | `login.form_extra` | 登录表单内部扩展字段 | `login.form_extra` |
 | `register.form_extra` | 注册表单内部扩展字段 | `register.form_extra` |
 | `profile.after_form` | 个人资料面板（资料表单之后可追加内容） | `profile.after_form` |
+| `profile.settings_tabs` | 个人设置页标签栏 | `profile.settings_tabs` |
+| `profile.settings_tab_content` | 当前个人设置标签的内容区 | `profile.settings_tab_content` |
 | `user.profile_tabs` | 用户资料页标签栏 | `user.profile_tabs` |
 | `topic.index_tabs` | 首页 / 版块主题列表标签栏 | `topic.index_tabs` |
 | `topic.toolbar_actions` | 首页 / 版块主题列表工具栏操作区 | `topic.toolbar_actions` |
@@ -343,6 +345,8 @@ function hello_collect(array $plugin, array $task): string
 | `user.menu_links` | 个人卡片与移动端我的菜单 | 展示位置：个人卡片 |
 | `register.form_extra` / `login.form_extra` | 注册/登录表单附加区 | 仅渲染表单扩展 |
 | `profile.after_form` | 个人资料页附加区 | ctx 含 user |
+| `profile.settings_tabs` | 个人设置页标签栏 | value 为 Tab 数组，ctx 含 user、tab；展示位置：个人设置 Tab |
+| `profile.settings_tab_content` | 当前个人设置标签内容 | value 为 HTML，ctx 含 user、tab、tabs；仅在非默认标签触发 |
 | `admin.tabs` | 后台顶栏标签 | value 为 items 数组 |
 | `admin.plugins.tabs` | 后台“插件”页顶部标签 | value 为 items 数组，后台插件页标题栏（Plugin.php）|
 | `admin.plugin.actions` | 后台每个插件条目的操作区 | 逐插件行追加操作按钮（Plugin.php）|
@@ -362,6 +366,7 @@ function hello_collect(array $plugin, array $task): string
 | `sidebar_cards` | `sidebar.stack` | 侧栏卡片区域 |
 | `home_tabs` | `topic.index_tabs` | 首页/版块列表顶部 Tab |
 | `profile_tabs` | `user.profile_tabs` | 用户主页顶部 Tab |
+| `profile_settings_tabs` | `profile.settings_tabs` | 个人设置页顶部 Tab |
 | `profile_card` | `user.menu_links` | 侧栏个人卡片和移动端我的菜单 |
 | `topic_actions` | `topic.actions` | 主题首帖右上角操作区 |
 | `admin_tabs` | `admin.tabs` | 后台顶部 Tab |
