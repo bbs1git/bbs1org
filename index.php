@@ -1817,7 +1817,7 @@ function admin_url(array $params = []): string
 function route_url(string $a = 'home', array $params = []): string
 {
     if (setting('pretty_url', '0') !== '1') return $a === 'home' ? index_url($params) : index_url(['a' => $a] + $params);
-    if ($a === 'home') return $params ? index_url($params) : app_url();
+    if ($a === 'home') return $params ? append_url_query(app_url(''), $params) : app_url();
     $params = $a === 'home' ? $params : ['a' => $a] + $params;
     $segments = [];
     if (isset($params['a']) && $params['a'] !== '') {
