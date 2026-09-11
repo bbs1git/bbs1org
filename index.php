@@ -2804,11 +2804,14 @@ function topic_index_sort(bool $profile): string
     $_COOKIE['__topic_index_sort'] = $sort;
     return $sort;
 }
-function topic_index_data(int $fid, ?array $user, string $profile_tab, string $query, string $search_field, string $sort, int $page, int $size): array
+function topic_index_data(int $fid, ?array $user, string $profile_tab, string $query, string $search_field, string $sort, int $page, int $size, bool $tab_allowed = true, string $denied_notice = ''): array
 {
     $profile_uid = (int)($user['id'] ?? 0);
     $offset = ($page - 1) * $size;
     $ctx = ['forum_id' => $fid, 'user' => $user, 'profile_tab' => $profile_tab, 'query' => $query, 'search_field' => $search_field, 'sort' => $sort, 'page' => $page, 'page_size' => $size, 'offset' => $offset];
+    if ($profile_uid && !$tab_allowed) {
+        return ['rows' => [], 'total' => 0, 'profile_empty' => $denied_notice !== '' ? $denied_notice : '该内容不对外开放', 'unread_total' => 0, 'simple_pagination' => false, 'has_next_page' => false];
+    }
     $data = hook('topic.index_data.load', null, $ctx);
     if (is_array($data)) return $data;
     $simple_pagination = false;
@@ -2917,7 +2920,19 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $profile_tabs['profile_settings'] = ['label' => '设置', 'href' => route_url('profile'), 'class' => 'tab-mobile-action'];
         if (can_access_admin()) $profile_tabs['admin'] = ['label' => '后台', 'href' => route_url('admin'), 'class' => 'tab-mobile-action'];
     }
-    $data = topic_index_data($fid, $filter_user, $profile_tab, $q, $search_field, $sort, $p, $size);
+    $profile_tab_allowed = true;
+    $profile_tab_notice = '';
+    if ($profile_uid) {
+        $allowed = hook('user.profile_tab_allowed', true, ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab]);
+        if ($allowed === false) {
+            $profile_tab_allowed = false;
+            $profile_tab_notice = '该内容不对外开放';
+        } elseif (is_string($allowed) && trim($allowed) !== '') {
+            $profile_tab_allowed = false;
+            $profile_tab_notice = trim($allowed);
+        }
+    }
+    $data = topic_index_data($fid, $filter_user, $profile_tab, $q, $search_field, $sort, $p, $size, $profile_tab_allowed, $profile_tab_notice);
     $rows = $data['rows'];
     $total = $data['total'];
     $profile_empty = $data['profile_empty'];
@@ -2944,7 +2959,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         $toolbar_actions = (string)hook('topic.toolbar_actions', '', ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
         $main .= '<div class="topic-toolbar" data-slot="topic.index_tabs topic.toolbar_actions">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
     }
-    $profile_header = $profile_uid
+    $profile_header = ($profile_uid && $profile_tab_allowed)
         ? (string)hook('user.profile_tab_header', '', [
             'user' => $filter_user,
             'self' => $own_profile,
@@ -2955,7 +2970,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         ])
         : '';
     $main .= $profile_header . '<ul class="post-list">';
-    if ($profile_uid && $profile_tab === 'notifications') {
+    if ($profile_uid && $profile_tab_allowed && $profile_tab === 'notifications') {
         mark_notifications_read($profile_uid, $unread_total);
         if (!$rows) $main .= '<li class="empty-state">暂无通知</li>';
         else foreach ($rows as $i => $n) {
@@ -2977,7 +2992,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
     if ($data['simple_pagination']) $pagination = simple_paginate($p > 1, $data['has_next_page'], $p, $url($page_query));
     else $pagination = paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
-    if ($profile_uid) $main .= (string)hook('user.profile_tab_footer', '', ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'total' => $total]);
+    if ($profile_uid && $profile_tab_allowed) $main .= (string)hook('user.profile_tab_footer', '', ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'total' => $total]);
     $sidebar_user = $profile_uid ? $filter_user : null;
     $is_home_first_page = !$profile_uid && !$filter_forum && $q === '' && $p === 1;
     $sidebar = sidebar_stack_html([sidebar_user_card_html($sidebar_user, false, $fid), sidebar_bio_card_html($filter_user), (!$profile_uid ? quick_forums_html() . ($is_home_first_page ? sidebar_stats_card_html() : '') : '')], ['is_home_first_page' => $is_home_first_page]);

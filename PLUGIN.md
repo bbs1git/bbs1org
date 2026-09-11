@@ -342,6 +342,7 @@ function hello_collect(array $plugin, array $task): string
 | `top.menu_links` | 顶部版块导航/移动端版块列表 | 链接数组，同一请求一次 |
 | `top.bar.actions` | 顶部栏插件入口 | `left`、`right_before_search`、`right_after_search` 三个区域 |
 | `user.profile_tabs` | 用户资料页标签栏 | 展示位置：个人主页 Tab |
+| `user.profile_tab_allowed` | 用户资料页标签页可见性判定 | 渲染该标签页数据与内容前调用，详见下方“个人主页标签页可见性” |
 | `user.menu_links` | 个人卡片与移动端我的菜单 | 展示位置：个人卡片 |
 | `register.form_extra` / `login.form_extra` | 注册/登录表单附加区 | 仅渲染表单扩展 |
 | `profile.after_form` | 个人资料页附加区 | ctx 含 user |
@@ -355,6 +356,25 @@ function hello_collect(array $plugin, array $task): string
 | `markdown.render` / `markdown.after` | Markdown 渲染前后 | after 可能逐行调用，禁止查库 |
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
 | `user.before_save` / `user.after_save` | 用户保存前后 | before 可返回过滤数组 |
+
+### 个人主页标签页可见性
+
+插件用 `user.profile_tabs` 注册标签页后，如需按访问者限制某个标签页是否可见，使用 `user.profile_tab_allowed`：
+
+- ctx：`user`（被访问的用户）、`self`（访问者是否本人）、`tab`（当前标签页 key）。
+- 返回值：`true` 或 `null` 放行；`false` 拒绝并显示核心默认提示；返回非空字符串则拒绝，并以该字符串作为提示文案。
+- 核心在渲染该标签页的数据（`user.profile_tab_data`）、头部（`user.profile_tab_header`）与尾部（`user.profile_tab_footer`）之前判定一次，拒绝时全部跳过。因此插件无需覆盖他人输出，也不受插件 ID 顺序影响。
+- 标签栏本身不会被移除，仍由 `user.profile_tabs` 决定；被拒绝时主区域显示提示文案。
+
+```php
+function example_profile_tab_allowed($allowed, array $ctx): mixed
+{
+    $tab = (string)($ctx['tab'] ?? '');
+    $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : [];
+    if ($tab !== 'example' || empty($user['id']) || !empty($ctx['self'])) return $allowed;
+    return '因个人隐私设置，不对外开放访问';
+}
+```
 
 ### `entries` 展示位置
 
