@@ -2437,8 +2437,7 @@ textarea {
     min-height: 66px;
     padding: 10px 12px;
     border: 1px solid var(--line-soft);
-    border-radius: var(--radius);
-    background: var(--bg)
+    border-radius: var(--radius)
 }
 
 .profile-account-card>span {
