@@ -8,6 +8,7 @@ app/*
 .vscode
 .codebuddy
 .trae
+.workbuddy*
 /docker/
 /tmp/
 /scripts/
