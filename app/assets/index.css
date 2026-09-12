@@ -1161,7 +1161,7 @@ h3 {
 
 .notify-form,.reply-panel form {
     display: grid;
-    gap: 10px
+    gap: 6px
 }
 
 .notify-quote-card {
