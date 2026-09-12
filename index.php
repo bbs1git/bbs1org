@@ -2681,7 +2681,8 @@ function del(string $table, int $id, bool $with_replies = false): void
             }
             if ($table === 'topics' && $with_replies) {
                 foreach (q("SELECT * FROM app_replies WHERE topic_id=?", [$id])->fetchAll() as $reply) {
-                    fire('content.before_delete', ['table' => 'replies', 'row' => $reply]);
+                    // 随主题级联删除的回帖：只做数据清理，不通知回帖作者、不计积分奖惩
+                    fire('content.before_delete', ['table' => 'replies', 'row' => $reply, 'cascade' => true]);
                     reply_fts_delete((int)$reply['id']);
                     floor_index_record((int)$reply['topic_id'], (int)$reply['id'], (int)$reply['created_at']);
                     q('DELETE FROM app_replies WHERE id=?', [(int)$reply['id']]);
