@@ -19,10 +19,15 @@ public static function plugin_cron_sync(array $plugin): void
     $names = [];
     foreach ((array)($plugin['cron'] ?? []) as $name => $task) {
         $name = (string)$name;
+        try {
+            $interval = self::cron_task_interval($plugin, $task);
+            $callback = (string)($task['callback'] ?? '');
+            $enabled = plugin_enabled($plugin) ? 1 : 0;
+        } catch (Throwable $e) {
+            debug_log_write('[cron] ' . $plugin_id . ':' . $name . ' invalid, skipped', $e);
+            continue;
+        }
         $names[] = $name;
-        $interval = self::cron_task_interval($plugin, $task);
-        $callback = (string)$task['callback'];
-        $enabled = plugin_enabled($plugin) ? 1 : 0;
         app_db_insert_ignore('app_cron_tasks', [
             'plugin_id' => $plugin_id,
             'task_name' => $name,
