@@ -1043,7 +1043,6 @@ h3 {
     display: inline-flex;
     align-items: center;
     flex-shrink: 0;
-    margin: 0 2px;
     padding: 0 4px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
