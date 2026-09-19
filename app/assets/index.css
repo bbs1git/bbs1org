@@ -2271,6 +2271,11 @@ label.grid:has(>input[type=checkbox])>input {
     cursor: pointer
 }
 
+input[type=checkbox]:checked:not([checked]),
+input[type=checkbox][checked]:not(:checked) {
+    border-color: var(--danger);
+}
+
 .form-panel {
     margin: 12px 0
 }
