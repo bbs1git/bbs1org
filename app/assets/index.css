@@ -2262,6 +2262,15 @@ textarea {
     display: block
 }
 
+label.grid:has(>input[type=checkbox]) {
+    pointer-events: none
+}
+
+label.grid:has(>input[type=checkbox])>input {
+    pointer-events: auto;
+    cursor: pointer
+}
+
 .form-panel {
     margin: 12px 0
 }

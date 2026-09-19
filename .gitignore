@@ -13,3 +13,4 @@ app/*
 /tmp/
 /scripts/
 .venv*
+.qoder
