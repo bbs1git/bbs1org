@@ -2,7 +2,7 @@
     --bg: #f4f4f4;
     --panel: #fff;
     --line: #e0e0e0;
-    --line-soft: #f3f3f3;
+    --line-soft: #f0f0f0;
     --text: #000;
     --text-muted: #555;
     --text-subtle: #999;
@@ -727,7 +727,7 @@ h3 {
     gap: 10px;
     min-height: 58px;
     padding: 12px 0;
-    border-bottom: 1px solid var(--bg)
+    border-bottom: 1px solid var(--line-soft)
 }
 
 .post-item:last-child {
