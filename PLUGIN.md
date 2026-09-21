@@ -201,6 +201,8 @@ app_db_upsert('plugin_hello_items', [
 | `top.actions.right.before-search` | 顶部搜索框左侧操作区 | `top.bar.actions` |
 | `top.actions.right.after-search` | 顶部搜索框右侧操作区 | `top.bar.actions` |
 | `page.before_render` | 页面主内容 `<main>` 容器 | `page.before_render` |
+| `page.template` | 整页模板，默认值为完整 HTML | `page.template` |
+| `page.template.before` | 整页模板拼接前，返回字符串可完全接管 HTML 组装 | `page.template.before` |
 | `page.footer` | 页面页脚容器 | `page.footer` |
 | `login.after_form` | 登录面板（登录表单之后可追加内容） | `login.after_form` |
 | `login.form_extra` | 登录表单内部扩展字段 | `login.form_extra` |
@@ -211,6 +213,10 @@ app_db_upsert('plugin_hello_items', [
 | `user.profile_tabs` | 用户资料页标签栏 | `user.profile_tabs` |
 | `topic.index_tabs` | 首页 / 版块主题列表标签栏 | `topic.index_tabs` |
 | `topic.toolbar_actions` | 首页 / 版块主题列表工具栏操作区 | `topic.toolbar_actions` |
+| `topic.index_template` | 首页、版块、用户主题列表的整体模板 | `topic.index_template` |
+| `topic.index_template.before` | 主题列表模板拼接前，返回字符串可完全接管 HTML 组装 | `topic.index_template.before` |
+| `topic.template` | 主题详情页的整体模板 | `topic.template` |
+| `topic.template.before` | 主题详情模板拼接前，返回字符串可完全接管 HTML 组装 | `topic.template.before` |
 | `reply.form_extra` | 回帖表单内部扩展字段 | `reply.form_extra` |
 | `attachment.uploader` | 发帖或回帖表单的附件上传区域 | `attachment.uploader` |
 | `admin.plugin.actions` | 后台每个插件条目的操作区 | `admin.plugin.actions` |
@@ -317,7 +323,7 @@ function hello_collect(array $plugin, array $task): string
 | 表结构 | `app_db_create_table()` `app_db_drop_table()` `app_db_create_index()` `app_db_drop_index()` `app_db_table_exists()` `app_db_columns()` `app_db_ensure_columns()` `app_db_index_exists()` |
 | 身份权限 | `uid()` `me()` `need_login()` `need_admin()` `need_manage()` `can_manage()` `can_manage_topic()` `can_manage_reply()` `can_speak()` `is_super_user()` `forum_group_allowed()` |
 | 积分 | `user_points_change($user_id, $delta, $reason = '系统调整', $notify = false, $context = [])`（自带事务，勿在 `tx()` 内调用） |
-| 页面渲染 | `page()` `shell_html()` `sidebar_stack_html()` `sidebar_user_card_html()` `form_shell()` `paginate()` `page_seo()` `page_head_html()` `page_nav_html()` `page_footer_html()` |
+| 页面渲染 | `page()` `shell_html()` `sidebar_stack_html()` `sidebar_user_card_html()` `form_shell()` `paginate()` `page_seo()` `page_head_html()` `page_nav_html()` `page_footer_html()` `admin_list_head()` |
 | 表单 | `form_token()` `hidden_inputs()` `input()` `textarea()` `checkbox()` `number_input()` `select_input()` `post_action_form()` `render_form_fields()` |
 | 跳转/提示 | `route_url()` `admin_url()` `base_url()` `go()` `set_flash()` `err()` `json_response()` |
 | 工具 | `h()` `cut()` `now()` `human_time()` `app_cookie()` `svg_icon()` `avatar_tag()` `avatar_link_tag()` `avatar_remote_url()` |
@@ -356,6 +362,16 @@ function hello_collect(array $plugin, array $task): string
 | `markdown.render` / `markdown.after` | Markdown 渲染前后 | after 可能逐行调用，禁止查库 |
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
 | `user.before_save` / `user.after_save` | 用户保存前后 | before 可返回过滤数组 |
+
+### 整体模板 Hook
+
+`page.template.before`、`topic.index_template.before` 和 `topic.template.before` 在核心拼接默认 HTML 前执行，初始 `$value` 为 `null`；回调返回字符串即可完全接管 HTML 拼接，返回 `null` 则继续使用核心默认拼接。对应的 `page.template`、`topic.index_template` 和 `topic.template` 在拼接后执行，可继续修改或完全替换最终 HTML。所有模板 Hook 均接收 `($value, array $ctx)`。
+
+- `page.template` 的 `$ctx` 包含 `title`、`body`、`seo`、`settings`、`site_name`、`page_title`、`meta`、`head_extra`、`header_html`、`flash`。
+- `topic.index_template` 的 `$ctx` 包含 `rows`、`total`、`page`、`page_size`、`offset`、`forum`、`user`、`forum_id`、`profile_tab`、`profile_tabs`、`sort`、`query`、`search_field`、`simple_pagination`、`has_next_page` 等列表页数据。
+- `topic.template` 的 `$ctx` 包含 `topic`、`forum`、`replies`、`page`、`page_size`、`offset`、`reply_order`、`replyid`、`floor` 等主题详情数据。
+
+`topic.index_data.load` / `topic.replies_data.load` 可以提供完整数据；核心仍会继续触发对应的 `*.data.loaded` Hook。`*.data.loaded` 回调返回数组时，返回值会作为后续模板的数据；返回 `null` 表示保留原数据。模板 Hook 适合整体换肤或完全自定义布局，局部扩展优先使用已有的细粒度 Hook。
 
 ### 个人主页标签页可见性
 

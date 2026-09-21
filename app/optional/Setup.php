@@ -334,7 +334,6 @@ public static function setup_install_run(): never
     $db->prepare("INSERT INTO app_users(username,password,email,bio,avatar_style,avatar_seed,group_id,last_post_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)")->execute([$admin_username, password_hash($admin_pass, PASSWORD_DEFAULT), $admin_email, '站点管理员', '', '', 1, $welcome_ts, $welcome_ts]);
     forums_cache(true);
     groups_cache(true);
-    home_stats_record_insert('users', 1);
     Plugin::plugin_registry_sync();
     Plugin::plugin_assets_rebuild();
     if (file_put_contents(INSTALL_LOCK_FILE, (string)now(), LOCK_EX) === false) self::i_install_error('安装失败', '安装锁文件写入失败。');
@@ -1543,7 +1542,7 @@ public static function migrate_run(PDO $source, array $source_config): array
 
 public static function migrate_refresh_caches(): void
 {
-    unset($GLOBALS['__settings_cache'], $GLOBALS['__home_stats_cache']);
+    unset($GLOBALS['__settings_cache']);
     forums_cache(true);
     groups_cache(true);
     save_settings_values(['plugin_sync_pending' => '1']);
