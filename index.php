@@ -2679,7 +2679,7 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
             $params[] = $profile_uid;
         }
         $site_stats = hook('site_stats.data', null);
-        $total = $query !== '' ? 0 : (($fid || $profile_uid) ? (int)val("SELECT COUNT(*) FROM app_topics $where", $params) : (int)(is_array($site_stats) ? ($site_stats['topics'] ?? 0) : 0));
+        $total = $query !== '' ? 0 : (($fid || $profile_uid) ? (int)val("SELECT COUNT(*) FROM app_topics $where", $params) : (is_array($site_stats) && array_key_exists('topics', $site_stats) ? (int)$site_stats['topics'] : (int)val('SELECT COUNT(*) FROM app_topics')));
         $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
         $index_hint = db_driver() === 'mysql' && $query === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
         $query_size = $query !== '' ? $size + 1 : $size;
