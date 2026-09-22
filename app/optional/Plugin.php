@@ -19,6 +19,8 @@ const PLUGIN_UPLOAD_MAX = 20971520;
 
 final class Plugin
 {
+private static array $registry_cache = [];
+
 private static function plugin_runtime_cache_rows_valid(array $rows): bool
 {
     $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'], true);
@@ -60,9 +62,15 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
     return $rows;
 }
 
-public static function plugin_registry(?string $id = null): array
+public static function plugin_registry(?string $id = null, bool $refresh = false): array
 {
     if ($id !== null && !plugin_id_valid($id)) return [];
+    if ($refresh) self::$registry_cache = [];
+    $key = $id === null ? '*' : $id;
+    if (isset(self::$registry_cache[$key])) return self::$registry_cache[$key];
+    if ($id !== null && isset(self::$registry_cache['*'])) {
+        return isset(self::$registry_cache['*'][$id]) ? [$id => self::$registry_cache['*'][$id]] : [];
+    }
     $plugins = [];
     $sql = "SELECT id,name,version,file,manifest_json,config_json,entries_json,enabled,disabled_reason,updated_at FROM app_plugins";
     $rows = q($sql . ($id === null ? ' ORDER BY id' : ' WHERE id=?'), $id === null ? [] : [$id])->fetchAll();
@@ -71,7 +79,13 @@ public static function plugin_registry(?string $id = null): array
         $plugin = plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
+    self::$registry_cache[$key] = $plugins;
     return $plugins;
+}
+
+public static function plugin_registry_flush(): void
+{
+    self::$registry_cache = [];
 }
 
 public static function plugin_market_url(string $action): string
@@ -346,6 +360,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
         'plugin_sync_pending' => '1',
     ]);
     self::plugin_assets_mark_dirty();
+    self::plugin_registry_flush();
     if (!$auto_enable) return;
     self::plugin_registry_sync();
     self::plugin_set_enabled($id, true, true);
@@ -594,7 +609,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
     $search = '<label class="admin-search-field plugin-local-search"><input type="search" placeholder="搜索本地插件" aria-label="搜索本地插件" data-plugin-local-search></label>';
     $head_right = '<div class="plugin-head-actions">' . $search . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件', 'plugin-head-button') . '</div>';
-    $html = ($with_tabs ? self::admin_plugins_tabs_html('local') : '') . '<div class="admin-list-panel plugin-list-panel plugin-local-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
+    $html = ($with_tabs ? self::admin_plugins_tabs_html('local', $plugins) : '') . '<div class="admin-list-panel plugin-list-panel plugin-local-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
         $enabled = plugin_enabled($plugin);
@@ -647,7 +662,7 @@ public static function admin_plugin_manage_url(array $plugin): string
     }
     return '';
 }
-public static function admin_plugins_tabs_html(string $active): string
+public static function admin_plugins_tabs_html(string $active, ?array $plugins = null): string
 {
     $items = [
         'local' => ['label' => '本地插件', 'href' => admin_url(['tab' => 'plugins'])],
@@ -659,7 +674,7 @@ public static function admin_plugins_tabs_html(string $active): string
     $entry_html = '';
     if ($active === 'local') {
         $entries = [];
-        foreach (self::plugin_registry() as $plugin) {
+        foreach (($plugins ?? self::plugin_registry()) as $plugin) {
             $url = self::admin_plugin_manage_url($plugin);
             if ($url !== '') $entries[] = '<a href="' . h($url) . '">' . h((string)($plugin['name'] ?? $plugin['id'])) . '</a>';
         }
@@ -741,6 +756,7 @@ public static function plugin_disable_after_exception(string $id, Throwable $e):
         plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
         plugins(true);
+        self::plugin_registry_flush();
         self::plugin_assets_mark_dirty();
     } catch (Throwable $disable_error) {
         debug_log_write('插件 ' . $id . ' 自动停用失败', $disable_error);
@@ -1156,7 +1172,7 @@ public static function plugin_registry_sync(): array
         q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
         q("DELETE FROM app_plugins WHERE id=?", [$id]);
     }
-    $plugins = self::plugin_registry();
+    $plugins = self::plugin_registry(null, true);
     plugins(true);
     foreach ($plugins as $plugin) Cron::plugin_cron_sync($plugin);
     return $plugins;
@@ -1310,6 +1326,7 @@ private static function plugin_upload(array $file): array
     q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='' WHERE id=?", [$id]);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
     save_settings_values(['plugin_sync_pending' => '1', 'plugin_assets_dirty' => '1']);
+    self::plugin_registry_flush();
     return ['id' => $id];
 }
 
@@ -1322,6 +1339,7 @@ public static function plugin_set_entry_enabled(string $id, string $entry, bool 
     $entries[$entry] = $enabled;
     plugin_update_row($id, ['entries_json' => $entries], false);
     plugins(true);
+    self::plugin_registry_flush();
 }
 
 public static function plugin_set_enabled(string $id, bool $enabled, bool $run_install = false): void
@@ -1349,6 +1367,7 @@ public static function plugin_set_enabled(string $id, bool $enabled, bool $run_i
     $runtime_plugins = plugins(true);
     if ($enabled && isset($runtime_plugins[$id])) Cron::plugin_cron_sync($runtime_plugins[$id]);
     self::plugin_assets_mark_dirty();
+    self::plugin_registry_flush();
 }
 
 public static function plugin_uninstall(string $id, bool $keep_data = true): void
@@ -1380,6 +1399,7 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     plugins(true);
     plugin_runtime_cache_reset();
     self::plugin_assets_mark_dirty();
+    self::plugin_registry_flush();
 }
 
 private static function plugin_backup_php_files(string $id, string $dir): void

@@ -390,6 +390,7 @@ function attach_users(array $rows, string $key = 'user_id', string $fallback = '
 }
 function attach_topic_list_users(array $rows): array
 {
+    topic_list_rows_register($rows);
     $user_ids = array_merge(array_column($rows, 'user_id'), array_column($rows, 'last_reply_user_id'));
     $users = rows_by_ids('app_users', $user_ids, 'id,username,avatar_style,avatar_seed,group_id,points,is_banned,is_muted');
     foreach ($rows as &$row) {
@@ -669,6 +670,7 @@ function hook(string $name, mixed $value = null, array $ctx = []): mixed
     $registry = $GLOBALS['__hook_registry'] ?? hook_registry();
     $entries = $registry[$name] ?? null;
     if (!$entries) return $value;
+    if ($name === 'topic.index_data.loaded') topic_list_rows_mark($value);
     foreach ($entries as $entry) {
         $plugin = $entry['plugin'];
         $fn = $entry['fn'];
@@ -1897,6 +1899,7 @@ function topic_list_rows_for_replies(array $reply_rows): array
 }
 function topic_list_row(array $t, string $sort): string
 {
+    topic_list_preload_flush();
     $filtered = hook('topic.before_render', ['row' => $t], ['list' => true, 'sort' => $sort]);
     if (is_array($filtered) && isset($filtered['row']) && is_array($filtered['row'])) $t = $filtered['row'];
     $time = (int)($t['time'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
@@ -1927,6 +1930,53 @@ function topic_list_row(array $t, string $sort): string
     $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
     $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row" data-slot="topic.title_suffix">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
     return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
+}
+function topic_list_rows_register(array $rows): void
+{
+    if (!$rows) return;
+    $batch = (int)($GLOBALS['__topic_list_batch'] ?? 0);
+    if (!isset($GLOBALS['__topic_list_rows'])) $GLOBALS['__topic_list_rows'] = [];
+    foreach ($rows as $row) {
+        $id = is_array($row) ? (int)($row['id'] ?? 0) : 0;
+        if ($id > 0 && !isset($GLOBALS['__topic_list_rows'][$id])) $GLOBALS['__topic_list_rows'][$id] = [$batch, $row];
+    }
+}
+function topic_list_rows_mark(mixed $value): void
+{
+    if (!is_array($value) || empty($value['rows']) || !is_array($value['rows'])) return;
+    $GLOBALS['__topic_list_batch'] = (int)($GLOBALS['__topic_list_batch'] ?? 0) + 1;
+    foreach ($value['rows'] as $row) {
+        $id = is_array($row) ? (int)($row['id'] ?? 0) : 0;
+        if ($id > 0) $GLOBALS['__topic_list_preloaded_ids'][$id] = 1;
+    }
+}
+function topic_list_preload_flush(): void
+{
+    $pending = $GLOBALS['__topic_list_rows'] ?? null;
+    if (!$pending) return;
+    $GLOBALS['__topic_list_rows'] = [];
+    if (!empty($GLOBALS['__topic_list_flushing'])) return;
+    $batch = (int)($GLOBALS['__topic_list_batch'] ?? 0);
+    $done = $GLOBALS['__topic_list_preloaded_ids'] ?? [];
+    $fresh = [];
+    foreach ($pending as $id => $entry) {
+        if ((int)$entry[0] < $batch) continue;
+        if (isset($done[$id])) continue;
+        $fresh[] = $entry[1];
+    }
+    if (!$fresh) return;
+    $GLOBALS['__topic_list_flushing'] = 1;
+    try {
+        topic_list_preload($fresh);
+    } finally {
+        $GLOBALS['__topic_list_flushing'] = 0;
+    }
+}
+function topic_list_preload(array $rows): array
+{
+    if (!$rows) return $rows;
+    $loaded = hook('topic.index_data.loaded', ['rows' => $rows], ['list' => true, 'preload_only' => true]);
+    return is_array($loaded) && is_array($loaded['rows'] ?? null) ? $loaded['rows'] : $rows;
 }
 function topic_stats_html(int $view_count, int $reply_count): string
 {
