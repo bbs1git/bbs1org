@@ -306,7 +306,6 @@ function hello_collect(array $plugin, array $task): string
 
 - 建表类型：`app_db_types()` → `$t['id']` / `['uint']` / `['key']` / `['string']` / `['text']`；
 - 标识符引用 `app_db_identifier()`、占位符 `sql_marks()`、upsert `app_db_upsert()`、取刚插入的主键 `app_db_last_insert_id()`（PG 下走 `pg_get_serial_sequence`，不能用 `lastInsertId()`）、`MAX`/`GREATEST` 用 `app_db_greatest()`。
-```
 
 ## 交付检查
 
