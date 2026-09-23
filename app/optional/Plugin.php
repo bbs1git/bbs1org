@@ -455,7 +455,7 @@ public static function plugin_market_search_form(string $query, string $market_v
     $hidden = hidden_inputs(['a' => 'admin', 'tab' => 'plugins', 'view' => 'market', 'market_view' => $market_view === 'beta' ? 'beta' : '']);
     $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $market_view === 'beta' ? 'beta' : null]);
     $clear = $query !== '' ? '<a class="admin-search-clear" href="' . h($url) . '">清空</a>' : '';
-    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $hidden . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者" minlength="' . search_min_chars() . '"><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
+    return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $hidden . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者"' . length_attributes('q') . '><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
 }
 
 public static function plugin_market_matches(array $item, string $query): bool
@@ -705,7 +705,7 @@ public static function admin_plugins_cron_logs_page_html(): string
         $message = trim((string)$row['message']);
         $plugin_id = (string)$row['plugin_id'];
         $plugin_name = $names[$plugin_id] ?? $plugin_id;
-        $html .= '<li class="admin-list-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h($plugin_name) . '</strong><span class="admin-flag' . $class . '">' . h($labels[$status] ?? $status) . '</span></div><div class="admin-row-meta"><span class="plugin-id">' . h($plugin_id) . ' / ' . h((string)$row['task_name']) . '</span><span>' . date('Y-m-d H:i:s', $started_at) . '</span><span>' . h($duration) . '</span>' . ($message !== '' ? '<span title="' . h($message) . '">' . h(cut($message, 160)) . '</span>' : '') . '</div></div></li>';
+        $html .= '<li class="admin-list-item"><div class="admin-row-main"><div class="plugin-title-line"><strong class="admin-content-title">' . h($plugin_name) . '</strong><span class="admin-flag' . $class . '">' . h($labels[$status] ?? $status) . '</span></div><div class="admin-row-meta"><span class="plugin-id">' . h($plugin_id) . ' / ' . h((string)$row['task_name']) . '</span><span>' . date('Y-m-d H:i:s', $started_at) . '</span><span>' . h($duration) . '</span>' . ($message !== '' ? '<span title="' . h($message) . '">' . h($message) . '</span>' : '') . '</div></div></li>';
     }
     if (!$rows) $html .= '<li class="empty-state">暂无计划任务运行记录</li>';
     $html .= '</ul></div>';
@@ -751,7 +751,7 @@ public static function plugin_disable_after_exception(string $id, Throwable $e):
     $file = str_replace('\\', '/', $e->getFile());
     $root = rtrim(str_replace('\\', '/', APP_ROOT), '/') . '/';
     if (str_starts_with($file, $root)) $file = substr($file, strlen($root));
-    $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . cut($message, 500) : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
+    $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . $message : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
     try {
         plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
@@ -1098,7 +1098,7 @@ public static function plugin_registry_sync(): array
             'entries_json' => (string)($old['entries_json'] ?? '{}'),
             'enabled' => 0,
             'status' => 'error',
-            'disabled_reason' => cut($reason, 500),
+            'disabled_reason' => $reason,
             'installed_at' => (int)($old['installed_at'] ?? 0) ?: now(),
             'updated_at' => (string)($old['code_hash'] ?? '') === $code_hash ? ((int)($old['updated_at'] ?? 0) ?: now()) : now(),
         ], ['id']);

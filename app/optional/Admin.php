@@ -28,22 +28,36 @@ final class Admin
 
     public static function save_settings(): void
     {
-        $site_name = post('site_name', 80);
+        $site_name = post('site_name', DB_STRING_MAX_LENGTH);
         if ($site_name === '') err('网站名不能为空');
         $gid = max(1, (int)($_POST['default_group_id'] ?? 2));
         if (!group_by_id($gid)) err('默认用户组不存在');
         $values = ['site_name' => $site_name, 'site_base_url' => clean_site_base_url((string)($_POST['site_base_url'] ?? '')), 'pinned_topic_ids' => preg_replace('/[^\d,]/', '', (string)($_POST['pinned_topic_ids'] ?? '')) ?: '', 'default_group_id' => (string)$gid];
-        foreach (['site_name_title' => 80, 'site_keywords' => 200, 'site_description' => 500] as $key => $max) $values[$key] = post($key, $max);
+        foreach (['site_name_title', 'site_keywords'] as $key) $values[$key] = post($key, DB_STRING_MAX_LENGTH);
+        $values['site_description'] = post('site_description', DB_TEXT_MAX_LENGTH);
         foreach (['site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
-        foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'max_pagination_pages' => [1, 1000, 50], 'search_min_chars' => [1, 20, 2], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
+        foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'max_pagination_pages' => [1, 1000, 50], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
+        $length_fields = [
+            'username' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH], 'email' => [0, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'bio' => [0, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH], 'search' => [2, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'title' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH], 'topic_body' => [1, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
+            'reply_body' => [1, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
+        ];
+        foreach ($length_fields as $key => [$default_min, $default_max, $hard_max]) {
+            $min = min($hard_max, max(0, (int)($_POST[$key . '_min_length'] ?? $default_min)));
+            $max = min($hard_max, max($min, (int)($_POST[$key . '_max_length'] ?? $default_max)));
+            $values[$key . '_min_length'] = (string)$min;
+            $values[$key . '_max_length'] = (string)$max;
+        }
+        $values['excerpt_length'] = (string)min(DB_TEXT_MAX_LENGTH, max(0, (int)($_POST['excerpt_length'] ?? 200)));
         save_settings_values($values);
     }
 
     public static function save_forum(): void
     {
-        $name = post('name', 80);
+        $name = post('name', DB_STRING_MAX_LENGTH);
         if ($name === '') err('版块名不能为空');
-        $description = post('description', 300);
+        $description = post('description', DB_TEXT_MAX_LENGTH);
         $sort = (int)$_POST['sort'];
         $permissions = [];
         foreach (['allow_view_groups', 'allow_post_groups', 'allow_reply_groups'] as $field) $permissions[$field] = implode(',', array_values(array_unique(array_filter(array_map('intval', (array)($_POST[$field] ?? []))))));
@@ -65,7 +79,7 @@ final class Admin
 
     public static function save_group(): void
     {
-        $name = post('name', 60);
+        $name = post('name', DB_STRING_MAX_LENGTH);
         if ($name === '') err('组名不能为空');
         $allow_manage = isset($_POST['allow_manage']) ? 1 : 0;
         $allow_admin = isset($_POST['allow_admin']) ? 1 : 0;
@@ -126,7 +140,15 @@ final class Admin
             'site_keywords' => ['label' => '关键字'], 'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
             'pinned_topic_ids' => ['label' => '置顶主题ID'], 'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
             'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200], 'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
-            'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'], 'search_min_chars' => ['label' => '搜索最小字符数', 'type' => 'number', 'min' => 1, 'max' => 20, 'help' => '默认2；未启用全文搜索插件时使用基础 LIKE 搜索。'],
+            'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'],
+            'username_min_length' => ['label' => '用户名最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'username_max_length' => ['label' => '用户名最大长度', 'type' => 'number', 'min' => 1, 'max' => DB_STRING_MAX_LENGTH],
+            'email_min_length' => ['label' => '邮箱最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'email_max_length' => ['label' => '邮箱最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'bio_min_length' => ['label' => '个人简介最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'bio_max_length' => ['label' => '个人简介最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'search_min_length' => ['label' => '搜索关键词最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'search_max_length' => ['label' => '搜索关键词最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'title_min_length' => ['label' => '标题最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'title_max_length' => ['label' => '标题最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'topic_body_min_length' => ['label' => '主题内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'topic_body_max_length' => ['label' => '主题内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'reply_body_min_length' => ['label' => '回帖内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'reply_body_max_length' => ['label' => '回帖内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'excerpt_length' => ['label' => '摘要长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
             'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'], 'site_closed' => ['label' => '是否关闭站点进行维护', 'type' => 'checkbox'], 'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
             'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'], 'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'], 'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')], 'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
         ];
@@ -135,7 +157,7 @@ final class Admin
         $update_state = is_file(UPDATE_STATE_FILE) ? json_decode((string)file_get_contents(UPDATE_STATE_FILE), true) : [];
         $update_sha = is_array($update_state) ? (string)($update_state['sha'] ?? '') : '';
         $update_time = is_array($update_state) ? (string)($update_state['updated_at'] ?? '') : '';
-        $update_meta = $update_sha !== '' ? '当前版本 ' . substr($update_sha, 0, 12) . ($update_time !== '' ? ' / ' . $update_time : '') : '尚无在线升级记录';
+        $update_meta = $update_sha !== '' ? '当前版本 ' . $update_sha . ($update_time !== '' ? ' / ' . $update_time : '') : '尚无在线升级记录';
         $update_action = is_file(APP_DIR . '/optional/Setup.php') ? '<a class="settings-tool-action" href="' . h(route_url('update')) . '">升级</a>' : '<button class="settings-tool-action" type="button" disabled>升级</button>';
         $update_dot = preg_match('/^[a-f0-9]{64}$/', $notice_sha) === 1 ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
         $tools .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';

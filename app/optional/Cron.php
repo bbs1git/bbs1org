@@ -145,7 +145,7 @@ public static function cron_task_finish(array $task, string $status, string $err
         $status,
         $failure_count,
         $pause_until,
-        $status === 'failed' ? cut($error, 500) : '',
+        $status === 'failed' ? $error : '',
         (string)$task['plugin_id'],
         (string)$task['task_name'],
         (string)$task['lease_token'],
@@ -198,7 +198,7 @@ public static function cron_run(): array
                 }
                 $result[$status === 'success' ? 'success' : 'failed']++;
                 $result['tasks'][$key] = $status;
-                try { self::cron_log_finish($log_id, $status, $status === 'failed' ? cut($error, 500) : $message, $finished_at); }
+                try { self::cron_log_finish($log_id, $status, $status === 'failed' ? $error : $message, $finished_at); }
                 catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
                 unset($GLOBALS['__cron_active_lease']);
             }

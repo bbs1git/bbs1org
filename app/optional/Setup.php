@@ -487,7 +487,7 @@ public static function us_remote_release(): array
     if (!$files) throw new RuntimeException('升级源返回的文件清单为空。');
     return [
         'sha' => $sha,
-        'short_sha' => substr($sha, 0, 12),
+        'short_sha' => $sha,
         'date' => (string)($json['date'] ?? ''),
         'message' => trim(strtok((string)($json['message'] ?? ''), "\r\n")),
         'files' => $files,
@@ -545,9 +545,9 @@ public static function deliver_update_notice(): void
     $notice = is_array($state['update_notice'] ?? null) ? $state['update_notice'] : [];
     $sha = (string)($notice['sha'] ?? '');
     if (!preg_match('/^[a-f0-9]{64}$/', $sha)) return;
-    $short_sha = substr($sha, 0, 12);
+    $short_sha = $sha;
     $message = trim((string)($notice['message'] ?? ''));
-    $content = '检测到系统新版本 ' . $short_sha . '。' . ($message !== '' ? "\n\n" . cut($message, 120) : '') . "\n\n请前往后台设置中的“系统升级”完成升级。";
+    $content = '检测到系统新版本 ' . $short_sha . '。' . ($message !== '' ? "\n\n" . $message : '') . "\n\n请前往后台设置中的“系统升级”完成升级。";
     if (!one("SELECT 1 FROM app_notifications WHERE recipient_id=? AND kind='system_update' AND content=? LIMIT 1", [uid(), $content])) {
         create_notification(uid(), 0, 'system_update', $content);
     }
@@ -596,7 +596,7 @@ public static function us_update_page(?array $release = null, string $error = ''
 {
     $token = csrf_token();
     $state = self::update_state_data();
-    $local = isset($state['sha']) ? substr((string)$state['sha'], 0, 12) : '未记录';
+    $local = isset($state['sha']) ? (string)$state['sha'] : '未记录';
     $local_time = ($timestamp = strtotime((string)($state['updated_at'] ?? ''))) !== false ? date('Y-m-d H:i', $timestamp) : '';
     $body = '<h1 class="update-title">系统升级 <span class="update-file-version">' . h(APP_VERSION) . '</span></h1><p class="update-sub">从官方只读源码下载入口检测并安装 ' . h(UPDATE_REPOSITORY) . ' 主分支代码，也可单独同步当前代码对应的数据库结构。</p>';
     if ($error !== '') $body .= '<div class="update-error">' . h($error) . '</div>';

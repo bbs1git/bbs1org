@@ -27,6 +27,8 @@ define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('DEBUG_LOG_DEDUP_SECONDS', 600);
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
 define('PASSWORD_MIN_LENGTH', 4);
+define('DB_STRING_MAX_LENGTH', 255);
+define('DB_TEXT_MAX_LENGTH', 4294967295);
 define('COOKIE_TTL', 15552000);
 define('AUTH_COOKIE_NAME', 'bbs_auth');
 define('AUTH_COOKIE_TTL', COOKIE_TTL);
@@ -415,7 +417,14 @@ function default_settings(): array
         'topics_per_page' => '30',
         'replies_per_page' => '50',
         'max_pagination_pages' => '50',
-        'search_min_chars' => '2',
+        'username_min_length' => '2', 'username_max_length' => '20',
+        'email_min_length' => '7', 'email_max_length' => '150',
+        'bio_min_length' => '0', 'bio_max_length' => '10000',
+        'search_min_length' => '2', 'search_max_length' => '80',
+        'title_min_length' => '1', 'title_max_length' => (string)DB_STRING_MAX_LENGTH,
+        'topic_body_min_length' => '1', 'topic_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
+        'reply_body_min_length' => '1', 'reply_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
+        'excerpt_length' => '200',
         'post_interval_seconds' => '5',
     ];
 }
@@ -427,6 +436,19 @@ function setting(string $key, string $default = ''): string
 {
     $settings = settings_cache();
     return (string)($settings[$key] ?? $default);
+}
+function length_limit(string $type, string $bound): int
+{
+    $hard_max = in_array($type, ['username', 'email', 'search', 'title'], true) ? DB_STRING_MAX_LENGTH : DB_TEXT_MAX_LENGTH;
+    $key = $bound === 'value' ? $type . '_length' : $type . '_' . $bound . '_length';
+    $value = min($hard_max, max(0, (int)setting($key, '0')));
+    if ($bound === 'max') $value = max($value, min($hard_max, max(0, (int)setting($type . '_min_length', '0'))));
+    return $value;
+}
+function excerpt_length(): int { return length_limit('excerpt', 'value'); }
+function require_length(string $value, int $minimum, string $label): void
+{
+    if ($minimum > 0 && preg_match_all('/./us', $value) < $minimum) err($label . '至少' . $minimum . '个字符');
 }
 function save_settings_values(array $values): void
 {
@@ -590,7 +612,7 @@ function plugin_asset_tag(string $type): string
 {
     $manifest = plugin_assets_manifest();
     if (!in_array($type, ['css', 'js'], true) || (int)($manifest[$type . '_size'] ?? 0) < 1) return '';
-    $version = substr((string)($manifest[$type] ?? ''), 0, 12);
+    $version = (string)($manifest[$type] ?? '');
     $file = 'app/assets/plugins.' . $type;
     if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
     return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
@@ -817,10 +839,10 @@ function notification_badge_html(int $count): string
 {
     return $count > 0 ? '<span class="notify-badge">' . (int)$count . '</span>' : '';
 }
-function content_excerpt(string $body, int $max = 120): string
+function content_excerpt(string $body, ?int $max = null): string
 {
     $body = trim(preg_replace('/\s+/u', ' ', $body) ?? '');
-    return cut($body, $max);
+    return cut($body, $max ?? excerpt_length());
 }
 function content_preview_source_text(string $body): string
 {
@@ -837,7 +859,7 @@ function content_preview_source_text(string $body): string
     }
     return implode("\n", $lines);
 }
-function notification_excerpt(string $body, int $max = 120): string
+function notification_excerpt(string $body, ?int $max = null): string
 {
     $body = preg_replace('/^\s*>.*(?:\n|$)/mu', '', $body) ?? $body;
     return content_excerpt($body, $max);
@@ -1002,7 +1024,7 @@ function notification_row_html(array $n): string
     }
     $kind = (string)($n['kind'] ?? '') === 'mention' ? '提及' : '通知';
     $unread = (int)($n['read_at'] ?? 0) === 0;
-    $quote = notification_excerpt($body, 100);
+    $quote = notification_excerpt($body);
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
     $sender_title = $sender_id > 0 ? '<a class="post-title" href="' . h(route_url('user', ['id' => $sender_id])) . '">' . h($sender_name) . '</a>' : '<span class="post-title">' . h($sender_name) . '</span>';
     return '<li class="post-item notification-item' . ($unread ? ' unread' : '') . '"><div class="post-avatar">' . avatar_link_tag($sender_id ?: 0, $sender_name, (string)($n['sender_avatar_style'] ?? ''), '', (string)($n['sender_avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row notification-head">' . $sender_title . '<span class="post-user-group notification-kind">' . h($kind) . '</span>' . ($unread ? '<span class="notification-unread">未读</span>' : '') . '</div><div class="post-meta"><span>' . human_time((int)$n['created_at']) . '</span></div><div class="post-content notification-content">' . $content_html . '</div></div>' . $action . '</li>';
@@ -1817,7 +1839,7 @@ function topic_list_select_columns(): string
 }
 function search_min_chars(): int
 {
-    return min(20, max(1, (int)setting('search_min_chars', '2')));
+    return length_limit('search', 'min');
 }
 function search_char_count(string $query): int
 {
@@ -1892,7 +1914,7 @@ function topic_list_rows_for_replies(array $reply_rows): array
         $rows[] = $topic + [
             'my_reply_at' => (int)$reply['created_at'],
             'my_reply_id' => (int)$reply['id'],
-            'my_reply_excerpt' => content_excerpt(content_preview_source_text((string)$reply['body']), 180),
+            'my_reply_excerpt' => content_excerpt(content_preview_source_text((string)$reply['body'])),
         ];
     }
     return attach_topic_list_users($rows);
@@ -2073,13 +2095,25 @@ function form_field_caption(string $label, string $help = ''): string
 {
     return '<span>' . h($label) . ($help !== '' ? '<small>' . h($help) . '</small>' : '') . '</span>';
 }
+function length_attributes(string $name): string
+{
+    $limits = match ($name) {
+        'username' => [length_limit('username', 'min'), length_limit('username', 'max')], 'email' => [length_limit('email', 'min'), length_limit('email', 'max')],
+        'bio' => [length_limit('bio', 'min'), length_limit('bio', 'max')], 'q' => [length_limit('search', 'min'), length_limit('search', 'max')],
+        'title' => [length_limit('title', 'min'), length_limit('title', 'max')], 'content' => [0, DB_TEXT_MAX_LENGTH],
+        'body' => [min(length_limit('topic_body', 'min'), length_limit('reply_body', 'min')), max(length_limit('topic_body', 'max'), length_limit('reply_body', 'max'))],
+        default => [null, null],
+    };
+    [$min, $max] = $limits;
+    return ($min !== null && $min > 0 ? ' minlength="' . $min . '"' : '') . ($max !== null ? ' maxlength="' . $max . '"' : '');
+}
 function input(string $label, string $name, mixed $value = '', string $type = 'text', bool $required = false, string $help = '', string $class = ''): string
 {
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . ($required ? ' required' : '') . '></label>';
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="' . h($type) . '" value="' . h($value) . '"' . length_attributes($name) . ($required ? ' required' : '') . '></label>';
 }
 function textarea(string $label, string $name, mixed $value = '', bool $required = false, string $help = '', string $class = ''): string
 {
-    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<textarea name="' . h($name) . '"' . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
+    return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<textarea name="' . h($name) . '"' . length_attributes($name) . ($required ? ' required' : '') . '>' . h($value) . '</textarea></label>';
 }
 function checkbox(string $label, string $name, bool $checked = false, string $help = '', string $class = ''): string
 {
@@ -2164,11 +2198,11 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
     if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP操作次数已达上限');
     $is_registration = !$admin && !$user_id;
-    $username = post('username', 40);
-    $email = post('email', 120);
-    $bio = post('bio', 1000);
-    $avatar_style = avatar_style(post('avatar_style', 40));
-    $avatar_seed = post('avatar_seed', 80);
+    $username = post('username', length_limit('username', 'max'));
+    $email = post('email', length_limit('email', 'max'));
+    $bio = post('bio', length_limit('bio', 'max'));
+    $avatar_style = avatar_style(post('avatar_style', DB_STRING_MAX_LENGTH));
+    $avatar_seed = post('avatar_seed', DB_STRING_MAX_LENGTH);
     if ($avatar_seed !== '') $avatar_seed = avatar_seed($avatar_style ?: 'dylan', $avatar_seed);
     $old_user = $user_id ? row('app_users', 'id', $user_id) : null;
     if ($user_id && !$old_user) err('用户不存在');
@@ -2177,6 +2211,9 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $email = (string)$old_user['email'];
     }
     if ($username === '') err('用户名不能为空');
+    require_length($username, length_limit('username', 'min'), '用户名');
+    require_length($email, length_limit('email', 'min'), '邮箱地址');
+    require_length($bio, length_limit('bio', 'min'), '个人简介');
     if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && hook('user.username_reserved', false, ['username' => $username]) === true) err('用户名已保留');
     $gid = $admin ? max(1, (int)$_POST['group_id']) : ($old_user ? (int)$old_user['group_id'] : (int)setting('default_group_id', '2'));
     if (!group_by_id($gid)) err('用户组不存在');
@@ -2199,11 +2236,11 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         'is_muted' => $is_muted,
     ], ['id' => $user_id, 'admin' => $admin, 'creating' => !$user_id]);
     if (is_array($filtered)) {
-        $username = cut((string)($filtered['username'] ?? $username), 40);
-        $email = cut((string)($filtered['email'] ?? $email), 120);
-        $bio = cut((string)($filtered['bio'] ?? $bio), 1000);
-        $avatar_style = avatar_style(cut((string)($filtered['avatar_style'] ?? $avatar_style), 40));
-        $avatar_seed = cut((string)($filtered['avatar_seed'] ?? $avatar_seed), 80);
+        $username = cut((string)($filtered['username'] ?? $username), length_limit('username', 'max'));
+        $email = cut((string)($filtered['email'] ?? $email), length_limit('email', 'max'));
+        $bio = cut((string)($filtered['bio'] ?? $bio), length_limit('bio', 'max'));
+        $avatar_style = avatar_style(cut((string)($filtered['avatar_style'] ?? $avatar_style), DB_STRING_MAX_LENGTH));
+        $avatar_seed = cut((string)($filtered['avatar_seed'] ?? $avatar_seed), DB_STRING_MAX_LENGTH);
         $gid = max(1, (int)($filtered['group_id'] ?? $gid));
         if (!group_by_id($gid)) err('用户组不存在');
         $points = (int)($filtered['points'] ?? $points);
@@ -2215,7 +2252,8 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $email = (string)$old_user['email'];
     }
     if (!$old_user || (string)$old_user['username'] !== $username) require_valid_username($username);
-    if ($is_registration && preg_match_all('/./us', $username) > 20) err('用户名不能超过20个汉字或英文');
+    if ($is_registration && preg_match_all('/./us', $username) < length_limit('username', 'min')) err('用户名长度不能少于' . length_limit('username', 'min') . '个字符');
+    if ($is_registration && preg_match_all('/./us', $username) > length_limit('username', 'max')) err('用户名不能超过' . length_limit('username', 'max') . '个字符');
     $exists = $user_id ? one("SELECT id FROM app_users WHERE username=? AND id<>?", [$username, $user_id]) : one("SELECT id FROM app_users WHERE username=?", [$username]);
     if ($exists) err('用户名已存在');
     if ($user_id) {
@@ -2244,8 +2282,8 @@ function user_notify_page(): void
     $target = row('app_users', 'id', id()) ?: err('用户不存在');
     if ((int)$target['id'] === uid()) err('不能通知自己');
     if (is_post_request()) {
-        $quote = notification_excerpt((string)($_POST['quote'] ?? ''), 100);
-        $body = post('content', 10000);
+        $quote = notification_excerpt((string)($_POST['quote'] ?? ''));
+        $body = post('content', length_limit('reply_body', 'max'));
         $content = trim(($quote !== '' ? '> ' . $quote . "\n\n" : '') . $body);
         if ($content === '') err('通知内容不能为空');
         create_notification((int)$target['id'], uid(), 'direct', $content);
@@ -2253,9 +2291,10 @@ function user_notify_page(): void
         go(route_url('user', ['id' => (int)$target['id'], 'tab' => 'notifications']));
     }
     $target['group_name'] = (group_by_id((int)$target['group_id']) ?: ['name' => '用户'])['name'];
-    $quote = notification_excerpt((string)($_GET['quote'] ?? ''), 100);
+    $quote = notification_excerpt((string)($_GET['quote'] ?? ''));
     $quote_html = $quote !== '' ? '<blockquote class="notify-quote-card"><p>' . h($quote) . '</p></blockquote><input type="hidden" name="quote" value="' . h($quote) . '">' : '';
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" maxlength="10000" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $notify_max_length = length_limit('reply_body', 'max');
+    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" maxlength="' . $notify_max_length . '" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -2274,10 +2313,10 @@ function absolute_url(string $url): string
     if (preg_match('/^https?:\/\//i', $url)) return $url;
     return rtrim(base_url(), '/') . '/' . ltrim($url, '/');
 }
-function seo_text(string $text, int $max = 160): string
+function seo_text(string $text, ?int $max = null): string
 {
     $text = html_entity_decode(strip_tags(markdown_html($text)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    return cut(trim(preg_replace('/\s+/u', ' ', $text) ?? ''), $max);
+    return cut(trim(preg_replace('/\s+/u', ' ', $text) ?? ''), $max ?? excerpt_length());
 }
 function page_seo(string $route, array $params = [], string $description = ''): array
 {
@@ -2319,12 +2358,12 @@ function save_topic(): int
     $fid = max(0, (int)$_POST['forum_id']);
     if ($fid <= 0) $fid = default_post_forum_id();
     $forum = forum_by_id($fid) ?: err('版块不存在');
-    $title = post('title', 120);
-    $body = post('body', 20000);
+    $title = post('title', length_limit('title', 'max'));
+    $body = post('body', length_limit('topic_body', 'max'));
     $filtered = hook('topic.before_save', ['title' => $title, 'body' => $body, 'forum_id' => $fid], ['id' => $topic_id, 'action' => $action]);
     if (is_array($filtered)) {
-        $title = cut((string)($filtered['title'] ?? $title), 120);
-        $body = cut((string)($filtered['body'] ?? $body), 20000);
+        $title = cut((string)($filtered['title'] ?? $title), length_limit('title', 'max'));
+        $body = cut((string)($filtered['body'] ?? $body), length_limit('topic_body', 'max'));
         $next_fid = max(1, (int)($filtered['forum_id'] ?? $fid));
         if ($next_fid !== $fid) {
             $fid = $next_fid;
@@ -2368,6 +2407,8 @@ function save_topic(): int
         if ($action === '') {
             if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
             if ($title === '' || $body === '') err('标题和内容不能为空');
+            require_length($title, length_limit('title', 'min'), '标题');
+            require_length($body, length_limit('topic_body', 'min'), '主题内容');
         } else {
             $title = (string)($t['title'] ?? '');
             $body = (string)($t['body'] ?? '');
@@ -2382,11 +2423,15 @@ function save_topic(): int
     }
     if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
     if ($title === '' || $body === '') err('标题和内容不能为空');
-    $author = content_create_author('topic.create_author', ['title' => $title, 'body' => $body], ['forum_id' => $fid], ['title' => 120, 'body' => 20000]);
+    require_length($title, length_limit('title', 'min'), '标题');
+    require_length($body, length_limit('topic_body', 'min'), '主题内容');
+    $author = content_create_author('topic.create_author', ['title' => $title, 'body' => $body], ['forum_id' => $fid], ['title' => length_limit('title', 'max'), 'body' => length_limit('topic_body', 'max')]);
     $author_id = (int)$author['user_id'];
     $title = $author['title'];
     $body = $author['body'];
     if ($title === '' || $body === '') err('标题和内容不能为空');
+    require_length($title, length_limit('title', 'min'), '标题');
+    require_length($body, length_limit('topic_body', 'min'), '主题内容');
     $ts = now();
     $tid = tx(function () use ($fid, $author_id, $title, $body, $ts) {
         q("INSERT INTO app_topics(forum_id,user_id,title,body,created_at,last_reply_at) VALUES(?,?,?,?,?,?)", [$fid, $author_id, $title, $body, $ts, $ts]);
@@ -2416,10 +2461,11 @@ function save_reply(): array
     $topic = row('app_topics', 'id', $tid) ?: err('主题不存在');
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
     if (!forum_group_allowed($forum, 'allow_reply_groups')) err('无权限');
-    $body = post('body', 10000);
+    $body = post('body', length_limit('reply_body', 'max'));
     $filtered = hook('reply.before_save', ['body' => $body, 'topic_id' => $tid], ['id' => $reply_id]);
-    if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), 10000);
+    if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), length_limit('reply_body', 'max'));
     if ($body === '') err('回复不能为空');
+    require_length($body, length_limit('reply_body', 'min'), '回帖内容');
     if ($reply_id) {
         tx(function () use ($body, $tid, $reply_id) {
             q("UPDATE app_replies SET body=?,updated_at=? WHERE id=? AND topic_id=?", [$body, now(), $reply_id, $tid]);
@@ -2428,7 +2474,8 @@ function save_reply(): array
         fire('reply.after_save', ['id' => (int)$r['id'], 'topic_id' => (int)$r['topic_id'], 'body' => $body, 'editing' => true]);
         return ['topic_id' => (int)$r['topic_id'], 'reply_id' => (int)$r['id']];
     }
-    $author = content_create_author('reply.create_author', ['body' => $body], ['topic_id' => $tid], ['body' => 10000]);
+    require_length($body, length_limit('reply_body', 'min'), '回帖内容');
+    $author = content_create_author('reply.create_author', ['body' => $body], ['topic_id' => $tid], ['body' => length_limit('reply_body', 'max')]);
     $author_id = (int)$author['user_id'];
     $body = $author['body'];
     if ($body === '') err('回复不能为空');
@@ -2579,7 +2626,7 @@ function login_page(): void
         $ip = ip_addr();
         if (hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'login_fail']) === false) err('同一IP操作次数已达上限');
         hook('login.before_submit', true, []);
-        $u = one("SELECT id,password FROM app_users WHERE username=?", [post('username', 40)]);
+        $u = one("SELECT id,password FROM app_users WHERE username=?", [post('username', DB_STRING_MAX_LENGTH)]);
         if ($u && password_verify((string)$_POST['password'], $u['password'])) {
             $auth = hook('auth.password_verified', ['continue' => true, 'user_id' => (int)$u['id']], ['user' => $u]);
             if (!is_array($auth) || !empty($auth['continue'])) complete_login((int)$u['id']);
@@ -2611,7 +2658,7 @@ function register_page(): void
         sidebar_notice_card_html('注册注意事项', ['邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
-    $username = '<label class="grid"><span>用户名<small>不超过20个汉字或英文，不能包含空白字符</small></span><input name="username" type="text" maxlength="20" pattern="\\S+" title="用户名不能包含空白字符" required></label>';
+    $username = '<label class="grid"><span>用户名<small>长度由后台设置控制，不能包含空白字符</small></span><input name="username" type="text"' . length_attributes('username') . ' pattern="\\S+" title="用户名不能包含空白字符" required></label>';
     page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post" data-slot="register.form_extra">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
@@ -2650,7 +2697,7 @@ function profile_page(): void
 }
 function user_page(): void
 {
-    $username = is_string($_GET['username'] ?? null) ? cut(trim((string)$_GET['username']), 40) : '';
+    $username = is_string($_GET['username'] ?? null) ? cut(trim((string)$_GET['username']), DB_STRING_MAX_LENGTH) : '';
     if ($username === '' && uid() && id() === uid()) $user = me();
     else {
         $user = $username !== ''

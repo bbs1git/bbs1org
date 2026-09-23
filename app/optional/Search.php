@@ -25,14 +25,14 @@ final class Search
     {
         if (!uid()) err('请登录后操作');
         $submitted = is_post_request();
-        $query = $submitted ? post('q', 120) : '';
+        $query = $submitted ? post('q', length_limit('search', 'max')) : '';
         $field = topic_search_field($submitted ? (string)($_POST['field'] ?? 'title') : 'title');
         $page = $submitted ? min(max_pagination_pages(), max(1, (int)($_POST['p'] ?? 1))) : 1;
         if ($query !== '') require_search_min_chars($query);
         $options = ['title' => '标题', 'body' => '内容', 'reply' => '回帖'];
         $radios = '';
         foreach ($options as $value => $label) $radios .= '<label class="search-page-radio"><input type="radio" name="field" value="' . $value . '"' . ($field === $value ? ' checked' : '') . '><span>' . $label . '</span></label>';
-        $form = '<form class="search-page-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<div class="search-page-query"><input type="search" name="q" value="' . h($query) . '" placeholder="搜索关键词" minlength="' . search_min_chars() . '" maxlength="120" required autofocus><button type="submit">搜索</button></div><div class="search-page-types" role="radiogroup" aria-label="搜索范围">' . $radios . '</div></form>';
+        $form = '<form class="search-page-form" method="post" action="' . h(route_url('search')) . '" data-no-ajax="1">' . form_token() . '<div class="search-page-query"><input type="search" name="q" value="' . h($query) . '" placeholder="搜索关键词"' . length_attributes('q') . ' required autofocus><button type="submit">搜索</button></div><div class="search-page-types" role="radiogroup" aria-label="搜索范围">' . $radios . '</div></form>';
         $main = '<div class="search-page-head"><h2>搜索</h2>' . $form . '</div>';
         if ($submitted && $query === '') $main .= '<div class="empty-state">请输入搜索关键词</div>';
         if ($query !== '') {
