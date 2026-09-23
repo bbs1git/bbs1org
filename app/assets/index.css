@@ -3665,6 +3665,7 @@ table.list {
 
 .admin-inline-ops {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 6px;
