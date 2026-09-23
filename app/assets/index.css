@@ -1876,14 +1876,7 @@ h3 {
     justify-content: center;
     height: 30px;
     border-radius: 4px;
-    background: var(--brand);
-    color: var(--inverse-text)
-}
-
-.side-auth a+ a {
     background: var(--bg);
-    color: var(--text-muted);
-    border: 1px solid var(--line)
 }
 
 .user-links {
