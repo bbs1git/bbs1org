@@ -959,12 +959,21 @@ function create_reply_notifications(int $topic_id, int $reply_id, string $body, 
 {
     create_mention_notifications($topic_id, $reply_id, $body, $sender_id);
 }
-function notifications_list(int $uid, int $limit, int $offset = 0): array
+function notification_box(): string
 {
-    $rows = q("SELECT * FROM app_notifications WHERE recipient_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$uid, $limit, $offset])->fetchAll();
-    $users = rows_by_ids('app_users', array_column($rows, 'sender_id'), 'id,username,avatar_style,avatar_seed');
+    $box = (string)($_GET['box'] ?? 'all');
+    return in_array($box, ['all', 'inbox', 'outbox'], true) ? $box : 'all';
+}
+function notifications_list(int $uid, int $limit, int $offset = 0, string $box = 'all'): array
+{
+    $where = $box === 'outbox' ? "sender_id=? AND kind='direct'" : ($box === 'inbox' ? "recipient_id=? AND kind='direct'" : '(recipient_id=? OR sender_id=?)');
+    $params = $box === 'all' ? [$uid, $uid, $limit, $offset] : [$uid, $limit, $offset];
+    $rows = q("SELECT * FROM app_notifications WHERE {$where} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", $params)->fetchAll();
+    $user_ids = array_merge(array_column($rows, 'sender_id'), array_column($rows, 'recipient_id'));
+    $users = rows_by_ids('app_users', $user_ids, 'id,username,avatar_style,avatar_seed');
     foreach ($rows as &$row) {
-        $u = $users[(int)($row['sender_id'] ?? 0)] ?? null;
+        $display_id = $box === 'outbox' || ($box === 'all' && (int)($row['sender_id'] ?? 0) === $uid) ? (int)($row['recipient_id'] ?? 0) : (int)($row['sender_id'] ?? 0);
+        $u = $users[$display_id] ?? null;
         $row['sender_username'] = (string)($u['username'] ?? '');
         $row['sender_avatar_style'] = (string)($u['avatar_style'] ?? '');
         $row['sender_avatar_seed'] = (string)($u['avatar_seed'] ?? '');
@@ -972,20 +981,21 @@ function notifications_list(int $uid, int $limit, int $offset = 0): array
     unset($row);
     return $rows;
 }
-function notifications_total(int $uid): int
+function notifications_total(int $uid, string $box = 'all'): int
 {
-    return (int)val("SELECT COUNT(*) FROM app_notifications WHERE recipient_id=?", [$uid]);
+    if ($box === 'all') return (int)val('SELECT COUNT(*) FROM app_notifications WHERE recipient_id=? OR sender_id=?', [$uid, $uid]);
+    return (int)val("SELECT COUNT(*) FROM app_notifications WHERE " . ($box === 'outbox' ? "sender_id=? AND kind='direct'" : "recipient_id=? AND kind='direct'"), [$uid]);
 }
-function notifications_unread_total(int $uid): int
+function notifications_unread_total(int $uid, bool $direct_only = false): int
 {
     $m = me();
-    if ($m && (int)$m['id'] === $uid) return (int)($m['unread_notifications'] ?? 0);
-    return (int)val("SELECT COUNT(*) FROM app_notifications WHERE recipient_id=? AND read_at=0", [$uid]);
+    if (!$direct_only && $m && (int)$m['id'] === $uid) return (int)($m['unread_notifications'] ?? 0);
+    return (int)val("SELECT COUNT(*) FROM app_notifications WHERE recipient_id=? AND read_at=0" . ($direct_only ? " AND kind='direct'" : ''), [$uid]);
 }
-function mark_notifications_read(int $uid, int $unread): void
+function mark_notifications_read(int $uid, int $unread, bool $direct_only = false): void
 {
     if ($unread <= 0) return;
-    q("UPDATE app_notifications SET read_at=? WHERE recipient_id=? AND read_at=0", [now(), $uid]);
+    q("UPDATE app_notifications SET read_at=? WHERE recipient_id=? AND read_at=0" . ($direct_only ? " AND kind='direct'" : ''), [now(), $uid]);
     q("UPDATE app_users SET unread_notifications=0 WHERE id=?", [$uid]);
     if (is_array($GLOBALS['__me_cache'] ?? null) && (int)$GLOBALS['__me_cache']['id'] === $uid) $GLOBALS['__me_cache']['unread_notifications'] = 0;
 }
@@ -2294,7 +2304,7 @@ function user_notify_page(): void
     $quote = notification_excerpt((string)($_GET['quote'] ?? ''));
     $quote_html = $quote !== '' ? '<blockquote class="notify-quote-card"><p>' . h($quote) . '</p></blockquote><input type="hidden" name="quote" value="' . h($quote) . '">' : '';
     $notify_max_length = length_limit('reply_body', 'max');
-    $html = '<div class="notify-pop"><div class="notify-target"><div class="notify-target-avatar">' . avatar_link_tag((int)$target['id'], (string)$target['username'], (string)$target['avatar_style'], '', (string)$target['avatar_seed']) . '</div><div class="notify-target-info"><strong>' . h($target['username']) . '</strong><span>' . h($target['group_name']) . '</span></div></div><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" maxlength="' . $notify_max_length . '" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
+    $html = '<div class="notify-pop" data-notify-username="' . h((string)$target['username']) . '"><form class="notify-form" method="post" action="' . h(route_url('notify', ['id' => (int)$target['id']])) . '">' . form_token() . $quote_html . '<textarea name="content" maxlength="' . $notify_max_length . '" placeholder="输入私信内容" required></textarea><div class="notify-actions"><span class="notify-status"></span><button type="submit">发送</button></div></form></div>';
     if (ajax_request()) {
         echo $html;
         exit;
@@ -2755,9 +2765,10 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
         $total = max(0, (int)($profile_data['total'] ?? count($rows)));
         $profile_empty = trim((string)($profile_data['empty'] ?? ''));
     } elseif ($profile_uid && $profile_tab === 'notifications') {
-        $total = notifications_total($profile_uid);
-        $unread_total = notifications_unread_total($profile_uid);
-        $rows = notifications_list($profile_uid, $size, $offset);
+        $notification_box = notification_box();
+        $total = notifications_total($profile_uid, $notification_box);
+        $unread_total = $notification_box === 'all' ? notifications_unread_total($profile_uid) : 0;
+        $rows = notifications_list($profile_uid, $size, $offset, $notification_box);
     } elseif ($profile_uid && $profile_tab === 'replies') {
         $total = (int)val("SELECT COUNT(*) FROM app_replies WHERE user_id=?", [$profile_uid]);
         $reply_rows = q("SELECT id,topic_id,user_id,body,created_at FROM app_replies WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", [$profile_uid, $size, $offset])->fetchAll();
@@ -2836,8 +2847,19 @@ function topic_index_template(array $view): string
     $profile_header = ($profile_uid && $profile_tab_allowed) ? (string)hook('user.profile_tab_header', '', ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'total' => $total]) : '';
     $main .= $profile_header . '<ul class="post-list">';
     if ($profile_uid && $profile_tab_allowed && $profile_tab === 'notifications') {
+        $notification_box = notification_box();
+        $main .= '<div class="notification-box-tabs">' . tab_bar_html([
+            'all' => ['label' => '全部', 'href' => $url('tab=notifications&box=all')],
+            'inbox' => ['label' => '收件箱', 'href' => $url('tab=notifications&box=inbox')],
+            'outbox' => ['label' => '发件箱', 'href' => $url('tab=notifications&box=outbox')],
+        ], $notification_box, 'plugin-tabs', 'user.notifications.tabs') . '</div>';
         if (!$rows) $main .= '<li class="empty-state">暂无通知</li>';
         else foreach ($rows as $i => $n) {
+            if ($notification_box === 'outbox' || (int)($n['sender_id'] ?? 0) === uid()) {
+                $n['read_at'] = 1;
+                $n['sender_id'] = (int)$n['recipient_id'];
+                $n['kind'] = 'sent';
+            }
             if ($unread_total > 0 && $off + $i === $unread_total) $main .= '<li class="notification-read-divider">下面的通知已读</li>';
             $main .= notification_row_html($n);
         }
@@ -2849,7 +2871,7 @@ function topic_index_template(array $view): string
         $t['forum'] = forum_by_id((int)$t['forum_id']) ?: ['id' => 0, 'name' => ''];
         $main .= topic_list_row($t, $sort);
     }
-    $page_query = $search_query . ($profile_uid ? 'tab=' . $profile_tab : 'sort=' . $sort);
+    $page_query = $search_query . ($profile_uid ? 'tab=' . $profile_tab . ($profile_tab === 'notifications' ? '&box=' . notification_box() : '') : 'sort=' . $sort);
     $pagination = $simple_pagination ? simple_paginate($p > 1, $has_next_page, $p, $url($page_query)) : paginate($total, $p, $size, $url($page_query));
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     if ($profile_uid && $profile_tab_allowed) $main .= (string)hook('user.profile_tab_footer', '', ['user' => $filter_user, 'self' => $own_profile, 'tab' => $profile_tab, 'page' => $p, 'page_size' => $size, 'total' => $total]);
@@ -2903,7 +2925,7 @@ function topic_index_page(?array $filter_forum = null, ?array $filter_user = nul
         }
     }
     $data = topic_index_data($fid, $filter_user, $profile_tab, $q, $search_field, $sort, $p, $size, $profile_tab_allowed, $profile_tab_notice);
-    if ($profile_uid && $profile_tab_allowed && $profile_tab === 'notifications') mark_notifications_read($profile_uid, (int)$data['unread_total']);
+    if ($profile_uid && $profile_tab_allowed && $profile_tab === 'notifications' && notification_box() === 'all') mark_notifications_read($profile_uid, (int)$data['unread_total']);
     $title = $profile_uid ? $filter_user['username'] : ($filter_forum ? $filter_forum['name'] : '首页');
     $seo = [];
     if ($profile_uid) $seo = page_seo('user', ['id' => $profile_uid], (string)($filter_user['bio'] ?? $filter_user['username']));

@@ -259,7 +259,10 @@ window.openNotify = async function (url) {
             else showToast(data.message || "打开失败");
             return false;
         }
-        openModal("私信TA", html);
+        const notifyPreview = document.createElement("div");
+        notifyPreview.innerHTML = html;
+        const username = notifyPreview.querySelector("[data-notify-username]")?.dataset.notifyUsername || "";
+        openModal(username ? `私信 @${username}` : "私信", html);
         const textarea = modalBody?.querySelector("form")?.querySelector("textarea");
         textarea?.focus();
         textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
