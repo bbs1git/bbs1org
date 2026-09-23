@@ -771,6 +771,7 @@ h3 {
 
 .post-body {
     flex: 1;
+    line-height: 1.8;
     min-width: 0
 }
 
@@ -781,7 +782,7 @@ h3 {
     white-space: nowrap;
     color: var(--text);
     font-size: var(--font-size-md);
-    line-height: 1.4;
+    line-height: 1.6;
     font-weight: 500
 }
 
@@ -876,7 +877,6 @@ h3 {
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 3px;
     color: var(--text-subtle);
     font-size: var(--font-size-xs);
 }
