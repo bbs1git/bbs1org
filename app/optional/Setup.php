@@ -161,6 +161,7 @@ public static function app_db_schema(string $driver): array
         'idx_attachments_user' => 'app_attachments(user_id,created_at DESC,id DESC)',
         'idx_notifications_recipient_unread' => 'app_notifications(recipient_id,read_at)',
         'idx_notifications_recipient_time' => 'app_notifications(recipient_id,created_at DESC,id DESC)',
+        'idx_notifications_sender_time' => 'app_notifications(sender_id,created_at DESC,id DESC)',
         'idx_cron_logs_plugin_time' => 'app_cron_logs(plugin_id,started_at DESC,id DESC)',
         'idx_cron_logs_time' => 'app_cron_logs(started_at DESC,id DESC)',
         'idx_cron_tasks_due' => 'app_cron_tasks(enabled,available_at,plugin_id,task_name)',

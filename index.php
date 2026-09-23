@@ -966,13 +966,13 @@ function notification_box(): string
 }
 function notifications_list(int $uid, int $limit, int $offset = 0, string $box = 'all'): array
 {
-    $where = $box === 'outbox' ? "sender_id=? AND kind='direct'" : ($box === 'inbox' ? "recipient_id=? AND kind='direct'" : '(recipient_id=? OR sender_id=?)');
-    $params = $box === 'all' ? [$uid, $uid, $limit, $offset] : [$uid, $limit, $offset];
+    $where = $box === 'outbox' ? "sender_id=? AND kind='direct'" : ($box === 'inbox' ? "recipient_id=? AND kind='direct'" : 'recipient_id=?');
+    $params = [$uid, $limit, $offset];
     $rows = q("SELECT * FROM app_notifications WHERE {$where} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", $params)->fetchAll();
     $user_ids = array_merge(array_column($rows, 'sender_id'), array_column($rows, 'recipient_id'));
     $users = rows_by_ids('app_users', $user_ids, 'id,username,avatar_style,avatar_seed');
     foreach ($rows as &$row) {
-        $display_id = $box === 'outbox' || ($box === 'all' && (int)($row['sender_id'] ?? 0) === $uid) ? (int)($row['recipient_id'] ?? 0) : (int)($row['sender_id'] ?? 0);
+        $display_id = (int)($row['sender_id'] ?? 0) === $uid ? (int)($row['recipient_id'] ?? 0) : (int)($row['sender_id'] ?? 0);
         $u = $users[$display_id] ?? null;
         $row['sender_username'] = (string)($u['username'] ?? '');
         $row['sender_avatar_style'] = (string)($u['avatar_style'] ?? '');
@@ -983,7 +983,7 @@ function notifications_list(int $uid, int $limit, int $offset = 0, string $box =
 }
 function notifications_total(int $uid, string $box = 'all'): int
 {
-    if ($box === 'all') return (int)val('SELECT COUNT(*) FROM app_notifications WHERE recipient_id=? OR sender_id=?', [$uid, $uid]);
+    if ($box === 'all') return (int)val('SELECT COUNT(*) FROM app_notifications WHERE recipient_id=?', [$uid]);
     return (int)val("SELECT COUNT(*) FROM app_notifications WHERE " . ($box === 'outbox' ? "sender_id=? AND kind='direct'" : "recipient_id=? AND kind='direct'"), [$uid]);
 }
 function notifications_unread_total(int $uid, bool $direct_only = false): int
@@ -1032,7 +1032,7 @@ function notification_row_html(array $n): string
             }
         }
     }
-    $kind = (string)($n['kind'] ?? '') === 'mention' ? '提及' : '通知';
+    $kind = match ((string)($n['kind'] ?? '')) { 'mention' => '提及', 'sent' => '已发出', default => '通知' };
     $unread = (int)($n['read_at'] ?? 0) === 0;
     $quote = notification_excerpt($body);
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
@@ -2855,7 +2855,7 @@ function topic_index_template(array $view): string
         ], $notification_box, 'plugin-tabs', 'user.notifications.tabs') . '</div>';
         if (!$rows) $main .= '<li class="empty-state">暂无通知</li>';
         else foreach ($rows as $i => $n) {
-            if ($notification_box === 'outbox' || (int)($n['sender_id'] ?? 0) === uid()) {
+            if ((int)($n['sender_id'] ?? 0) === uid()) {
                 $n['read_at'] = 1;
                 $n['sender_id'] = (int)$n['recipient_id'];
                 $n['kind'] = 'sent';
