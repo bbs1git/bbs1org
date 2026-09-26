@@ -7,8 +7,8 @@
     --text-muted: #555;
     --text-subtle: #6b6b6b;
     --text-disabled: #bbb;
-    --brand: #07c160;
-    --brand-hover: #126b33;
+    --brand: #1f883d;
+    --brand-hover: #1a7f37;
     --brand-soft: #eefaf3;
     --success: var(--brand-hover);
     --success-soft: var(--brand-soft);
