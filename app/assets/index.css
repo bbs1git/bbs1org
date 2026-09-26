@@ -26,6 +26,7 @@
     --shadow-base: rgba(16,24,40,.04);
     --shadow-medium: rgba(16,24,40,.08);
     --focus-ring: #126b33;
+    --focus-halo: rgba(31,136,61,.28);
     --transition-normal: .2s ease;
     --font-size-xxs: 10px;
     --font-size-xs: 11px;
@@ -282,7 +283,7 @@ h3 {
 .search-page-link:hover {
     border-color: var(--brand);
     color: var(--text);
-    box-shadow: 0 0 0 3px var(--focus-ring)
+    box-shadow: 0 0 0 3px var(--focus-halo)
 }
 
 .search-page-fake-input {
@@ -1298,7 +1299,7 @@ h3 {
 .prompt-input:focus {
     border-color: var(--brand);
     outline: 0;
-    box-shadow: 0 0 0 3px var(--focus-ring)
+    box-shadow: 0 0 0 3px var(--focus-halo)
 }
 
 .confirm-actions {
@@ -1554,7 +1555,7 @@ h3 {
 
 .search-page-query:focus-within {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px var(--focus-ring)
+    box-shadow: 0 0 0 3px var(--focus-halo)
 }
 
 .search-page-query input {
@@ -2225,7 +2226,7 @@ input[type=checkbox]:disabled {
 }
 
 input[type=checkbox]:focus-visible {
-    box-shadow: 0 0 0 3px var(--focus-ring)
+    box-shadow: 0 0 0 3px var(--focus-halo)
 }
 
 textarea {
