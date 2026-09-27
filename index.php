@@ -1836,7 +1836,7 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
         $copy_url = route_url('topic', ['id' => $topic_id] + ($floor > 0 ? ['floor' => $floor] : []));
         $ops_menu .= '<button type="button" class="post-ops-menu-item icon-action icon-link" data-post-ops-copy="' . h($copy_url) . '" title="复制链接"><span>复制链接</span></button>';
     }
-    $ops_toggle = $ops_menu !== '' ? '<button type="button" class="post-ops-toggle" aria-label="更多操作" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="5" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="19" r="2.4" fill="currentColor"/></svg></button><div class="post-ops-menu" hidden>' . $ops_menu . '</div>' : '';
+    $ops_toggle = $ops_menu !== '' ? '<button type="button" class="post-ops-toggle" aria-label="更多操作" aria-haspopup="true" aria-expanded="false"><span aria-hidden="true">⋮</span></button><div class="post-ops-menu" hidden>' . $ops_menu . '</div>' : '';
     $ops_html = $ops !== '' || $ops_left !== '' || $floor_html !== '' || $ops_toggle !== '' ? '<div class="post-ops"' . ($is_reply ? '' : ' data-slot="topic.actions"') . '>' . $ops . $ops_left . $floor_html . $ops_toggle . '</div>' : '';
     $row_slots = $is_reply ? 'reply.after_render reply.content_after' : 'topic.after_render topic.content_after';
     $uid_html = ((int)($row['user_id'] ?? 0) > 0 && empty($row['plugin_anonymous_posting_masked']) && (string)($row['username'] ?? '') !== '匿名') ? '<span class="post-user-group user-uid-badge" title="用户 UID"><span class="user-uid-icon" aria-hidden="true">' . svg_icon('id') . '</span>' . (int)$row['user_id'] . '</span>' : '';

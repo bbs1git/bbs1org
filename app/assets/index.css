@@ -1394,19 +1394,16 @@ h3 {
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
-    color: var(--text-muted);
+    color: var(--text-subtle);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
     cursor: pointer
 }
 
 .post-ops-toggle:hover {
     background: var(--line-soft);
     color: var(--brand)
-}
-
-.post-ops-toggle svg {
-    display: block;
-    width: 14px;
-    height: 14px
 }
 
 .post-ops-menu {
