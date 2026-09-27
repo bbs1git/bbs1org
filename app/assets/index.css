@@ -771,8 +771,10 @@ h3 {
 }
 
 .post-body {
+    display: grid;
     flex: 1;
-    line-height: 1.8;
+    align-content: start;
+    gap: 4px;
     min-width: 0
 }
 
@@ -1330,13 +1332,193 @@ h3 {
 .post-ops {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    justify-self: end;
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    width: 100%;
     max-width: 100%;
-    gap: 1px;
+    gap: 10px;
     white-space: nowrap
+}
+
+.post-ops>.post-floor {
+    margin-left: auto
+}
+
+.post-ops .icon-action,
+.post-ops>.post-action-form>button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 0 0 auto;
+    width: auto;
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 400;
+    line-height: inherit;
+    color: var(--brand-hover);
+    text-decoration: none;
+    opacity: .55;
+    cursor: pointer
+}
+
+.post-ops .icon-action:hover,
+.post-ops>.post-action-form>button:hover {
+    color: var(--brand-hover);
+    opacity: 1
+}
+
+.post-ops .icon-action span,
+.post-ops>.post-action-form>button span {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: nowrap;
+    font-size: var(--font-size-sm)
+}
+
+.post-ops-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer
+}
+
+.post-ops-toggle:hover {
+    background: var(--line-soft);
+    color: var(--brand)
+}
+
+.post-ops-toggle svg {
+    display: block;
+    width: 14px;
+    height: 14px
+}
+
+.post-ops-menu {
+    position: fixed;
+    z-index: 35;
+    display: none;
+    min-width: 124px;
+    max-width: min(260px, calc(100vw - 16px));
+    padding: 4px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px var(--shadow-medium)
+}
+
+.post-ops-menu.is-open {
+    display: grid;
+    gap: 2px
+}
+
+.post-ops .post-ops-menu>*,
+.post-ops .post-ops-menu>form>button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    margin: 0;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: left;
+    text-decoration: none;
+    white-space: normal;
+    opacity: 1;
+    cursor: pointer
+}
+
+.post-ops .post-ops-menu>*:hover,
+.post-ops .post-ops-menu>form>button:not(:disabled):hover {
+    background: var(--line-soft);
+    color: var(--brand)
+}
+
+.post-ops .post-ops-menu>form {
+    display: block !important;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important
+}
+
+.post-ops .post-ops-menu>form>* {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    margin: 0;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: left;
+    white-space: normal;
+    opacity: 1;
+    cursor: pointer
+}
+
+.post-ops .post-ops-menu>form>button.active {
+    color: var(--brand)
+}
+
+.post-ops .post-ops-menu>form>button:disabled {
+    color: var(--text-disabled);
+    opacity: .55;
+    cursor: not-allowed
+}
+
+.post-ops .post-ops-menu>.icon-action {
+    width: auto;
+    height: auto;
+    min-height: 30px;
+    justify-content: flex-start;
+    opacity: 1
+}
+
+.post-ops-menu>.icon-action:before {
+    flex: 0 0 14px
+}
+
+.post-ops .post-ops-menu .icon-action span {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal
 }
 
 .post-floor {
@@ -3171,6 +3353,11 @@ input[type=checkbox][checked]:not(:checked) {
 .icon-edit:before {
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M12 20h9%27/%3E%3Cpath d=%27M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z%27/%3E%3C/svg%3E") center/14px 14px no-repeat;
     mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M12 20h9%27/%3E%3Cpath d=%27M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z%27/%3E%3C/svg%3E") center/14px 14px no-repeat
+}
+
+.icon-link:before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71%27/%3E%3Cpath d=%27M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71%27/%3E%3C/svg%3E") center/14px 14px no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71%27/%3E%3Cpath d=%27M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71%27/%3E%3C/svg%3E") center/14px 14px no-repeat
 }
 
 .icon-delete:before {

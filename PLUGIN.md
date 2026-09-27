@@ -16,7 +16,7 @@
 - 插件目录和 manifest `id` 使用相同 ID，只包含小写字母、数字、下划线或短横线。插件自有的 PHP、CSS、JavaScript、浏览器存储和文件名称必须以该 ID 开头，禁止使用无前缀的通用名称，防止与核心或其他插件冲突。
 - 命名空间前缀固定：PHP 函数使用 `foo_bar_`，常量使用 `FOO_BAR_`，类、接口、Trait、Enum 使用 `FooBar` 前缀或包含 `FooBar` 的命名空间；JavaScript 函数、顶层变量和全局变量使用 `foo_bar_`；私有 Hook 使用 `foo_bar.`。CSS 类、CSS ID、CSS 变量、`data-*` 属性和自定义事件使用插件 ID 的连字符形式，例如 `foo-bar-*`、`--foo-bar-*`、`data-foo-bar-*`。
 - manifest 中注册已有核心 Hook 时，必须使用核心定义的原始名称，例如 `topic.after_save`；只有插件自行定义并通过 `hook()` 或 `fire()` 调用的私有 Hook 才必须以插件 ID 开头，例如 `foo_bar.after_import`。不得以兼容为由定义或保留无前缀的插件私有别名。
-- 禁止以 `function_exists()`、`class_exists()` 或类似兼容分支定义无前缀的插件函数、类或常量。插件之间不得直接调用函数或依赖 CSS/JavaScript；确需共享的代码能力必须移入核心，并使用正式的核心函数或 Hook。
+- 禁止以 `function_exists()`、`class_exists()` 或类似兼容分支定义无前缀的插件函数、类或常量。插件之间不得直接调用对方的函数、类或常量，也不得依赖对方的 CSS/JavaScript；确需共享代码能力时，由提供方插件注册以自身 ID 为前缀的私有 Hook（如 `foo_bar.render_card`），消费方插件通过 `hook()` 调用并传入缺省值：提供方未安装或未启用时 Hook 无人注册、原值返回，消费方据此优雅降级，不得出现依赖错误。仅全站通用的能力才移入核心，并使用正式的核心函数或 Hook。
 - `plugin.php` 开头必须包含 `if (!defined('APP_ROOT')) exit;`。
 - manifest 必须准确声明 `id`、`name`、`version`、`description`、`author`；按需声明 `assets`、`hooks`、`routes`、`admin_tabs`、`cron`、`install`、`uninstall`。
 - `description` 面向普通用户，只说明用户可感知的功能和收益，语言简短易懂；不得写技术实现、协议或依赖、数据库与任务调度等技术名词，也不得写版本更新点或开发说明。
@@ -190,7 +190,7 @@ app_db_upsert('plugin_hello_items', [
 | `user.menu_links` | 用户侧栏菜单；移动端菜单也复用 | `user.menu_links` |
 | `sidebar.stack` | 整个侧栏容器 | `sidebar.stack` |
 | `mainpanel_extra` | 主内容面板，扩展内容追加在主内容之后 | `mainpanel_extra` |
-| `topic.actions` | 主题主楼操作区（引用、管理等） | `topic.actions` |
+| `topic.actions` | 主题主楼操作条（主楼正文底部，引用、管理等） | `topic.actions` |
 | `topic.after_render` | 主题列表项或主题 | `topic.after_render` |
 | `reply.after_render` | 回帖帖子项 | `reply.after_render` |
 | `topic.content_after` | 主题主楼内容之后的扩展区域 | `topic.content_after` |
@@ -360,6 +360,7 @@ function hello_collect(array $plugin, array $task): string
 | `topic.before_render` / `reply.before_render` | 主题/回帖渲染前 | 红区，调用链零 DB 读 |
 | `topic.after_render` / `reply.after_render` | 主题/回帖渲染后 | 循环内零 DB 读；用于修改楼层 HTML 本身（徽章、样式等） |
 | `topic.content_after` / `reply.content_after` | 主题主楼/回帖楼层正文末尾追加内容 | 追加式管道：返回 `$value . 自身输出`，无输出必须原样返回 `$value`（返回空串会覆盖他人输出）；插入位置与锚点由核心维护，插件勿自行 strrpos 定位 |
+| `post.ops_actions` | 主题主楼与每个回帖的操作条（正文底部） | 逐楼钩子，循环内零 DB 读；条目可选左侧或“更多”弹层，详见下方“帖子操作条与更多弹层” |
 | `topic.before_save` / `topic.after_save` | 主题保存前后 | 处理主题数据 |
 | `reply.before_save` / `reply.after_save` | 回帖保存前后 | 处理回帖数据 |
 | `topic.replies` | 主题页回帖集合 | 每页一次，可整体预加载 |
@@ -383,6 +384,30 @@ function hello_collect(array $plugin, array $task): string
 | `markdown.render` / `markdown.after` | Markdown 渲染前后 | after 可能逐行调用，禁止查库 |
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
 | `user.before_save` / `user.after_save` | 用户保存前后 | before 可返回过滤数组 |
+
+### 帖子操作条与更多弹层
+
+内核在主题主楼和每个回帖的 `.post-content` 末尾渲染操作条 `.post-ops`：左侧为回复、点赞和插件动作，右侧为楼层号、`⋮` 更多按钮与 `.post-ops-menu` 弹层。弹层的展开收起、定位和“复制链接”由内核提供，插件不要自行绑定更多按钮的开关逻辑，也不要移动或重建 `.post-ops` 内部结构。
+
+用 `post.ops_actions` 钩子向操作条添加动作（主楼与每个回帖都会触发，`$ctx` 含 `row`、`is_reply`、`topic_id`、`floor`；返回 `null` 表示不修改）：
+
+```php
+function demo_ops_actions(array $items, array $ctx): array
+{
+    if ((int)$ctx['floor'] === 0) return $items; // 按需区分主楼/回帖
+    $url = route_url('topic', ['id' => (int)$ctx['topic_id'], 'floor' => (int)$ctx['floor']]);
+    $items[] = ['html' => '<a class="icon-action icon-pages" href="' . h($url) . '"><span>示例动作</span></a>', 'placement' => 'menu'];
+    return $items;
+}
+```
+
+- 条目为字符串时默认进入弹层；数组条目用 `placement` 选择位置：`'menu'`（默认，右侧弹层）或 `'left'`（操作条左侧可见）。
+- 条目 HTML 建议 `.icon-action` 加 `icon-*` 图标类并内嵌 `<span>文字</span>`：弹层内图标和文字按整行展开；`<form>` 条目由内核规则整行铺开，提交交互由插件自己的 JS 处理。
+- `placement` 为 `'left'` 或通过 `topic.actions` / `reply.after_render` 注入的条目：插入 `icon-action`（或 `post-action-form` 表单包按钮）加 `<span>文字</span>` 即可获得统一基线（品牌色 55% 透明度、sm 字号、400 字重、hover 全亮、span 不裁剪）；插件自带类只允许定义状态样式（如已点赞置灰），不得覆盖基线的字体、颜色与透明度。
+- 内核默认弹层项：编辑（管理员或作者可见）与“复制链接”（主楼指向主题，回帖带 `floor` 参数），插件无需重复添加。
+- 钩子为逐楼触发，遵守 N+1 红区：循环内零 DB 读，需要数据时用 `topic.replies` 等整页钩子预载后读 `$GLOBALS` 缓存。
+- 兼容性：历史插件通过 `topic.actions`（主楼）或 `reply.after_render` 字符串注入的动作仍会显示在操作条左侧；新插件一律使用 `post.ops_actions`。
+- 主楼操作条带 `data-slot="topic.actions"`；插件 JavaScript 定位请用 `[data-slot~="topic.actions"]`，不要依赖 `.post-head` 内部层级。
 
 ### 整体模板 Hook
 
@@ -451,7 +476,7 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 | `profile_tabs` | `user.profile_tabs` | 用户主页顶部 Tab |
 | `profile_settings_tabs` | `profile.settings_tabs` | 个人设置页顶部 Tab |
 | `profile_card` | `user.menu_links` | 侧栏个人卡片和移动端我的菜单 |
-| `topic_actions` | `topic.actions` | 主题首帖右上角操作区 |
+| `topic_actions` | `topic.actions` | 主题首帖操作条（正文底部）左侧 |
 | `admin_tabs` | `admin.tabs` | 后台顶部 Tab |
 | `top_menu` | `top.menu_links` | PC 顶部版块区和移动端版块列表 |
 | `top_actions` | `top.bar.actions` | 版块导航、搜索框前后 |

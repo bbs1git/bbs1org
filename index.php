@@ -1819,12 +1819,29 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $title_html = $has_title ? '<div class="post-topic-title"><h1 class="post-content-title">' . h($title) . '</h1>' . $stats . '</div>' : '';
     $avatar = avatar_link_tag((int)$row['user_id'], (string)$row['username'], (string)($row['avatar_style'] ?? ''), '', (string)($row['avatar_seed'] ?? ''));
     $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
-    $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '';
-    $ops_html = $ops !== '' || $floor_html !== '' ? '<div class="post-ops"' . ($is_reply ? '' : ' data-slot="topic.actions"') . '>' . $ops . $floor_html . '</div>' : '';
+    $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '<span class="post-floor">主楼</span>';
+    $ops_left = '';
+    $ops_menu = '';
+    foreach ((array)hook('post.ops_actions', [], ['row' => $row, 'is_reply' => $is_reply, 'topic_id' => $topic_id, 'floor' => $floor]) as $ops_item) {
+        $ops_item_html = is_array($ops_item) ? (string)($ops_item['html'] ?? '') : (string)$ops_item;
+        if ($ops_item_html === '') continue;
+        if (is_array($ops_item) && ($ops_item['placement'] ?? 'menu') === 'left') $ops_left .= $ops_item_html;
+        else $ops_menu .= $ops_item_html;
+    }
+    if ($is_reply ? can_manage_reply($row) : can_manage_topic($row)) {
+        $edit_url = route_url($is_reply ? 'reply_edit' : 'topic_edit', ['id' => (int)$row['id']]);
+        $ops_menu .= '<a class="icon-action icon-edit" href="' . h($edit_url) . '" title="编辑"><span>编辑</span></a>';
+    }
+    if ($topic_id > 0) {
+        $copy_url = route_url('topic', ['id' => $topic_id] + ($floor > 0 ? ['floor' => $floor] : []));
+        $ops_menu .= '<button type="button" class="post-ops-menu-item icon-action icon-link" data-post-ops-copy="' . h($copy_url) . '" title="复制链接"><span>复制链接</span></button>';
+    }
+    $ops_toggle = $ops_menu !== '' ? '<button type="button" class="post-ops-toggle" aria-label="更多操作" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="5" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="19" r="2.4" fill="currentColor"/></svg></button><div class="post-ops-menu" hidden>' . $ops_menu . '</div>' : '';
+    $ops_html = $ops !== '' || $ops_left !== '' || $floor_html !== '' || $ops_toggle !== '' ? '<div class="post-ops"' . ($is_reply ? '' : ' data-slot="topic.actions"') . '>' . $ops . $ops_left . $floor_html . $ops_toggle . '</div>' : '';
     $row_slots = $is_reply ? 'reply.after_render reply.content_after' : 'topic.after_render topic.content_after';
     $uid_html = ((int)($row['user_id'] ?? 0) > 0 && empty($row['plugin_anonymous_posting_masked']) && (string)($row['username'] ?? '') !== '匿名') ? '<span class="post-user-group user-uid-badge" title="用户 UID"><span class="user-uid-icon" aria-hidden="true">' . svg_icon('id') . '</span>' . (int)$row['user_id'] . '</span>' : '';
     $tags_html = topic_user_group_html($row) . user_state_tag_html($row) . $uid_html;
-    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><div class="post-info"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a><span class="post-time">' . human_time($time) . '</span></div>' . $ops_html . '</div><div class="post-meta">' . $tags_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . '</div></li>';
+    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><div class="post-info"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a><span class="post-time">' . human_time($time) . '</span></div></div><div class="post-meta">' . $tags_html . '</div></div><div class="post-content">' . markdown_html($body, 0, $topic_id) . $ops_html . '</div></li>';
     $html = (string)hook($is_reply ? 'reply.after_render' : 'topic.after_render', $html, ['row' => $row, 'body' => $body] + $ctx);
     $content_after = (string)hook($is_reply ? 'reply.content_after' : 'topic.content_after', '', ['row' => $row, 'body' => $body, 'topic_id' => $topic_id] + $ctx);
     if ($content_after === '') return $html;
@@ -2969,7 +2986,6 @@ function topic_page_template(array $view): string
     if (is_string($before)) return (string)hook('topic.template', $before, $view);
     $topic_ops = uid() ? quote_reply_action($t) : '';
     $topic_ops = (string)hook('topic.actions', $topic_ops, ['topic' => $t]);
-    if (can_manage_topic($t)) $topic_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('topic_edit', ['id' => (int)$t['id']])) . '" title="编辑"><span>编辑</span></a>';
     $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
     $topic_url = route_url('topic', ['id' => (int)$t['id']]);
     $main = '<div class="topic-header">' . $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title"><a href="' . h($topic_url) . '">' . h($t['title']) . '</a></h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div></div><ul class="post-list topic-post-list">';
@@ -2978,7 +2994,6 @@ function topic_page_template(array $view): string
         $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
         if (trim((string)$r['body']) === '') continue;
         $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
-        if (can_manage_reply($r)) $reply_ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$r['id']])) . '" title="编辑"><span>编辑</span></a>';
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor]);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
@@ -3121,7 +3136,6 @@ function reply_edit_page(): void
             $topic = row('app_topics', 'id', $saved['topic_id']) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
             $floor = reply_position_floor((int)$topic['id'], (int)$row['created_at'], (int)$row['id']);
             $ops = quote_reply_action($row, $floor);
-            if (can_manage_reply($row)) $ops .= '<a class="icon-action icon-edit" href="' . h(route_url('reply_edit', ['id' => (int)$row['id']])) . '" title="编辑"><span>编辑</span></a>';
             if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
             json_response(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])]);
         }

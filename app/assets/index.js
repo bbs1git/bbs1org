@@ -804,3 +804,114 @@ window.addEventListener("load", () => {
     const target = /^\d+$/.test(replyId) ? document.getElementById("post-" + replyId) : (/^\d+$/.test(floor) ? document.querySelector('[data-floor="' + floor + '"]') : null);
     if (target) target.scrollIntoView({block:"center"});
 });
+
+(() => {
+    const state = { menu: null, toggle: null, timer: null, hover: window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches };
+    const closeMenu = () => {
+        if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+        if (!state.menu) return;
+        state.menu.classList.remove("is-open");
+        state.menu.hidden = true;
+        if (state.toggle) state.toggle.setAttribute("aria-expanded", "false");
+        state.menu = null;
+        state.toggle = null;
+    };
+    const scheduleClose = () => {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = window.setTimeout(closeMenu, 140);
+    };
+    const cancelClose = () => {
+        if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+    };
+    const placeMenu = (menu, toggle) => {
+        const rect = toggle.getBoundingClientRect();
+        const width = menu.offsetWidth;
+        const height = menu.offsetHeight;
+        let left = Math.round(rect.right - width);
+        if (left + width > window.innerWidth - 8) left = window.innerWidth - 8 - width;
+        if (left < 8) left = 8;
+        let top = Math.round(rect.bottom + 6);
+        if (height > 0 && top + height > window.innerHeight - 8 && rect.top - 6 - height > 8) top = Math.round(rect.top - 6 - height);
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+    };
+    const openMenu = (menu, toggle) => {
+        closeMenu();
+        menu.hidden = false;
+        menu.classList.add("is-open");
+        toggle.setAttribute("aria-expanded", "true");
+        state.menu = menu;
+        state.toggle = toggle;
+        placeMenu(menu, toggle);
+    };
+    const menuOf = toggle => toggle.parentElement ? toggle.parentElement.querySelector(".post-ops-menu") : null;
+    const copyFallback = text => {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.top = "-1000px";
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+        document.body.removeChild(area);
+        return ok;
+    };
+    const copyLink = item => {
+        const label = item.querySelector("span") || item;
+        const original = label.textContent;
+        const finish = ok => {
+            label.textContent = ok ? "已复制" : "复制失败";
+            window.setTimeout(() => {
+                closeMenu();
+                label.textContent = original;
+            }, ok ? 800 : 1200);
+        };
+        let url = item.getAttribute("data-post-ops-copy") || "";
+        try { url = new URL(url, window.location.href).href; } catch (err) { url = window.location.href; }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(url).then(() => finish(true), () => finish(copyFallback(url)));
+            return;
+        }
+        finish(copyFallback(url));
+    };
+    document.addEventListener("click", e => {
+        const copy = e.target.closest("[data-post-ops-copy]");
+        if (copy) {
+            copyLink(copy);
+            return;
+        }
+        const toggle = e.target.closest(".post-ops-toggle");
+        if (toggle) {
+            const menu = menuOf(toggle);
+            if (menu) {
+                if (state.menu === menu) closeMenu(); else openMenu(menu, toggle);
+            }
+            return;
+        }
+        closeMenu();
+    });
+    document.addEventListener("mouseover", e => {
+        if (!state.hover) return;
+        if (e.target.closest(".post-ops-menu")) {
+            cancelClose();
+            return;
+        }
+        const toggle = e.target.closest(".post-ops-toggle");
+        if (toggle) {
+            const menu = menuOf(toggle);
+            if (menu) {
+                cancelClose();
+                if (state.menu !== menu) openMenu(menu, toggle);
+            }
+            return;
+        }
+        scheduleClose();
+    });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape") closeMenu();
+    });
+    window.addEventListener("scroll", closeMenu, { passive: true });
+    window.addEventListener("resize", closeMenu);
+})();
