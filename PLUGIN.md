@@ -387,27 +387,21 @@ function hello_collect(array $plugin, array $task): string
 
 ### 帖子操作条与更多弹层
 
-内核在主题主楼和每个回帖的 `.post-content` 末尾渲染操作条 `.post-ops`：左侧为回复、点赞和插件动作，右侧为楼层号、`⋮` 更多按钮与 `.post-ops-menu` 弹层。弹层的展开收起、定位和“复制链接”由内核提供，插件不要自行绑定更多按钮的开关逻辑，也不要移动或重建 `.post-ops` 内部结构。
+内核在主楼和每个回帖的 `.post-content` 末尾渲染操作条 `.post-ops`：左侧为动作条目，右侧为楼层锚点（`#楼层号` / 主楼“主楼”标签）、更多按钮与弹层 `.post-ops-menu`，弹层的开关、定位与内置“编辑”“复制链接”由内核处理。
 
-用 `post.ops_actions` 钩子向操作条添加动作（主楼与每个回帖都会触发，`$ctx` 含 `row`、`is_reply`、`topic_id`、`floor`；返回 `null` 表示不修改）：
+新增动作用 `post.ops_actions` 钩子（逐楼触发，`$ctx` 含 `row`、`is_reply`、`topic_id`、`floor`，主楼 `floor` 为 0；返回 `null` 表示不修改）：
 
 ```php
 function demo_ops_actions(array $items, array $ctx): array
 {
-    if ((int)$ctx['floor'] === 0) return $items; // 按需区分主楼/回帖
-    $url = route_url('topic', ['id' => (int)$ctx['topic_id'], 'floor' => (int)$ctx['floor']]);
-    $items[] = ['html' => '<a class="icon-action icon-pages" href="' . h($url) . '"><span>示例动作</span></a>', 'placement' => 'menu'];
+    $items[] = ['html' => '<a class="icon-action icon-pages" href="..."><span>动作</span></a>', 'placement' => 'menu'];
     return $items;
 }
 ```
 
-- 条目为字符串时默认进入弹层；数组条目用 `placement` 选择位置：`'menu'`（默认，右侧弹层）或 `'left'`（操作条左侧可见）。
-- 条目 HTML 建议 `.icon-action` 加 `icon-*` 图标类并内嵌 `<span>文字</span>`：弹层内图标和文字按整行展开；`<form>` 条目由内核规则整行铺开，提交交互由插件自己的 JS 处理。
-- `placement` 为 `'left'` 或通过 `topic.actions` / `reply.after_render` 注入的条目：插入 `icon-action`（或 `post-action-form` 表单包按钮）加 `<span>文字</span>` 即可获得统一基线（品牌色 55% 透明度、sm 字号、400 字重、hover 全亮、span 不裁剪）；插件自带类只允许定义状态样式（如已点赞置灰），不得覆盖基线的字体、颜色与透明度。
-- 内核默认弹层项：编辑（管理员或作者可见）与“复制链接”（主楼指向主题，回帖带 `floor` 参数），插件无需重复添加。
-- 钩子为逐楼触发，遵守 N+1 红区：循环内零 DB 读，需要数据时用 `topic.replies` 等整页钩子预载后读 `$GLOBALS` 缓存。
-- 兼容性：历史插件通过 `topic.actions`（主楼）或 `reply.after_render` 字符串注入的动作仍会显示在操作条左侧；新插件一律使用 `post.ops_actions`。
-- 主楼操作条带 `data-slot="topic.actions"`；插件 JavaScript 定位请用 `[data-slot~="topic.actions"]`，不要依赖 `.post-head` 内部层级。
+- `placement`：`'menu'`（默认，右侧弹层）或 `'left'`（操作条左侧）。
+- 条目用 `icon-action` + `<span>文字</span>` 即获统一基线；经 `topic.actions` / `reply.after_render` 注入的条目仍在左侧。
+- 逐楼钩子，遵守 N+1 红区。
 
 ### 整体模板 Hook
 
