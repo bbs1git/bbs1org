@@ -413,6 +413,19 @@ function demo_ops_actions(array $items, array $ctx): array
 
 `topic.index_data.load` / `topic.replies_data.load` 可以提供完整数据；核心仍会继续触发对应的 `*.data.loaded` Hook。`*.data.loaded` 回调返回数组时，返回值会作为后续模板的数据；返回 `null` 表示保留原数据。模板 Hook 适合整体换肤或完全自定义布局，局部扩展优先使用已有的细粒度 Hook。
 
+### 行尾锚点（页面级精准插入用）
+
+核心在 `topic_post_row()` 输出的每条帖子行（主贴与楼层）末尾追加唯一 HTML 注释锚点，供插件在 `page.before_render` 做整页级定位：
+
+- `html_anchor('post', <主题id>)` → `<!--ab:post:<id>-->`（主贴行尾）
+- `html_anchor('reply', <楼层id>)` → `<!--ab:reply:<id>-->`（楼层行尾）
+
+规则：
+
+- 需要在「主贴正文之后、本行之内」精准落位时，用 `preg_quote($anchor, '/')` 拼进正则匹配到锚点为止，**禁止用 `</div></li>` 之类的通用结构序列定位**——任何插件的 `content_after` 输出都可能含有该序列，会造成误插。
+- 锚点是核心专属契约，插件输出里**不得伪造或移除** `<!--ab:*-->` 注释。
+- 核心过旧无锚点时，消费方应保留回退逻辑；只在锚点匹配失败时使用。
+
 ### 列表行批量预载：自动登记 + `topic_list_preload()`
 
 核心的列表预载钩子 `topic.index_data.loaded` 用于按 `IN (集合ID)` 一次取回整页主题级数据（众筹、积分商城、微信红包、悬赏、回帖红包、标签、等级、投票、抽奖、猜谜、插件市场…）并写入插件的 `$GLOBALS` 缓存；逐行渲染钩子（`topic.after_render` / `topic.title_suffix`）只读这些缓存。
