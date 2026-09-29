@@ -1383,6 +1383,12 @@ h3 {
     font-size: var(--font-size-sm)
 }
 
+.post-ops[data-slot="topic.actions"] {
+    border-top: 1px dashed var(--line);
+    margin: 1rem 0 0 0;
+    padding: 10px 0 0 0;
+}
+
 .post-ops-toggle {
     display: inline-flex;
     align-items: center;
