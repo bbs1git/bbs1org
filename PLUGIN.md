@@ -415,14 +415,19 @@ function demo_ops_actions(array $items, array $ctx): array
 
 ### 行尾锚点（页面级精准插入用）
 
-核心在 `topic_post_row()` 输出的每条帖子行（主贴与楼层）末尾追加唯一 HTML 注释锚点，供插件在 `page.before_render` 做整页级定位：
+核心在 `topic_post_row()` 输出的每条帖子行（主贴与楼层）的 `</li>` 之前追加唯一 HTML 注释锚点，供插件在 `page.before_render` 做整页级定位。行尾结构固定为：
 
-- `html_anchor('post', <主题id>)` → `<!--ab:post:<id>-->`（主贴行尾）
-- `html_anchor('reply', <楼层id>)` → `<!--ab:reply:<id>-->`（楼层行尾）
+```text
+...[content_after 各插件输出]</div><!--ab:post:<主题id>--></li>
+...[content_after 各插件输出]</div><!--ab:reply:<楼层id>--></li>
+```
+
+- 产出函数：`html_anchor('post', <主题id>)` / `html_anchor('reply', <楼层id>)`，两类 kind 永不冲突。
+- `topic/reply.content_after` 的插入点在「`</div>` + 锚点」之前，仍在 `.post-content` 内部，与引入锚点前的位置一致。
 
 规则：
 
-- 需要在「主贴正文之后、本行之内」精准落位时，用 `preg_quote($anchor, '/')` 拼进正则匹配到锚点为止，**禁止用 `</div></li>` 之类的通用结构序列定位**——任何插件的 `content_after` 输出都可能含有该序列，会造成误插。
+- 需要在「主贴正文之后、本行之内」精准落位时，用 `preg_quote($anchor, '/')` 拼进正则匹配到锚点为止（如 `'/占位符(.*?)<\/div><!--ab:post:<id>--><\/li>/'`），**禁止用 `</div></li>` 之类的通用结构序列定位**——任何插件的 `content_after` 输出都可能含有该序列，会造成误插。
 - 锚点是核心专属契约，插件输出里**不得伪造或移除** `<!--ab:*-->` 注释。
 - 核心过旧无锚点时，消费方应保留回退逻辑；只在锚点匹配失败时使用。
 
