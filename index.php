@@ -2376,15 +2376,15 @@ function topic_title_color(string $style): string
 {
     return preg_match('/(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{6})(?:\s*;|$)/', $style, $matches) ? $matches[1] : '';
 }
-function topic_title_is_bold(string $style): bool
+function topic_title_is_large(string $style): bool
 {
-    return preg_match('/(?:^|;)\s*font-weight\s*:\s*(?:700|bold)(?:\s*;|$)/i', $style) === 1;
+    return preg_match('/(?:^|;)\s*font-size\s*:\s*1.2em(?:\s*;|$)/i', $style) === 1;
 }
-function topic_title_style(string $color, bool $bold): string
+function topic_title_style(string $color, bool $large): string
 {
     $styles = [];
     if (preg_match('/^#[0-9a-fA-F]{6}$/', $color) === 1) $styles[] = 'color:' . $color;
-    if ($bold) $styles[] = 'font-weight:700';
+    if ($large) $styles[] = 'font-size:1.2em';
     return implode(';', $styles);
 }
 function save_topic(): int
@@ -2422,19 +2422,19 @@ function save_topic(): int
             set_pinned_topic((int)$t['id'], $pin_action === 'pin');
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
-        if (in_array($action, ['highlight', 'bold'], true)) {
+        if (in_array($action, ['highlight', 'enlarge'], true)) {
             $current_style = (string)($t['highlight_style'] ?? '');
             $color = topic_title_color($current_style);
-            $bold = topic_title_is_bold($current_style);
+            $large = topic_title_is_large($current_style);
             if ($action === 'highlight') {
                 $raw_color = trim((string)($_POST['highlight_style'] ?? ''));
                 $color = $raw_color === '' ? '' : (preg_match('/^#[0-9a-fA-F]{6}$/', $raw_color, $m) ? $m[0] : '#d94b4b');
             } else {
-                $bold_action = (string)($_POST['topic_bold_action'] ?? '');
-                if (!in_array($bold_action, ['bold', 'unbold'], true)) err('请选择加粗操作');
-                $bold = $bold_action === 'bold';
+                $enlarge_action = (string)($_POST['topic_enlarge_action'] ?? '');
+                if (!in_array($enlarge_action, ['enlarge', 'normal'], true)) err('请选择放大操作');
+                $large = $enlarge_action === 'enlarge';
             }
-            q("UPDATE app_topics SET highlight_style=? WHERE id=?", [topic_title_style($color, $bold), (int)$t['id']]);
+            q("UPDATE app_topics SET highlight_style=? WHERE id=?", [topic_title_style($color, $large), (int)$t['id']]);
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
         if ($action === 'mute_author') {
@@ -3089,7 +3089,7 @@ function topic_edit_page(): void
     $topic_ops = '';
     if ($editing && can_manage()) {
         $style = topic_title_color((string)($t['highlight_style'] ?? ''));
-        $is_bold = topic_title_is_bold((string)($t['highlight_style'] ?? ''));
+        $is_large = topic_title_is_large((string)($t['highlight_style'] ?? ''));
         $is_pinned = in_array((int)$t['id'], pinned_topic_ids(), true);
         $colors = ['#d94b4b', '#d97706', '#16a34a', '#2563eb', '#7c3aed'];
         $swatches = '<div class="topic-color-swatches">';
@@ -3097,8 +3097,8 @@ function topic_edit_page(): void
         $swatches .= '<button class="topic-color-swatch topic-color-clear' . ($style === '' ? ' active' : '') . '" type="button" data-topic-color="" aria-label="取消高亮"></button>';
         $swatches .= '</div>';
         $pin_options = '<option value="pin"' . ($is_pinned ? '' : ' selected') . '>置顶</option><option value="unpin"' . ($is_pinned ? ' selected' : '') . '>取消置顶</option>';
-        $bold_options = '<option value="bold"' . ($is_bold ? '' : ' selected') . '>加粗</option><option value="unbold"' . ($is_bold ? ' selected' : '') . '>取消加粗</option>';
-        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete_topic">删除主题及回帖</option><option value="pin">置顶</option><option value="highlight">高亮</option><option value="bold">加粗</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="pin"><span>置顶</span><select name="topic_pin_action">' . $pin_options . '</select></label><label class="grid topic-highlight-field is-hidden" data-topic-action-secondary="highlight" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="bold"><span>加粗</span><select name="topic_bold_action">' . $bold_options . '</select></label>';
+        $enlarge_options = '<option value="enlarge"' . ($is_large ? '' : ' selected') . '>放大</option><option value="normal"' . ($is_large ? ' selected' : '') . '>恢复原样</option>';
+        $topic_ops = '<label class="grid topic-action-field"><span>操作</span><select name="topic_action" data-topic-action><option value="">不操作</option><option value="delete_topic">删除主题及回帖</option><option value="pin">置顶</option><option value="highlight">高亮</option><option value="enlarge">放大</option><option value="mute_author">禁言作者</option></select></label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="pin"><span>置顶</span><select name="topic_pin_action">' . $pin_options . '</select></label><label class="grid topic-highlight-field is-hidden" data-topic-action-secondary="highlight" data-topic-highlight-wrap><span>颜色</span><input type="hidden" name="highlight_style" value="' . h($style) . '" data-topic-highlight-value>' . $swatches . '</label><label class="grid topic-secondary-field is-hidden" data-topic-action-secondary="enlarge"><span>放大</span><select name="topic_enlarge_action">' . $enlarge_options . '</select></label>';
     }
     $reply_order = $editing ? select_input('回帖排序', 'reply_order', (string)(int)($t['reply_order'] ?? 0), ['0' => '发帖时间顺序', '1' => '发帖时间倒序']) : '';
     $attachments = (string)hook('attachment.uploader', '', ['muted' => true]);
