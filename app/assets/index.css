@@ -4139,10 +4139,7 @@ table.list.admin-bulk-list {
     box-sizing: border-box;
     max-width: 100%;
     width: auto;
-    margin: 0 0 12px;
-    padding: 0 2px 8px;
     border: 0;
-    border-bottom: 1px solid var(--line-soft);
     background: transparent;
     overflow-x: auto;
     scrollbar-width: none;
@@ -4209,7 +4206,7 @@ table.list.admin-bulk-list {
     margin: 0 0 10px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--bg)
+    background: var(--panel)
 }
 
 .plugin-management-entries>strong {
