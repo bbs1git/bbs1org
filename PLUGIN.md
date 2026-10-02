@@ -361,7 +361,7 @@ function hello_collect(array $plugin, array $task): string
 | `app.boot` | 全站每个请求启动一次 | 预加载数据的最佳位置 |
 | `topic.before_render` / `reply.before_render` | 主题/回帖渲染前 | 红区，调用链零 DB 读 |
 | `topic.after_render` / `reply.after_render` | 主题/回帖渲染后 | 循环内零 DB 读；用于修改楼层 HTML 本身（徽章、样式等） |
-| `topic.content_html` / `reply.content_html` | 主题主楼/回帖楼层的正文 HTML（替换式管道） | 替换/包装正文的唯一可靠位置：操作条 `post-ops` 由核心保留，插件勿自行 strrpos/正则定位；无输出必须原样返回 `$value`；ctx 带 `row`/`body`/`topic_id`，循环内零 DB 读。旧版核心无此钩子：注册它的插件须在 `after_render` 保留字符串替换回退（用请求内标记判断本钩子是否已触发，避免重复输出）。 |
+| `topic.content_html` / `reply.content_html` | 主题主楼/回帖楼层的正文 HTML（替换式管道） | 替换/包装正文的唯一可靠位置，插件勿自行 strrpos/正则定位正文；无输出必须原样返回 `$value`；ctx 带 `row`/`body`/`topic_id`，循环内零 DB 读。 |
 | `topic.content_after` / `reply.content_after` | 主题主楼/回帖楼层正文末尾追加内容 | 追加式管道：返回 `$value . 自身输出`，无输出必须原样返回 `$value`（返回空串会覆盖他人输出）；插入位置与锚点由核心维护，插件勿自行 strrpos 定位 |
 | `post.ops_actions` | 主题主楼与每个回帖的操作条（正文底部） | 逐楼钩子，循环内零 DB 读；条目可选左侧或“更多”弹层，详见下方“帖子操作条与更多弹层” |
 | `topic.before_save` / `topic.after_save` | 主题保存前后 | 处理主题数据 |
