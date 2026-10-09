@@ -2250,7 +2250,7 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
         $email = (string)$old_user['email'];
     }
     if ($username === '') err('用户名不能为空');
-    require_length($username, length_limit('username', 'min'), '用户名');
+    if ($is_registration) require_length($username, length_limit('username', 'min'), '用户名');
     require_length($email, length_limit('email', 'min'), '邮箱地址');
     require_length($bio, length_limit('bio', 'min'), '个人简介');
     if (!$admin && (!$old_user || (string)$old_user['username'] !== $username) && hook('user.username_reserved', false, ['username' => $username]) === true) err('用户名已保留');
