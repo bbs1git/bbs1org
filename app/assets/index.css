@@ -3225,11 +3225,9 @@ input[type=checkbox][checked]:not(:checked) {
 
 .reply-panel {
     margin: 12px 0 0;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
     background: var(--panel);
-    box-shadow: 0 8px 24px var(--shadow-base);
     scroll-margin-top: 64px
 }
 
