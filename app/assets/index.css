@@ -964,7 +964,7 @@ h3 {
     margin: 10px 0;
     padding: 12px;
     border-radius: 5px;
-    border: 1px solid var(--brand)!important;
+    border: 1px dotted var(--brand)!important;
 }
 
 .post-head {
