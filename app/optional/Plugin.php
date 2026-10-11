@@ -861,7 +861,7 @@ public static function plugin_assets_rebuild(): array
             if ($content === '') continue;
             $id = (string)$plugin['id'];
             if ($type === 'js') {
-                $chunk = '/* ' . $id . " */\n;(function(){try{\n" . $content . "\n}catch(_bbs1Err){console.error('[" . $id . "]',_bbs1Err)}})();";
+                $chunk = '/* ' . $id . " */\n(function(){try{\n" . $content . "\n}catch(_bbs1Err){console.error('[" . $id . "]',_bbs1Err)}})();";
             } else {
                 $chunk = '/* ' . $id . " */\n" . $content;
             }
