@@ -859,7 +859,12 @@ public static function plugin_assets_rebuild(): array
                 return plugin_callback_exists($fn) ? (string)$fn() : '';
             }));
             if ($content === '') continue;
-            $chunk = '/* ' . (string)$plugin['id'] . " */\n" . $content;
+            $id = (string)$plugin['id'];
+            if ($type === 'js') {
+                $chunk = '/* ' . $id . " */\n;(function(){try{\n" . $content . "\n}catch(_bbs1Err){console.error('[" . $id . "]',_bbs1Err)}})();";
+            } else {
+                $chunk = '/* ' . $id . " */\n" . $content;
+            }
             $chunks[$type][] = $chunk;
         }
     }

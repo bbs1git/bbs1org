@@ -912,7 +912,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
     $verb = $actual > 0 ? '增加' : '减少';
     $notification_message = '积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。';
-    if ($notify) create_notification($user_id, 0, 'points', '你的' . $notification_message);
+    if ($notify) create_notification($user_id, 0, 'points', '你的' . $notification_message, (int)($context['topic_id'] ?? 0), (int)($context['reply_id'] ?? 0));
     elseif ($user_id === uid()) {
         $tip = '积分 ' . ($actual > 0 ? '+' : '') . $actual;
         if (ajax_request()) $GLOBALS['__point_change_tip'] = $tip;
