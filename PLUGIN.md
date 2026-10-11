@@ -246,6 +246,31 @@ manifest 注册形式：
 'admin_tabs' => ['hello' => 'hello_admin_page'],
 ```
 
+### 前端公共 API
+
+核心在 `index.js` 中通过 `window.bbs1` 暴露一组公共函数，供插件 JavaScript 调用。核心脚本先于插件脚本执行，因此这些函数在插件代码运行时一定可用。调用前请判断存在性，便于核心版本回退时优雅降级：
+
+```js
+window.bbs1?.showToast('已保存');
+```
+
+| 函数 | 签名 | 说明 |
+| --- | --- | --- |
+| `showToast` | `showToast(message)` | 右下角轻提示，约 1.8 秒后自动消失。页面缺少 `#toast` 时静默忽略。 |
+| `openModal` | `openModal(title, html)` | 打开通用弹层，`html` 作为内容插入。页面缺少弹层节点时静默忽略。 |
+| `closeModal` | `closeModal()` | 关闭弹层并清空内容；若弹层正等待 `openConfirm` / `openPrompt`，该 Promise 以取消值结束。 |
+| `openConfirm` | `openConfirm(message, title = '确认操作')` | 返回 `Promise<boolean>`：确定得 `true`，取消或关闭得 `false`。 |
+| `openPrompt` | `openPrompt(message, title = '请输入', value = '1')` | 返回 `Promise<string\|null>`：确定为去掉首尾空白的输入值，取消得 `null`。 |
+| `openNotify` | `openNotify(url)` | 按核心的私信弹层流程请求 `url` 并展示。 |
+| `formActionUrl` | `formActionUrl(form)` | 取表单提交地址，缺失时回退到当前页面地址。 |
+| `markButtonPending` | `markButtonPending(button)` | 给按钮加提交中状态；页面恢复（`pageshow`）时由核心统一清除。 |
+
+注意事项：
+
+- 只用上表列出的函数。核心脚本的顶层 `const` 声明（如 `modalBody`、`finishConfirm`）属于内部实现，不是契约，可能在版本升级中改名或移除。
+- 不要覆盖 `window.bbs1`，也不要在其中添加插件自己的字段；插件自己的全局导出使用 `window.<插件ID>` 形式的前缀命名。
+- 需要页面就绪时再初始化：核心脚本以 `defer` 加载，DOM 已可用，但若依赖其他插件渲染的节点，应使用事件委托或 `MutationObserver`。
+
 ## 安全、文件与外部请求
 
 - 文件名和路径必须经过白名单验证，防止路径穿越。上传和远程文件限制协议、主机、类型和大小，并拒绝内网地址、凭据 URL 和脚本文件。

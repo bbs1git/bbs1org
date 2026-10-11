@@ -915,3 +915,14 @@ window.addEventListener("load", () => {
     window.addEventListener("scroll", closeMenu, { passive: true });
     window.addEventListener("resize", closeMenu);
 })();
+
+window.bbs1 = Object.assign(window.bbs1 || {}, {
+    showToast,
+    openModal,
+    closeModal,
+    openConfirm,
+    openPrompt,
+    openNotify: window.openNotify,
+    formActionUrl,
+    markButtonPending,
+});
