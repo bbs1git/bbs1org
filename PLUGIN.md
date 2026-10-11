@@ -259,8 +259,8 @@ window.bbs1?.showToast('已保存');
 | `showToast` | `showToast(message)` | 右下角轻提示，约 1.8 秒后自动消失。页面缺少 `#toast` 时静默忽略。 |
 | `openModal` | `openModal(title, html)` | 打开通用弹层，`html` 作为内容插入。页面缺少弹层节点时静默忽略。 |
 | `closeModal` | `closeModal()` | 关闭弹层并清空内容；若弹层正等待 `openConfirm` / `openPrompt`，该 Promise 以取消值结束。 |
-| `openConfirm` | `openConfirm(message, title = '确认操作')` | 返回 `Promise<boolean>`：确定得 `true`，取消或关闭得 `false`。 |
-| `openPrompt` | `openPrompt(message, title = '请输入', value = '1')` | 返回 `Promise<string\|null>`：确定为去掉首尾空白的输入值，取消得 `null`。 |
+| `openConfirm` | `openConfirm(message, title = '确认操作')` | 返回 `Promise`：确定得到 `true`，取消或关闭得到 `false`。 |
+| `openPrompt` | `openPrompt(message, title = '请输入', value = '1')` | 返回 `Promise`：确定得到去掉首尾空白的输入字符串，取消得到 `null`。 |
 | `openNotify` | `openNotify(url)` | 按核心的私信弹层流程请求 `url` 并展示。 |
 | `formActionUrl` | `formActionUrl(form)` | 取表单提交地址，缺失时回退到当前页面地址。 |
 | `markButtonPending` | `markButtonPending(button)` | 给按钮加提交中状态；页面恢复（`pageshow`）时由核心统一清除。 |
