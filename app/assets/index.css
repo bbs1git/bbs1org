@@ -3236,8 +3236,7 @@ input[type=checkbox][checked]:not(:checked) {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 10px;
-    padding-bottom: 9px
+    margin-bottom: 12px;
 }
 
 .reply-panel-head h3 {
