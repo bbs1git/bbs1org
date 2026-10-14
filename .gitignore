@@ -1,4 +1,5 @@
 app/*
+app-client/*
 !app/assets/index.css
 !app/assets/index.js
 !app/assets/index.svg
