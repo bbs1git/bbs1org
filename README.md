@@ -33,7 +33,19 @@ https://bbs1.org
 
 ## 代码仓库
 
-https://github.com/bbs1git/bbs1org
+内核和跟着的几个目录各自独立成仓库，各自推各自的远程：
+
+| 目录 | 仓库 |
+| --- | --- |
+| 仓库根（`index.php`、`app/optional/`、`PLUGIN.md` …） | https://github.com/bbs1git/bbs1org |
+| `app/plugins/` | https://github.com/bbs1git/bbs1org_plugins |
+| `app-client/` | https://github.com/bbs1git/bbs1org_app-client |
+| `docker/` | https://github.com/bbs1git/bbs1org_docker |
+
+后三个都被主仓库的 `.gitignore` 排除，在主仓库里 `git status` 看不到它们的改动 ——
+改完要进到那个目录里单独 `git commit` / `git push`。
+反过来也别把 `app-client/` 之类 `git add` 回主仓库：它带着自己的 `.git`，
+收进来只会变成一个没有 `.gitmodules` 的子模块条目，指向某次提交，推上去在 GitHub 上是坏的。
 
 ## Docker 源码部署
 
