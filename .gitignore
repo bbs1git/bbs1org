@@ -1,4 +1,6 @@
 app/*
+# app-client、docker、app/plugins 都是各自独立的仓库（各自推各自的远程），主仓库不收录
+app-client
 app-client/*
 !app/assets/index.css
 !app/assets/index.js
