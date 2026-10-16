@@ -1334,6 +1334,7 @@ h3 {
     width: 100%;
     max-width: 100%;
     gap: 10px;
+    margin-top: 10px;
     white-space: nowrap
 }
 
@@ -1379,12 +1380,6 @@ h3 {
     clip: auto;
     white-space: nowrap;
     font-size: var(--font-size-sm)
-}
-
-.post-ops[data-slot="topic.actions"] {
-    border-top: 1px dashed var(--line);
-    margin: 1rem 0 0 0;
-    padding: 10px 0 0 0;
 }
 
 .post-ops-toggle {
