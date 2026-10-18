@@ -302,10 +302,11 @@ function val(string $sql, array $p = []): mixed
 function tx(callable $fn): mixed
 {
     $db = db();
-    if ($db->inTransaction()) return $fn();
+    if ($db->inTransaction() || !empty($GLOBALS['__tx_active'])) return $fn();
     $sqlite = db_driver() === 'sqlite';
     if ($sqlite) $db->exec('BEGIN IMMEDIATE');
     else $db->beginTransaction();
+    $GLOBALS['__tx_active'] = true;
     try {
         $result = $fn();
         if ($sqlite) $db->exec('COMMIT');
@@ -317,6 +318,8 @@ function tx(callable $fn): mixed
         } elseif ($db->inTransaction()) $db->rollBack();
         db_row_cache_clear();
         throw $e;
+    } finally {
+        unset($GLOBALS['__tx_active']);
     }
 }
 function auth_cookie_secure(): bool
