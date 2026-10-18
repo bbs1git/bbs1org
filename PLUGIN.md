@@ -173,8 +173,8 @@ app_db_upsert('plugin_hello_items', [
 - 固定 CSS 和 JavaScript 只能通过 manifest `assets` 声明。资源函数无参数并返回源码，不包含 `<style>`、`<script>` 标签，也不能依赖当前用户、页面、CSRF 或实时请求数据；动态值通过插件 HTML 的 `data-*` 属性传递。
 - 插件 JavaScript 需要定位核心 Hook 的页面承载元素时，使用 `[data-slot~="hook.name"]`；同一元素可用空格声明多个 Hook 插槽。重复插槽先通过帖子 ID、`data-floor`、`data-plugin-id` 或插件自有根容器缩小范围，不依赖核心内部层级选择器。
 - 不直接修改自动生成的 `app/assets/plugins.css` 和 `app/assets/plugins.js`。启用、停用、卸载、市场安装、更新和后台同步插件时，系统会重建这些资源。
-- CSS 类名、ID、变量、`data-*` 属性、`@keyframes`、`@property` 和 `container-name` 必须使用插件 ID 前缀；JavaScript 函数、顶层变量、全局变量、自定义事件名、HTML `id` 和锚点也必须使用对应前缀。生成后的插件 JavaScript 在同一作用域执行，除必要的前缀化导出外，必须用具名 IIFE 隔离，避免顶层 `const`、`let` 或状态变量冲突。Cookie、`localStorage`、`sessionStorage`、`BroadcastChannel` 的插件键名同样必须前缀化。选择器限制在插件自己的根容器内；不要覆盖 `body`、通用标签、核心通用类或其他插件类，也不能依赖其他插件的样式。
-- 颜色优先使用系统变量：背景和边框使用 `--bg`、`--panel`、`--line`、`--line-soft`；文字使用 `--text`、`--text-muted`、`--text-subtle`、`--text-disabled`；品牌和交互使用 `--brand`、`--brand-hover`、`--brand-soft`、`--focus-ring`；状态使用 `--success`、`--danger`、`--warning`、`--info` 及对应 `*-soft`；反色、遮罩和阴影使用 `--inverse`、`--inverse-border`、`--inverse-text`、`--backdrop`、`--shadow-base`、`--shadow-medium`。
+- CSS 类名、ID、变量、`data-*` 属性、`@keyframes`、`@property` 和 `container-name` 必须使用插件 ID 前缀；JavaScript 函数、顶层变量、全局变量、自定义事件名、HTML `id` 和锚点也必须使用对应前缀。生成后的插件 JavaScript 分块由核心自动包进匿名 IIFE 并附带 try/catch（形如 `(function(){try{ ... }catch(_bbs1Err){console.error('[插件ID]',_bbs1Err)}})();`），插件代码因此运行在自身函数作用域内、异常不会外溢，顶层 `const`/`let` 与其他插件互不冲突，插件无需再自行包裹 IIFE；CSS 分块仅加 `/* 插件ID */` 注释分隔，不做包裹。即便如此，函数、顶层变量、全局变量、自定义事件仍需加前缀，导出到 `window` 的能力必须挂在 `window.<插件ID>` 上。Cookie、`localStorage`、`sessionStorage`、`BroadcastChannel` 的插件键名同样必须前缀化。选择器限制在插件自己的根容器内；不要覆盖 `body`、通用标签、核心通用类或其他插件类，也不能依赖其他插件的样式。
+- 颜色优先使用系统变量：背景和边框使用 `--bg`、`--panel`、`--line`、`--line-soft`；文字使用 `--text`、`--text-muted`、`--text-subtle`、`--text-disabled`；品牌和交互使用 `--brand`、`--brand-hover`、`--brand-soft`、`--focus-ring`、`--focus-halo`；状态使用 `--success`、`--danger`、`--warning`、`--info` 及对应 `*-soft`；反色、遮罩和阴影使用 `--inverse`、`--inverse-border`、`--inverse-text`、`--color-dark-rgb`（遮罩 RGB 分量源）、`--backdrop`、`--shadow-base`、`--shadow-medium`。
 - 界面字号统一使用 CSS 变量：`--font-size-xxs` 为 10px、`--font-size-xs` 为 11px、`--font-size-sm` 为 12px、`--font-size-md` 为 14px、`--font-size-lg` 为 16px、`--font-size-xl` 为 18px。`font-size` 与 `font` 中的字号禁止直接写数字；需要例外字号时先定义语义化变量，再使用该变量。
 - 只有还原第三方品牌或表达数据类别时才能在插件作用域内使用额外颜色；禁止无理由使用 `!important`。
 - 前后台界面都要处理窄屏、长文本、空数据、失败、权限不足和交互状态，避免固定宽度导致溢出。
@@ -193,8 +193,6 @@ app_db_upsert('plugin_hello_items', [
 | `topic.actions` | 主题主楼操作条（主楼正文底部，引用、管理等） | `topic.actions` |
 | `topic.after_render` | 主题列表项或主题 | `topic.after_render` |
 | `reply.after_render` | 回帖帖子项 | `reply.after_render` |
-| `topic.content_html` | 主题主楼正文 HTML（`post-content` 内、操作条之前） | `post-content` 正文区 |
-| `reply.content_html` | 回帖楼层正文 HTML（`post-content` 内、楼层操作条之前） | `post-content` 正文区 |
 | `topic.content_after` | 主题主楼内容之后的扩展区域 | `topic.content_after` |
 | `reply.content_after` | 回帖楼层内容之后的扩展区域 | `reply.content_after` |
 | `topic.title_suffix` | 主题列表标题链接之后 | `topic.title_suffix` |
@@ -203,8 +201,6 @@ app_db_upsert('plugin_hello_items', [
 | `top.actions.right.before-search` | 顶部搜索框左侧操作区 | `top.bar.actions` |
 | `top.actions.right.after-search` | 顶部搜索框右侧操作区 | `top.bar.actions` |
 | `page.before_render` | 页面主内容 `<main>` 容器 | `page.before_render` |
-| `page.template` | 整页模板，默认值为完整 HTML | `page.template` |
-| `page.template.before` | 整页模板拼接前，返回字符串可完全接管 HTML 组装 | `page.template.before` |
 | `page.footer` | 页面页脚容器 | `page.footer` |
 | `login.after_form` | 登录面板（登录表单之后可追加内容） | `login.after_form` |
 | `login.form_extra` | 登录表单内部扩展字段 | `login.form_extra` |
@@ -215,13 +211,14 @@ app_db_upsert('plugin_hello_items', [
 | `user.profile_tabs` | 用户资料页标签栏 | `user.profile_tabs` |
 | `topic.index_tabs` | 首页 / 版块主题列表标签栏 | `topic.index_tabs` |
 | `topic.toolbar_actions` | 首页 / 版块主题列表工具栏操作区 | `topic.toolbar_actions` |
-| `topic.index_template` | 首页、版块、用户主题列表的整体模板 | `topic.index_template` |
-| `topic.index_template.before` | 主题列表模板拼接前，返回字符串可完全接管 HTML 组装 | `topic.index_template.before` |
-| `topic.template` | 主题详情页的整体模板 | `topic.template` |
-| `topic.template.before` | 主题详情模板拼接前，返回字符串可完全接管 HTML 组装 | `topic.template.before` |
 | `reply.form_extra` | 回帖表单内部扩展字段 | `reply.form_extra` |
 | `attachment.uploader` | 发帖或回帖表单的附件上传区域 | `attachment.uploader` |
 | `admin.plugin.actions` | 后台每个插件条目的操作区 | `admin.plugin.actions` |
+| `admin.tabs` | 后台顶栏标签栏 | `admin.tabs` |
+| `admin.plugins.tabs` | 后台“插件”页顶部标签栏 | `admin.plugins.tabs` |
+| `user.notifications.tabs` | 用户通知页「全部 / 收件箱 / 发件箱」标签栏 | `user.notifications.tabs` |
+
+上表只列核心默认 HTML 中真实输出的 `data-slot` 值（以源码为准）。以下服务端拼接 Hook **没有** `data-slot` 承载元素，前端无法用 `[data-slot~="..."]` 定位，只能在 PHP 侧接管或替换，故不列入上表：`page.template` / `page.template.before`、`topic.index_template` / `topic.index_template.before`、`topic.template` / `topic.template.before`、`topic.content_html` / `reply.content_html`（正文管道，承载元素 `.post-content` 上并无 `data-slot`）。它们的注册与语义见下方「Hooks 与展示位置」「整体模板 Hook」「帖子操作条与更多弹层」。
 
 同一元素可能声明多个值，例如发帖表单的 `data-slot="attachment.uploader topic.form_extra"`。JavaScript 示例：
 
@@ -351,7 +348,7 @@ function hello_collect(array $plugin, array $task): string
 
 优先使用核心 `svg_icon()`，图标继承 `currentColor` 并自动适配主题。当前常用图标包括：
 `user`（用户）、`id`（身份）、`reply`（回复）、`notify`（通知）、`forum`（版块）、
-`topic`（主题）、`view`（浏览）、`settings`（设置）、`admin`（管理）和 `pages`（文档）。
+`topic`（主题）、`view`（浏览）、`settings`（设置）、`admin`（管理）、`pages`（文档）和 `upload`（上传）。
 
 插件自带 SVG 应使用 `viewBox="0 0 24 24"`、`fill="none"`、`stroke="currentColor"`，主轮廓使用 `stroke-width="2"`，尺寸交由 CSS 控制。需要新图标时优先反馈给核心加入 `svg_icon()`，避免重复实现。
 
@@ -373,8 +370,8 @@ function hello_collect(array $plugin, array $task): string
 | 页面渲染 | `page()` `shell_html()` `sidebar_stack_html()` `sidebar_user_card_html()` `form_shell()` `paginate()` `page_seo()` `page_head_html()` `page_nav_html()` `page_footer_html()` `admin_list_head()` |
 | 表单 | `form_token()` `hidden_inputs()` `input()` `textarea()` `checkbox()` `number_input()` `select_input()` `post_action_form()` `render_form_fields()` |
 | 跳转/提示 | `route_url()` `admin_url()` `base_url()` `go()` `set_flash()` `err()` `json_response()` |
-| 工具 | `h()` `cut()` `now()` `human_time()` `app_cookie()` `svg_icon()` `avatar_tag()` `avatar_link_tag()` `avatar_remote_url()` |
-| 论坛数据 | `forum_by_id()` `forums_cache()` `select_forum()` `refresh_topic_stats()` `pinned_topic_ids()` `create_notification()` `notifications_unread_total()` `mark_notifications_read()` |
+| 工具 | `h()` `cut()` `now()` `human_time()` `length_limit()` `app_cookie()` `svg_icon()` `avatar_tag()` `avatar_link_tag()` `avatar_remote_url()` |
+| 论坛数据 | `forum_by_id()` `forums_cache()` `select_forum()` `refresh_topic_stats()` `pinned_topic_ids()` `create_notification()` `notification_box()` `notifications_total()` `notifications_list()` `notifications_unread_total()` `mark_notifications_read()` |
 | 列表渲染 | `topic_list_row($row, $sort)` `topic_list_select_columns()` `rows_by_ids()` `attach_topic_list_users()`（列表行会自动整页预载，见「列表行批量预载」） `topic_list_preload($rows)`（仅行不经 `attach_topic_list_users()` 等特殊场景需手动调用） |
 | 全文检索 | `topic_fts_sync()` `reply_fts_sync()` `topic_fts_delete()` `reply_fts_delete()` `content_search_condition()` `search_index_available()` `search_index_rebuild()` `search_like_pattern()` |
 | 插件 | `plugins()` `plugin_load()` `plugin_config()` `plugin_save_config()` `plugin_id_valid()` `plugin_registry_row()` `plugin_enabled()` `plugin_uses_entry()` `plugin_entry_enabled()` `plugin_call()` |
@@ -386,7 +383,7 @@ function hello_collect(array $plugin, array $task): string
 | `app.boot` | 全站每个请求启动一次 | 预加载数据的最佳位置 |
 | `topic.before_render` / `reply.before_render` | 主题/回帖渲染前 | 红区，调用链零 DB 读 |
 | `topic.after_render` / `reply.after_render` | 主题/回帖渲染后 | 循环内零 DB 读；用于修改楼层 HTML 本身（徽章、样式等） |
-| `topic.content_html` / `reply.content_html` | 主题主楼/回帖楼层的正文 HTML（替换式管道） | 替换/包装正文的唯一可靠位置，插件勿自行 strrpos/正则定位正文；无输出必须原样返回 `$value`；ctx 带 `row`/`body`/`topic_id`，循环内零 DB 读。 |
+| `topic.content_html` / `reply.content_html` | 主题主楼/回帖楼层的正文 HTML（替换式管道） | 只替换正文 HTML（`$value` 为渲染后的正文），同楼层 `.post-content` 内的操作条 `.post-ops`（`post.ops_actions` 输出）与楼层锚点由核心在该 Hook 之后单独拼装，**不在替换范围内**；替换/包装正文的唯一可靠位置，插件勿自行 strrpos/正则定位正文；无输出必须原样返回 `$value`；ctx 带 `row`/`body`/`topic_id`，循环内零 DB 读。 |
 | `topic.content_after` / `reply.content_after` | 主题主楼/回帖楼层正文末尾追加内容 | 追加式管道：返回 `$value . 自身输出`，无输出必须原样返回 `$value`（返回空串会覆盖他人输出）；插入位置与锚点由核心维护，插件勿自行 strrpos 定位 |
 | `post.ops_actions` | 主题主楼与每个回帖的操作条（正文底部） | 逐楼钩子，循环内零 DB 读；条目可选左侧或“更多”弹层，详见下方“帖子操作条与更多弹层” |
 | `topic.before_save` / `topic.after_save` | 主题保存前后 | 处理主题数据 |
@@ -406,8 +403,9 @@ function hello_collect(array $plugin, array $task): string
 | `profile.settings_tab_content` | 当前个人设置标签内容 | value 为 HTML，ctx 含 user、tab、tabs；仅在非默认标签触发 |
 | `admin.tabs` | 后台顶栏标签 | value 为 items 数组 |
 | `admin.plugins.tabs` | 后台“插件”页顶部标签 | value 为 items 数组，后台插件页标题栏（Plugin.php）|
+| `user.notifications.tabs` | 用户通知页「全部 / 收件箱 / 发件箱」标签栏 | value 为 items 数组；分箱取值由核心 `notification_box()` 提供（`all`/`inbox`/`outbox`，收件箱按 `recipient_id`、发件箱按 `sender_id AND kind='direct'`），详见下方“通知收件箱/发件箱过滤” |
 | `admin.plugin.actions` | 后台每个插件条目的操作区 | 逐插件行追加操作按钮（Plugin.php）|
-| `admin.plugins.view` | 后台插件页整体视图扩展 | 返回附加 HTML（index.php）|
+| `admin.plugins.view` | 后台“插件”页 `view` 参数的非内置分支整页视图接管 | 返回值即整页 HTML（ctx 带 `view`、`with_tabs`）；返回非字符串时核心直接 `err('你访问的页面不存在', 404)`，不是“追加 HTML”（index.php）|
 | `notification.after_create` | 通知写入后 | 仅入队，勿同步请求外部服务 |
 | `markdown.render` / `markdown.after` | Markdown 渲染前后 | after 可能逐行调用，禁止查库 |
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
@@ -520,6 +518,22 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 | `admin_tabs` | `admin.tabs` | 后台顶部 Tab |
 | `top_menu` | `top.menu_links` | PC 顶部版块区和移动端版块列表 |
 | `top_actions` | `top.bar.actions` | 版块导航、搜索框前后 |
+
+### 内容长度自定义配置
+
+核心把长度上限做成站点设置项，由 `length_limit(string $type, string $bound): int` 统一读取，`$bound` 取 `min` / `max` / `value`：
+
+- 设置键名：`{type}_min_length`、`{type}_max_length`，`value` 对应 `{type}_length`；未配置时默认 `0`，再由 `length_limit()` 夹回硬上限（短字段 `DB_STRING_MAX_LENGTH`，长文本 `DB_TEXT_MAX_LENGTH`），且 `max` 自动不小于 `min`。
+- 可用 `$type`：`username`、`email`、`search`、`title`、`bio`、`topic_body`、`reply_body`、`excerpt`。后台“设置”页可配置这些项（Admin.php）；`excerpt_length()` 是 `length_limit('excerpt','value')` 的别名。
+- 插件校验用户输入长度时必须复用 `length_limit()`，不得写死数字或另建一套设置项；按站点配置截断用 `cut($text, length_limit('...', 'max'))`。
+
+### 通知收件箱/发件箱过滤
+
+用户主页通知页的「全部 / 收件箱 / 发件箱」分箱由核心维护，插件一般只需读取结果：
+
+- `notification_box()` 归一化 `box` 参数并返回 `all` / `inbox` / `outbox`（非法值回退 `all`）。
+- `notifications_total($uid, $box)` / `notifications_list($uid, $size, $offset, $box)` 按分箱取数：`inbox` 按 `recipient_id`、`outbox` 按 `sender_id AND kind='direct'`、`all` 含非私信通知。
+- 标签栏本身是 `user.notifications.tabs` Hook（承载元素 `data-slot="user.notifications.tabs"`），插件可在其上追加分类；仅当 `box === 'all'` 时核心才标记全部已读。
 
 ## 发布与 AI 协作
 
