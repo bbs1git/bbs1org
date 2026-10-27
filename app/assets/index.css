@@ -4461,6 +4461,66 @@ table.list.admin-bulk-list {
     margin-top: 4px
 }
 
+.plugin-market-authorization-install-form {
+    display: grid;
+    gap: 10px
+}
+
+.plugin-market-authorization-install-form .grid {
+    grid-template-columns: 1fr;
+    gap: 5px;
+    margin: 0
+}
+
+.plugin-market-authorization-install-form .grid>span {
+    padding-top: 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-sm)
+}
+
+.plugin-market-authorization-install-form .confirm-actions {
+    margin-top: 2px
+}
+
+.plugin-market-authorization-tip {
+    margin: 0;
+    color: var(--text-subtle);
+    font-size: var(--font-size-xs);
+    line-height: 1.6
+}
+
+.plugin-market-authorization-install-form .confirm-actions>.plugin-market-authorization-link {
+    margin-right: auto;
+}
+
+.plugin-market-authorization-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 7px 13px;
+    border: 1px solid var(--brand);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+    color: var(--brand);
+    font: inherit;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-decoration: none
+}
+
+.plugin-market-authorization-link:hover {
+    background: var(--brand);
+    color: var(--inverse-text)
+}
+
+@media (max-width:520px) {
+    .plugin-market-authorization-install-form .confirm-actions {
+        flex-wrap: wrap
+    }
+}
+
 .plugin-admin-page {
     display: grid;
     gap: 4px;

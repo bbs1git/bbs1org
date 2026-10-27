@@ -69,6 +69,7 @@ const openModal = (title, html) => {
     if (modalTitle) modalTitle.textContent = title;
     modalBody.innerHTML = html;
     modal.hidden = false;
+    modalBody.querySelector("[autofocus]")?.focus();
 };
 const mobileMenu = document.getElementById("mobile-menu");
 const mobileMenuOpen = document.querySelector("[data-mobile-menu-open]");

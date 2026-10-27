@@ -149,6 +149,24 @@ private static function plugin_market_view(string $view): string
     return $view === 'beta' ? 'beta' : 'certified';
 }
 
+private static function plugin_market_topic_url(string $plugin_id, int $topic_id, string $market_view): string
+{
+    $market = self::plugin_market_cache_read(false, self::plugin_market_view($market_view))
+        ?? self::plugin_market_cache_read(false, self::plugin_market_view($market_view) === 'beta' ? 'certified' : 'beta');
+    $item = is_array($market) ? ($market['plugins'][$plugin_id] ?? null) : null;
+    if (!is_array($item)) return '';
+    if ($topic_id > 0 && (int)($item['topic_id'] ?? 0) > 0 && (int)$item['topic_id'] !== $topic_id) return '';
+    $url = (string)($item['url'] ?? '');
+    if ($url === '') return '';
+    $site = parse_url(PLUGIN_MARKET_ENDPOINT);
+    $target = parse_url($url);
+    if (!is_array($site) || !is_array($target)) return '';
+    $host = strtolower((string)($site['host'] ?? ''));
+    $target_host = strtolower((string)($target['host'] ?? ''));
+    if ($host === '' || ($target_host !== $host && !str_ends_with($target_host, '.' . $host))) return '';
+    return $url;
+}
+
 private static function plugin_market_cache_file(string $market_view = 'certified'): string
 {
     return DATA_DIR . '/' . PLUGIN_MARKET_CACHE_FILE . ($market_view === 'beta' ? '-beta' : '');
@@ -385,7 +403,14 @@ public static function plugin_market_install_page(): void
             $requires_authorization = is_array($item) && (int)($item['price_points'] ?? 0) > 0;
         }
         if ($requires_authorization) {
-            $form = '<form class="plugin-market-authorization-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(['plugin_id' => $plugin_id, 'topic_id' => $topic_id, 'auto_enable' => $auto_enable ? '1' : '0', 'market_view' => $market_view]) . '<label class="grid"><span>授权码</span><input type="text" name="authorization_code" maxlength="40" autocomplete="off" required></label><p>请在插件页面购买后点击“授权码”获取。在线安装或更新需要填写一次性授权码。</p><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="btn plugin-enable" data-loading-text="安装中">在线' . ($auto_enable ? '安装/更新' : '安装') . '</button></div></form>';
+            $topic_url = self::plugin_market_topic_url($plugin_id, $topic_id, $market_view);
+            $link = $topic_url !== ''
+                ? '<a class="plugin-market-authorization-link" href="' . h($topic_url) . '" target="_blank" rel="noopener">获取授权码</a>'
+                : '';
+            $tip = '<p class="plugin-market-authorization-tip">' . ($link !== ''
+                ? '在新的页面里购买并点击“授权码”，复制后关闭该页面，回到这里粘贴即可。'
+                : '请在插件页面购买后点击“授权码”获取，复制后回到这里粘贴即可。') . '</p>';
+            $form = '<form class="plugin-market-authorization-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(['plugin_id' => $plugin_id, 'topic_id' => $topic_id, 'auto_enable' => $auto_enable ? '1' : '0', 'market_view' => $market_view]) . '<label class="grid"><span>授权码</span><input type="text" name="authorization_code" maxlength="40" autocomplete="off" spellcheck="false" placeholder="粘贴一次性授权码" required autofocus></label>' . $tip . '<div class="confirm-actions">' . $link . '<button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="btn plugin-enable" data-loading-text="安装中">在线' . ($auto_enable ? '安装/更新' : '安装') . '</button></div></form>';
             json_response(['ok' => 1, 'modal' => ['title' => '填写授权码', 'html' => $form]]);
         }
     }
@@ -542,7 +567,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         } else {
             $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">下载</a>' : '';
         }
-        if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">质量报告</a>';
+        if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">插件主题</a>';
         $meta = [];
         if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
         $creator = trim((string)($item['creator'] ?? ''));
