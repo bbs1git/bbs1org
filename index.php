@@ -3263,8 +3263,17 @@ if ($setup_action === 'update') {
     Setup::setup_update_run();
 }
 if (!db_schema_ready()) err('欢迎使用，请先进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
-if (setting('plugin_sync_pending', '0') === '1') {
-    Plugin::plugin_registry_sync();
+$plugin_sync_pending = (string)setting('plugin_sync_pending', '0');
+if ($plugin_sync_pending !== '0' && $plugin_sync_pending !== '') {
+    $plugin_sync_ids = null;
+    if (str_starts_with($plugin_sync_pending, 'p:')) {
+        $plugin_sync_ids = [];
+        foreach (explode(',', substr($plugin_sync_pending, 2)) as $plugin_sync_id) {
+            if (plugin_id_valid($plugin_sync_id)) $plugin_sync_ids[] = $plugin_sync_id;
+        }
+        if ($plugin_sync_ids === []) $plugin_sync_ids = null;
+    }
+    Plugin::plugin_registry_sync($plugin_sync_ids);
     Plugin::plugin_assets_rebuild();
     save_settings_values(['plugin_sync_pending' => '0']);
 }

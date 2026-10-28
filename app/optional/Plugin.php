@@ -380,12 +380,12 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],
         'plugin_' . $id . '_market_topic_id' => (string)(int)$item['topic_id'],
-        'plugin_sync_pending' => '1',
+        'plugin_sync_pending' => self::plugin_sync_pending_mark($id),
     ]);
     self::plugin_assets_mark_dirty();
     self::plugin_registry_flush();
     if (!$auto_enable) return;
-    self::plugin_registry_sync();
+    self::plugin_registry_sync([$id]);
     self::plugin_set_enabled($id, true, true);
     self::plugin_assets_rebuild();
     if (!$plugin_file_loaded) save_settings_values(['plugin_sync_pending' => '0']);
@@ -647,9 +647,6 @@ public static function admin_plugin_entry_toggle_form(array $plugin, string $ent
 public static function admin_plugins_page_html(bool $with_tabs = true): string
 {
     $plugins = self::plugin_registry();
-    $table_conflicts = is_array($GLOBALS['__plugin_table_conflicts'] ?? null)
-        ? $GLOBALS['__plugin_table_conflicts']
-        : self::plugin_table_conflicts(self::plugin_files());
     uasort($plugins, function (array $a, array $b): int {
         $a_time = (int)($a['updated_at'] ?? 0);
         $b_time = (int)($b['updated_at'] ?? 0);
@@ -691,15 +688,13 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         if (!empty($plugin['routes'])) $features[] = count($plugin['routes']) . ' 个路由';
         if (!empty($plugin['admin_tabs'])) $features[] = count($plugin['admin_tabs']) . ' 个后台页';
         $file = str_replace(APP_ROOT . '/', '', (string)($plugin['file'] ?? ''));
-        $plugin_file = (string)($plugin['file'] ?? '');
         $disabled_reason = !$enabled ? trim((string)($plugin['disabled_reason'] ?? '')) : '';
         $reason_line = $disabled_reason !== '' ? '<div class="plugin-disabled-reason"><strong>自动停用原因</strong><span>' . h($disabled_reason) . '</span></div>' : '';
-        $table_conflict_line = isset($table_conflicts[$plugin_file]) ? '<div class="plugin-disabled-reason"><strong>数据表冲突</strong><span>' . h(implode('；', $table_conflicts[$plugin_file])) . '</span></div>' : '';
         $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
         $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
         $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
         $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
-        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . $table_conflict_line . '</div>' . $entry_line . '</li>';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
     }
     if ($plugins) $html .= '<li class="empty-state is-hidden" data-plugin-local-empty hidden>未找到匹配插件</li>';
     else $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
@@ -944,138 +939,6 @@ public static function plugin_assets_rebuild(): array
     return $manifest;
 }
 
-private static function plugin_file_functions(string $file): array
-{
-    $code = @file_get_contents($file);
-    if (!is_string($code) || $code === '') return [];
-    $tokens = token_get_all($code);
-    $functions = [];
-    $namespace = '';
-    $brace_depth = 0;
-    $class_depths = [];
-    $function_depths = [];
-    $pending_class = false;
-    $pending_function = false;
-    $class_tokens = [T_CLASS, T_INTERFACE, T_TRAIT];
-    if (defined('T_ENUM')) $class_tokens[] = T_ENUM;
-    $count = count($tokens);
-    for ($i = 0; $i < $count; $i++) {
-        $token = $tokens[$i];
-        if (is_array($token)) {
-            if ($token[0] === T_NAMESPACE && !$class_depths && !$function_depths) {
-                $name = '';
-                for ($j = $i + 1; $j < $count; $j++) {
-                    $part = $tokens[$j];
-                    if ($part === ';' || $part === '{') break;
-                    if (is_array($part) && in_array($part[0], [T_STRING, T_NS_SEPARATOR, T_NAME_QUALIFIED], true)) $name .= $part[1];
-                }
-                $namespace = trim($name, '\\');
-                continue;
-            }
-            if (in_array($token[0], $class_tokens, true)) {
-                $k = $i - 1;
-                while ($k >= 0 && is_array($tokens[$k]) && in_array($tokens[$k][0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) $k--;
-                $previous = $k >= 0 ? $tokens[$k] : null;
-                if (!is_array($previous) || $previous[0] !== T_DOUBLE_COLON) $pending_class = true;
-                continue;
-            }
-            if ($token[0] !== T_FUNCTION) continue;
-            $nested = (bool)$class_depths || (bool)$function_depths;
-            $pending_function = true;
-            $j = $i + 1;
-            while ($j < $count) {
-                $part = $tokens[$j];
-                if (is_array($part) && in_array($part[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
-                    $j++;
-                    continue;
-                }
-                if ($part === '&' || (is_array($part) && $part[1] === '&')) {
-                    $j++;
-                    continue;
-                }
-                break;
-            }
-            if (!$nested && $j < $count && is_array($tokens[$j]) && $tokens[$j][0] === T_STRING) {
-                $name = ($namespace !== '' ? $namespace . '\\' : '') . (string)$tokens[$j][1];
-                $key = strtolower($name);
-                $functions[$key][] = ['name' => $name, 'line' => (int)$tokens[$j][2]];
-            }
-            continue;
-        }
-        if ($token === '{') {
-            $brace_depth++;
-            if ($pending_class) {
-                $class_depths[] = $brace_depth;
-                $pending_class = false;
-            }
-            if ($pending_function) {
-                $function_depths[] = $brace_depth;
-                $pending_function = false;
-            }
-            continue;
-        }
-        if ($token === ';') {
-            $pending_class = false;
-            $pending_function = false;
-            continue;
-        }
-        if ($token !== '}') continue;
-        if ($class_depths && end($class_depths) === $brace_depth) array_pop($class_depths);
-        if ($function_depths && end($function_depths) === $brace_depth) array_pop($function_depths);
-        $brace_depth = max(0, $brace_depth - 1);
-    }
-    return $functions;
-}
-
-private static function plugin_function_conflicts(array $files): array
-{
-    $definitions = [];
-    $by_file = [];
-    foreach ($files as $file) {
-        $by_file[$file] = self::plugin_file_functions($file);
-        foreach ($by_file[$file] as $name => $items) {
-            foreach ($items as $item) $definitions[$name][] = ['file' => $file] + $item;
-        }
-    }
-    $conflicts = [];
-    foreach ($definitions as $name => $items) {
-        $display = (string)($items[0]['name'] ?? $name);
-        $files_for_name = array_values(array_unique(array_column($items, 'file')));
-        $real_files_for_name = array_values(array_filter(array_map('realpath', $files_for_name), 'is_string'));
-        foreach ($files_for_name as $file) {
-            $same_file_count = count(array_filter($items, static fn(array $item): bool => (string)$item['file'] === $file));
-            if ($same_file_count > 1) $conflicts[$file][] = '插件文件内重复定义函数 ' . $display;
-        }
-        if (count($files_for_name) > 1) {
-            $ids = array_map(static fn(string $file): string => basename(dirname($file)), $files_for_name);
-            foreach ($files_for_name as $file) {
-                $others = array_values(array_filter($ids, static fn(string $id): bool => $id !== basename(dirname($file))));
-                $conflicts[$file][] = '函数 ' . $display . ' 与插件 ' . implode('、', $others) . ' 重复定义';
-            }
-        }
-        if (!function_exists($display)) continue;
-        $defined_internal = false;
-        try {
-            $reflection = new \ReflectionFunction($display);
-            $defined_internal = $reflection->isInternal();
-            $defined_file = $reflection->getFileName();
-        } catch (Throwable $e) {
-            $defined_file = false;
-        }
-        $defined_real = is_string($defined_file) ? realpath($defined_file) : false;
-        foreach ($files_for_name as $file) {
-            if ($defined_real !== false && $defined_real === realpath($file)) continue;
-            if ($defined_real !== false && in_array($defined_real, $real_files_for_name, true)) continue;
-            if ($defined_internal) $source = 'PHP 内置函数';
-            elseif ($defined_real !== false) $source = str_replace(rtrim(str_replace('\\', '/', APP_ROOT), '/') . '/', '', str_replace('\\', '/', $defined_real));
-            else $source = is_string($defined_file) && $defined_file !== '' ? $defined_file : '当前已加载代码';
-            $conflicts[$file][] = '函数 ' . $display . ' 已由 ' . $source . ' 定义';
-        }
-    }
-    foreach ($conflicts as $file => $reasons) $conflicts[$file] = array_values(array_unique($reasons));
-    return $conflicts;
-}
-
 private static function plugin_file_created_tables(string $file): array
 {
     $code = @file_get_contents($file);
@@ -1141,12 +1004,18 @@ private static function plugin_table_conflicts(array $files): array
     return $conflicts;
 }
 
-public static function plugin_registry_sync(): array
+public static function plugin_registry_sync(?array $only_ids = null): array
 {
+    if ($only_ids !== null) {
+        $only_ids = array_values(array_unique(array_filter(array_map('strval', $only_ids), 'plugin_id_valid')));
+        if ($only_ids === []) $only_ids = null;
+    }
+    $only_lookup = $only_ids === null ? null : array_flip($only_ids);
     $existing = [];
     foreach (q("SELECT * FROM app_plugins")->fetchAll() as $row) $existing[(string)$row['id']] = $row;
     $synced = [];
-    $disable = function (string $id, string $file, string $reason) use (&$existing, &$synced): void {
+    $changed = [];
+    $disable = function (string $id, string $file, string $reason) use (&$existing, &$synced, &$changed): void {
         if (!plugin_id_valid($id) || $id === 'plugin_market') return;
         $old = $existing[$id] ?? [];
         $code_hash = is_file($file) ? (hash_file('sha256', $file) ?: '') : '';
@@ -1167,15 +1036,21 @@ public static function plugin_registry_sync(): array
         ], ['id']);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
         $synced[$id] = true;
+        $changed[$id] = true;
     };
     $files = self::plugin_files();
-    $function_conflicts = self::plugin_function_conflicts($files);
-    $GLOBALS['__plugin_table_conflicts'] = self::plugin_table_conflicts($files);
     foreach ($files as $file) {
         $id = basename(dirname($file));
         if ($id === 'plugin_market') continue;
-        if (isset($function_conflicts[$file])) {
-            $disable($id, $file, implode('；', $function_conflicts[$file]));
+        if ($only_lookup !== null && !isset($only_lookup[$id])) {
+            $synced[$id] = true;
+            continue;
+        }
+        $old = $existing[$id] ?? [];
+        $code_hash = hash_file('sha256', $file) ?: '';
+        // 文件没变就沿用上次同步结果：不 include、不解析源码、不写库。
+        if ($code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && plugin_registry_row($old)) {
+            $synced[$id] = true;
             continue;
         }
         if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) {
@@ -1202,7 +1077,6 @@ public static function plugin_registry_sync(): array
         $id = (string)$plugin['id'];
         $old = $existing[$id] ?? [];
         $installed_at = (int)($old['installed_at'] ?? 0) ?: now();
-        $code_hash = hash_file('sha256', $file) ?: '';
         $updated_at = isset($old['updated_at']) && (string)($old['code_hash'] ?? '') === $code_hash
             ? (int)$old['updated_at']
             : now();
@@ -1229,15 +1103,27 @@ public static function plugin_registry_sync(): array
             'updated_at' => $updated_at,
         ], ['id']);
         $synced[$id] = true;
+        $changed[$id] = true;
     }
-    foreach (array_keys($existing) as $id) {
-        if (isset($synced[$id])) continue;
-        q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
-        q("DELETE FROM app_plugins WHERE id=?", [$id]);
+    if ($only_ids === null) {
+        foreach (array_keys($existing) as $id) {
+            if (isset($synced[$id])) continue;
+            q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
+            q("DELETE FROM app_plugins WHERE id=?", [$id]);
+        }
     }
     $plugins = self::plugin_registry(null, true);
     plugins(true);
-    foreach ($plugins as $plugin) Cron::plugin_cron_sync($plugin);
+    foreach ($plugins as $plugin) {
+        $pid = (string)($plugin['id'] ?? '');
+        if ($only_ids !== null) {
+            // 定向同步只处理本次上传/安装的插件，其他插件的计划任务保持原样。
+            if (!isset($changed[$pid])) continue;
+        } elseif (!isset($changed[$pid]) && !plugin_enabled($plugin)) {
+            continue;
+        }
+        Cron::plugin_cron_sync($plugin);
+    }
     return $plugins;
 }
 
@@ -1310,6 +1196,21 @@ public static function plugin_enable_uploaded_page(): void
     self::plugin_assets_rebuild();
     set_flash('插件 ' . $id . ' 已上传、同步并启用');
     go(admin_url(['tab' => 'plugins']));
+}
+
+/** 记录待同步插件：上传/安装时已经知道是哪个插件，只重新解析它，不扫描全部插件文件。 */
+private static function plugin_sync_pending_mark(string $id): string
+{
+    $pending = (string)setting('plugin_sync_pending', '0');
+    if ($pending === '1') return '1';
+    $ids = [];
+    if (str_starts_with($pending, 'p:')) {
+        foreach (explode(',', substr($pending, 2)) as $value) {
+            if (plugin_id_valid($value)) $ids[] = $value;
+        }
+    }
+    $ids[] = $id;
+    return 'p:' . implode(',', array_slice(array_unique($ids), -100));
 }
 
 private static function plugin_upload(array $file): array
@@ -1388,7 +1289,7 @@ private static function plugin_upload(array $file): array
     @unlink($upload_file);
     q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='' WHERE id=?", [$id]);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
-    save_settings_values(['plugin_sync_pending' => '1', 'plugin_assets_dirty' => '1']);
+    save_settings_values(['plugin_sync_pending' => self::plugin_sync_pending_mark($id), 'plugin_assets_dirty' => '1']);
     self::plugin_registry_flush();
     return ['id' => $id];
 }
@@ -1411,14 +1312,6 @@ public static function plugin_set_enabled(string $id, bool $enabled, bool $run_i
     $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
     if ($enabled) {
-        $row = one("SELECT status,disabled_reason FROM app_plugins WHERE id=?", [$id]);
-        $disabled_reason = trim((string)($row['disabled_reason'] ?? ''));
-        if ((string)($row['status'] ?? '') === 'error' && str_contains($disabled_reason, '函数')) {
-            err('插件函数冲突尚未重新同步：' . $disabled_reason);
-        }
-        $file = (string)($plugin['file'] ?? '');
-        $conflicts = self::plugin_function_conflicts(self::plugin_files());
-        if ($file !== '' && isset($conflicts[$file])) err('插件存在函数冲突：' . implode('；', $conflicts[$file]) . '。请修正后重新同步插件');
         plugin_call($plugin, function () use ($plugin, $run_install): void {
             if (($run_install || !plugin_enabled($plugin)) && plugin_callback_exists($plugin['install'] ?? null)) {
                 call_user_func((string)$plugin['install'], $plugin);
