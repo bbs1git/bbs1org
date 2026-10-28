@@ -203,7 +203,13 @@ final class Admin
         if ($type === 'group') { $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0]; $tab = 'groups'; $body = input('名称', 'name', $g['name'], 'text', true) . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0)); }
         elseif ($type === 'forum') { $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => '']; if (!$f) err('版块不存在'); $tab = 'forums'; $body = input('名称', 'name', $f['name'], 'text', true) . number_input('排序', 'sort', $f['sort']) . textarea('描述', 'description', $f['description']) . self::forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . self::forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . self::forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组'); }
         else err('参数错误');
-        page('编辑', self::layout($tab, '<div class="form-panel"><h2>编辑</h2><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
+        $is_new = id() === 0;
+        $label = $type === 'group' ? '用户组' : '版块';
+        $title = ($is_new ? '添加' : '编辑') . $label;
+        $summary = '<div class="admin-plugin-summary"><strong>' . h($title) . '</strong><span>' . h($is_new
+            ? '填写后保存，返回列表即可看到新的' . $label . '。'
+            : ($type === 'group' ? '修改名称与管理权限，保存后立即生效。' : '修改名称、排序与访问权限，保存后立即生效。')) . '</span></div>';
+        page($title, self::layout($tab, '<div class="form-panel admin-form-panel"><div class="admin-form-head">' . $summary . '</div><form method="post">' . form_token() . '<input type="hidden" name="type" value="' . h($type) . '"><input type="hidden" name="id" value="' . id() . '">' . $body . '<button>保存</button></form></div>'));
     }
 
     public static function route(): void

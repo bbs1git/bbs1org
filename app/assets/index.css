@@ -613,11 +613,6 @@ h3 {
     margin: 0 0 10px
 }
 
-.tab-bar.plugin-admin-market-tabs {
-    justify-content: center;
-    margin: 12px 0 0
-}
-
 .tab-bar>.tab {
     flex: 0 0 auto
 }
@@ -2449,6 +2444,22 @@ input[type=checkbox][checked]:not(:checked) {
     margin: 12px 0
 }
 
+/* 后台设置 / 版块 / 用户组的添加编辑表单：外层开放式后需要自己成块 */
+.main-panel:has(>.tab-bar.admin-tabs)>.form-panel {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel)
+}
+
+.admin-form-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 12px
+}
+
 .form-panel.auth-panel {
     margin-top: 0
 }
@@ -3939,11 +3950,11 @@ table.list.admin-bulk-list {
 }
 
 .admin-list-panel {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--panel);
-    box-shadow: 0 10px 26px var(--shadow-base);
-    overflow: hidden
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible
 }
 
 .admin-list-panel:has(> table.list) {
@@ -4002,8 +4013,32 @@ table.list.admin-bulk-list {
 
 .admin-list-head {
     padding: 12px;
-    border-bottom: 1px solid var(--line-soft);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
     background: var(--bg)
+}
+
+.admin-list-head+.admin-manage-list:not(.plugin-list) {
+    margin-top: 10px
+}
+
+.plugin-panel-body+.admin-manage-list {
+    margin-top: 10px
+}
+
+.admin-list-head+.tab-bar {
+    margin-top: 10px
+}
+
+.tab-bar+.plugin-list {
+    padding-top: 0
+}
+
+.admin-list-panel>.admin-manage-list:not(.plugin-list) {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    overflow: hidden
 }
 
 .admin-list-item {
@@ -4240,6 +4275,11 @@ table.list.admin-bulk-list {
     min-width: 0
 }
 
+/* 正文卡片里直接放标题块时，标题与下方表单/列表拉开间距 */
+.plugin-panel-body>.admin-plugin-summary {
+    margin-bottom: 10px
+}
+
 .admin-plugin-summary strong {
     color: var(--text);
     font-size: var(--font-size-lg);
@@ -4255,17 +4295,61 @@ table.list.admin-bulk-list {
 .plugin-list {
     display: grid;
     gap: 10px;
-    padding: 10px;
+    padding: 10px 0 0;
+}
+
+.plugin-list.plugin-market-list,.plugin-list[data-plugin-local-list] {
+    grid-template-columns: repeat(2,minmax(0,1fr))
+}
+
+@media(max-width: 900px) {
+    .plugin-list.plugin-market-list,.plugin-list[data-plugin-local-list] {
+        grid-template-columns: minmax(0,1fr)
+    }
 }
 
 .plugin-item.admin-object-row {
     align-items: start;
     gap: 10px;
-    min-height: 86px;
+    min-height: 0;
     border: 1px solid var(--line-soft);
     border-radius: 8px;
     background: transparent;
     transition: background var(--transition-normal),border-color var(--transition-normal)
+}
+
+.plugin-item.admin-object-row:hover {
+    border-color: var(--line)
+}
+
+.plugin-item.plugin-has-required {
+    position: relative
+}
+
+.plugin-required-stamp {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 7px;
+    border: 1.5px solid var(--danger);
+    border-radius: 4px;
+    color: var(--danger);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    letter-spacing: 1px;
+    line-height: 1.3;
+    opacity: .72;
+    transform: rotate(-8deg);
+    pointer-events: none;
+    user-select: none
+}
+
+.plugin-item.plugin-has-required .plugin-title-line {
+    padding-right: 56px
 }
 
 .plugin-item.plugin-local-enabled {
@@ -4273,7 +4357,7 @@ table.list.admin-bulk-list {
 }
 
 .plugin-item.plugin-local-disabled {
-    background: transparent
+    background: var(--panel)
 }
 
 .plugin-item.plugin-market-installed {
@@ -4293,7 +4377,7 @@ table.list.admin-bulk-list {
 }
 
 .plugin-item.plugin-local-disabled:hover {
-    background: transparent
+    background: var(--bg)
 }
 
 .plugin-item.plugin-market-available:hover {
@@ -4309,6 +4393,69 @@ table.list.admin-bulk-list {
     align-items: center;
     gap: 8px;
     min-width: 0
+}
+
+.plugin-row-detail {
+    display: grid;
+    gap: 6px;
+    min-width: 0
+}
+
+.plugin-desc-row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 4px 8px;
+    min-width: 0
+}
+
+.plugin-desc-row .plugin-desc {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1
+}
+
+.plugin-item.is-desc-open .plugin-desc-row .plugin-desc {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset
+}
+
+.plugin-item.is-desc-open .plugin-desc-row {
+    align-items: start
+}
+
+.plugin-item.is-desc-open .plugin-desc-toggle {
+    align-self: start;
+    line-height: 1.65
+}
+
+.plugin-desc-toggle {
+    align-self: center;
+    min-height: 0;
+    margin: 0;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-subtle);
+    font-size: var(--font-size-xs);
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
+    opacity: .8;
+    cursor: pointer
+}
+
+.plugin-desc-toggle:hover {
+    background: transparent;
+    color: var(--brand);
+    opacity: 1
+}
+
+.plugin-desc-toggle[hidden] {
+    display: none
 }
 
 .plugin-title-line .admin-content-title {
@@ -4380,6 +4527,23 @@ table.list.admin-bulk-list {
     color: var(--brand-hover)
 }
 
+.plugin-market-price {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap
+}
+
 .plugin-ops button[aria-busy="true"] {
     cursor: wait;
     opacity: .7
@@ -4431,7 +4595,11 @@ table.list.admin-bulk-list {
 }
 
 .plugin-panel-body {
-    padding: 12px
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel)
 }
 
 .plugin-settings-form {
@@ -4523,8 +4691,12 @@ table.list.admin-bulk-list {
 
 .plugin-admin-page {
     display: grid;
-    gap: 4px;
+    gap: 10px;
     min-width: 0
+}
+
+.plugin-admin-page>.plugin-manage-panel {
+    margin-top: 0
 }
 
 .plugin-admin-page>.admin-list-panel {
@@ -4940,7 +5112,7 @@ table.list.admin-bulk-list {
     .tab-bar.plugin-tabs {
         width: 100%;
         margin: 0 0 10px;
-        padding: 0 0 8px;
+        padding: 0;
         gap: 18px
     }
 
@@ -5107,12 +5279,12 @@ table.list.admin-bulk-list {
 
     .plugin-market-entry .plugin-title-line {
         align-items: flex-start;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 6px
     }
 
     .plugin-market-entry .plugin-title-line .admin-content-title {
-        flex-basis: 100%
+        flex: 0 1 auto
     }
 
     .admin-content-title {

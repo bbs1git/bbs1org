@@ -40,6 +40,39 @@ const filterLocalPlugins = e => {
 };
 document.addEventListener("input", filterLocalPlugins);
 document.addEventListener("search", filterLocalPlugins);
+const pluginDescOf = button => {
+    const row = button.closest(".plugin-desc-row");
+    return row ? row.querySelector(".plugin-desc") : null;
+};
+const syncPluginDescToggles = () => {
+    document.querySelectorAll("[data-plugin-desc-toggle]").forEach(button => {
+        const desc = pluginDescOf(button);
+        if (!desc) return;
+        const open = (button.closest(".plugin-item")?.classList.contains("is-desc-open")) || false;
+        button.hidden = !open && desc.scrollHeight <= desc.clientHeight + 1;
+    });
+};
+const togglePluginDesc = button => {
+    const row = button.closest(".plugin-item");
+    if (!row) return;
+    const open = !row.classList.contains("is-desc-open");
+    row.classList.toggle("is-desc-open", open);
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    button.textContent = open ? "收起" : "展开";
+    syncPluginDescToggles();
+};
+let pluginDescSyncTimer = 0;
+const schedulePluginDescSync = () => {
+    clearTimeout(pluginDescSyncTimer);
+    pluginDescSyncTimer = setTimeout(syncPluginDescToggles, 60);
+};
+document.addEventListener("click", e => {
+    const button = e.target.closest("[data-plugin-desc-toggle]");
+    if (button) togglePluginDesc(button);
+});
+window.addEventListener("load", syncPluginDescToggles);
+window.addEventListener("resize", schedulePluginDescSync);
+if (window.MutationObserver && document.body) new MutationObserver(schedulePluginDescSync).observe(document.body, {childList: true, subtree: true});
 const markButtonPending = button => {
     if (!button) return;
     button.classList.add("is-click-pending");
