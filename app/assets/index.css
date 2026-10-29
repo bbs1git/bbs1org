@@ -2440,10 +2440,6 @@ input[type=checkbox][checked]:not(:checked) {
     border-color: var(--danger);
 }
 
-.form-panel {
-    margin: 12px 0
-}
-
 /* 后台设置 / 版块 / 用户组的添加编辑表单：外层开放式后需要自己成块 */
 .main-panel:has(>.tab-bar.admin-tabs)>.form-panel {
     padding: 12px;
@@ -2460,23 +2456,15 @@ input[type=checkbox][checked]:not(:checked) {
     margin: 0 0 12px
 }
 
-.form-panel.auth-panel {
-    margin-top: 0
-}
-
-.form-panel h2 {
-    margin: 15px 0
-}
-
 .form-panel form {
     display: grid;
-    gap: 2px
+    gap: 10px
 }
 
 .form-panel .grid {
     grid-template-columns: 1fr;
     gap: 5px;
-    margin: 0 0 8px
+    margin: 0
 }
 
 .form-panel .grid>span {
@@ -2545,7 +2533,8 @@ input[type=checkbox][checked]:not(:checked) {
 }
 
 .form-panel button {
-    justify-self: start
+    justify-self: start;
+    min-width: 92px
 }
 
 .form-panel .muted {
@@ -2700,10 +2689,6 @@ input[type=checkbox][checked]:not(:checked) {
     min-height: 240px
 }
 
-.topic-form-actions {
-    margin-top: 8px
-}
-
 .topic-form-panel .topic-extension {
     display: grid;
     gap: 10px;
@@ -2716,7 +2701,7 @@ input[type=checkbox][checked]:not(:checked) {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 8px;
     min-width: 0;
-    margin: 0 0 8px
+    margin: 0
 }
 
 .topic-form-panel .topic-extension-card {
@@ -2793,7 +2778,7 @@ input[type=checkbox][checked]:not(:checked) {
     padding: 0;
     border: 0;
     border-radius: 0;
-    background: var(--panel)
+    background: var(--bg)
 }
 
 .topic-form-panel .topic-extension-panel>details>summary {
@@ -2804,7 +2789,7 @@ input[type=checkbox][checked]:not(:checked) {
     gap: 8px;
     min-height: 48px;
     padding: 0 14px;
-    background: var(--panel);
+    background: var(--bg);
     color: var(--text);
     font-size: var(--font-size-md);
     font-weight: 700;
@@ -3108,6 +3093,7 @@ input[type=checkbox][checked]:not(:checked) {
     align-items: center!important;
     justify-content: center!important;
     justify-self: start!important;
+    min-width: 0!important;
     min-height: 28px!important;
     padding: 0 10px!important;
     border: 1px solid var(--line)!important;
@@ -3230,7 +3216,6 @@ input[type=checkbox][checked]:not(:checked) {
 }
 
 .reply-panel {
-    margin: 12px 0 0;
     padding: 12px 0;
     border-top: 1px solid var(--line);
     background: var(--panel);

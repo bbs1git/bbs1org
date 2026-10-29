@@ -3042,7 +3042,8 @@ function topic_edit_page(): void
     if ($form_extra !== '') $form_extra = '<div class="topic-extension">' . $form_extra . '</div>';
     $form_sidebar = (string)hook('topic.form_sidebar', '', ['topic' => $t, 'editing' => $editing]);
     $topic_loading_text = $editing ? '正在保存' : '正在发帖';
-    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post" enctype="multipart/form-data" data-slot="attachment.uploader topic.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">保存</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
+    $topic_submit_text = $editing ? '保存' : '发表';
+    page($title, shell_html('<div class="form-panel topic-form-panel"><h2>' . $title . '</h2><form method="post" enctype="multipart/form-data" data-slot="attachment.uploader topic.form_extra">' . form_token() . '<input type="hidden" name="id" value="' . (int)$t['id'] . '">' . select_forum((int)$t['forum_id']) . input('标题', 'title', $t['title'], 'text', true) . textarea('内容', 'body', $t['body'], true) . $attachments . $reply_order . $form_extra . $topic_ops . '<div class="topic-form-actions"><button type="submit" data-loading-text="' . h($topic_loading_text) . '">' . h($topic_submit_text) . '</button></div></form></div>', sidebar_stack_html(array_filter([sidebar_user_card_html(), $form_sidebar], 'strlen'))));
 }
 function reply_edit_page(): void
 {
