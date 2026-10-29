@@ -22,7 +22,7 @@ public static function plugin_cron_sync(array $plugin): void
         try {
             $interval = self::cron_task_interval($plugin, $task);
             $callback = (string)($task['callback'] ?? '');
-            $enabled = plugin_enabled($plugin) ? 1 : 0;
+            $enabled = Plugin::plugin_enabled($plugin) ? 1 : 0;
         } catch (Throwable $e) {
             debug_log_write('[cron] ' . $plugin_id . ':' . $name . ' invalid, skipped', $e);
             continue;
@@ -52,8 +52,8 @@ public static function cron_task_interval(array $plugin, array $task): int
 {
     $interval = $task['interval'] ?? 0;
     if (is_string($interval) && !is_numeric($interval)) {
-        plugin_load($plugin);
-        $interval = plugin_callback_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
+        Plugin::plugin_load($plugin);
+        $interval = Plugin::plugin_callback_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
     }
     return min(31536000, max(60, (int)$interval));
 }
@@ -157,7 +157,7 @@ public static function cron_run(): array
     $result = ['due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
     try {
         try { self::cron_log_prune(); } catch (Throwable $e) { debug_log_write('[cron] log prune failed', $e); }
-        $plugins = plugins();
+        $plugins = Plugin::plugins();
         while ($task = self::cron_task_claim(time())) {
             $plugin_id = (string)$task['plugin_id'];
             $task_name = (string)$task['task_name'];
@@ -172,10 +172,10 @@ public static function cron_run(): array
             try { $log_id = self::cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
             catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
             try {
-                if (!$plugin || !plugin_enabled($plugin)) throw new RuntimeException('插件未启用或不存在');
-                plugin_load($plugin);
+                if (!$plugin || !Plugin::plugin_enabled($plugin)) throw new RuntimeException('插件未启用或不存在');
+                Plugin::plugin_load($plugin);
                 $callback = (string)$task['callback'];
-                if (!plugin_callback_exists($callback)) throw new RuntimeException('计划任务函数不存在');
+                if (!Plugin::plugin_callback_exists($callback)) throw new RuntimeException('计划任务函数不存在');
                 $definition = (array)($plugin['cron'][$task_name] ?? []);
                 $definition['interval'] = (int)$task['interval_seconds'];
                 $value = $callback($plugin, $definition);

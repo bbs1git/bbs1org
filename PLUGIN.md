@@ -6,7 +6,7 @@
 
 1. 明确插件 ID、功能边界、配置项、数据归属、页面入口、权限要求、外部请求和计划任务。
 2. 优先复用核心函数、Hook、路由、后台标签和相邻插件的成熟模式；插件机制能够完成时，不修改 `index.php` 或核心资源。
-3. 只在 `app/plugins/插件ID/plugin.php` 内实现插件逻辑，固定 CSS 和 JavaScript 由 manifest 的 `assets` 提供。
+3. 只在 `app/plugins/插件ID/plugin.php` 内实现插件逻辑，固定 CSS 和 JavaScript 由 manifest 的 `assets` 提供；只在少数页面使用的资源按「插件资源按需加载」声明 `assets_mode` 并登记。
 4. 新建插件时验证默认配置、安装、启用、停用和卸载；修改插件时兼容旧配置与旧数据，并至少递增补丁版本；涉及用户可感知能力时同步更新描述。
 5. 完成后执行 PHP 语法检查、差异检查，并按本文件末尾的清单复核。
 
@@ -18,7 +18,7 @@
 - manifest 中注册已有核心 Hook 时，必须使用核心定义的原始名称，例如 `topic.after_save`；只有插件自行定义并通过 `hook()` 或 `fire()` 调用的私有 Hook 才必须以插件 ID 开头，例如 `foo_bar.after_import`。不得以兼容为由定义或保留无前缀的插件私有别名。
 - 禁止以 `function_exists()`、`class_exists()` 或类似兼容分支定义无前缀的插件函数、类或常量。插件之间不得直接调用对方的函数、类或常量，也不得依赖对方的 CSS/JavaScript；确需共享代码能力时，由提供方插件注册以自身 ID 为前缀的私有 Hook（如 `foo_bar.render_card`），消费方插件通过 `hook()` 调用并传入缺省值：提供方未安装或未启用时 Hook 无人注册、原值返回，消费方据此优雅降级，不得出现依赖错误。仅全站通用的能力才移入核心，并使用正式的核心函数或 Hook。
 - `plugin.php` 开头必须包含 `if (!defined('APP_ROOT')) exit;`。
-- manifest 必须准确声明 `id`、`name`、`version`、`description`、`author`；按需声明 `assets`、`hooks`、`routes`、`admin_tabs`、`cron`、`install`、`uninstall`。
+- manifest 必须准确声明 `id`、`name`、`version`、`description`、`author`；按需声明 `assets`、`assets_mode`、`hooks`、`routes`、`admin_tabs`、`cron`、`install`、`uninstall`。
 - `description` 面向普通用户，只说明用户可感知的功能和收益，语言简短易懂；不得写技术实现、协议或依赖、数据库与任务调度等技术名词，也不得写版本更新点或开发说明。
 - 所有插件源码修改，无论是功能、修复、样式、脚本还是重构，都必须同步提升该插件 manifest 的 `version`，至少递增补丁版本；不得沿用原版本号。涉及用户可感知能力时，`description` 也必须与当前能力一致。
 - 插件读写路径使用 `DATA_DIR`、`PLUGIN_DIR`、`UPLOAD_DIR` 等核心常量，禁止硬编码部署目录；缓存和运行数据统一放入 `DATA_DIR`，公开附件地址由附件所属插件生成，共享上传目录分片使用 `upload_hash_dir()`。
@@ -172,7 +172,7 @@ app_db_upsert('plugin_hello_items', [
 - 所有外部数据和用户数据输出到 HTML 前使用 `h()`。URL 先由核心 URL 函数生成，再转义。
 - 固定 CSS 和 JavaScript 只能通过 manifest `assets` 声明。资源函数无参数并返回源码，不包含 `<style>`、`<script>` 标签，也不能依赖当前用户、页面、CSRF 或实时请求数据；动态值通过插件 HTML 的 `data-*` 属性传递。
 - 插件 JavaScript 需要定位核心 Hook 的页面承载元素时，使用 `[data-slot~="hook.name"]`；同一元素可用空格声明多个 Hook 插槽。重复插槽先通过帖子 ID、`data-floor`、`data-plugin-id` 或插件自有根容器缩小范围，不依赖核心内部层级选择器。
-- 不直接修改自动生成的 `app/assets/plugins.css` 和 `app/assets/plugins.js`。启用、停用、卸载、市场安装、更新和后台同步插件时，系统会重建这些资源。
+- 不直接修改自动生成的 `app/assets/plugins.css` 和 `app/assets/plugins.js`。启用、停用、卸载、市场安装、更新和后台同步插件时，系统会重建这些资源。只有少数页面才用到的重型资源可改为按需加载，见「插件资源按需加载」。
 - CSS 类名、ID、变量、`data-*` 属性、`@keyframes`、`@property` 和 `container-name` 必须使用插件 ID 前缀；JavaScript 函数、顶层变量、全局变量、自定义事件名、HTML `id` 和锚点也必须使用对应前缀。生成后的插件 JavaScript 分块由核心自动包进匿名 IIFE 并附带 try/catch（形如 `(function(){try{ ... }catch(_bbs1Err){console.error('[插件ID]',_bbs1Err)}})();`），插件代码因此运行在自身函数作用域内、异常不会外溢，顶层 `const`/`let` 与其他插件互不冲突，插件无需再自行包裹 IIFE；CSS 分块仅加 `/* 插件ID */` 注释分隔，不做包裹。即便如此，函数、顶层变量、全局变量、自定义事件仍需加前缀，导出到 `window` 的能力必须挂在 `window.<插件ID>` 上。Cookie、`localStorage`、`sessionStorage`、`BroadcastChannel` 的插件键名同样必须前缀化。选择器限制在插件自己的根容器内；不要覆盖 `body`、通用标签、核心通用类或其他插件类，也不能依赖其他插件的样式。
 - 颜色优先使用系统变量：背景和边框使用 `--bg`、`--panel`、`--line`、`--line-soft`；文字使用 `--text`、`--text-muted`、`--text-subtle`、`--text-disabled`；品牌和交互使用 `--brand`、`--brand-hover`、`--brand-soft`、`--focus-ring`、`--focus-halo`；状态使用 `--success`、`--danger`、`--warning`、`--info` 及对应 `*-soft`；反色、遮罩和阴影使用 `--inverse`、`--inverse-border`、`--inverse-text`、`--color-dark-rgb`（遮罩 RGB 分量源）、`--backdrop`、`--shadow-base`、`--shadow-medium`。
 - 界面字号统一使用 CSS 变量：`--font-size-xxs` 为 10px、`--font-size-xs` 为 11px、`--font-size-sm` 为 12px、`--font-size-md` 为 14px、`--font-size-lg` 为 16px、`--font-size-xl` 为 18px。`font-size` 与 `font` 中的字号禁止直接写数字；需要例外字号时先定义语义化变量，再使用该变量。
@@ -268,6 +268,56 @@ window.bbs1?.showToast('已保存');
 - 不要覆盖 `window.bbs1`，也不要在其中添加插件自己的字段；插件自己的全局导出使用 `window.<插件ID>` 形式的前缀命名。
 - 需要页面就绪时再初始化：核心脚本以 `defer` 加载，DOM 已可用，但若依赖其他插件渲染的节点，应使用事件委托或 `MutationObserver`。
 
+### 插件资源按需加载
+
+默认情况下，启用插件的 `assets` 会被合并进公共合集 `app/assets/plugins.css` 和 `app/assets/plugins.js`，全站每个页面都会加载。功能只在少数页面出现的插件（编辑器、播放器、图表、大尺寸样式）会拖慢所有页面，这类插件应改为按需加载。
+
+**声明方式**：manifest 增加 `'assets_mode' => 'ondemand'`。值不是 `ondemand` 时按默认（公共合集）处理，无需为旧插件补字段。
+
+**登记方式**：在负责渲染该页面的 Hook 里调用 `plugin_asset_require('插件ID')`。核心按页面收集并去重，公共合集照常输出，被登记的插件再追加自己的 `<link>` / `<script>`；CSS 落在 `<head>`，JavaScript 在页脚以 `defer` 加载。未登记的页面完全不加载该资源。
+
+```php
+function hello_editor_css(): string
+{
+    return '.hello-editor{min-height:160px}';
+}
+
+function hello_editor_js(): string
+{
+    return "document.querySelectorAll('[data-hello-editor]').forEach(function (root) { root.dataset.ready = '1'; });";
+}
+
+function hello_editor_form_extra($html, array $ctx): string
+{
+    plugin_asset_require('hello');
+    return (string)$html . '<div class="hello-editor" data-hello-editor></div>';
+}
+
+return [
+    'id' => 'hello',
+    'name' => 'Hello 编辑器',
+    'version' => '1.0.0',
+    'description' => '在发帖表单里提供一个可复用的输入区。',
+    'author' => 'your-name',
+    'assets' => ['css' => 'hello_editor_css', 'js' => 'hello_editor_js'],
+    'assets_mode' => 'ondemand',
+    'hooks' => ['topic.form_extra' => 'hello_editor_form_extra'],
+];
+```
+
+规则：
+
+- 登记必须发生在页面输出之前，也就是插件自己的 Hook 里。核心在整页模板渲染完成后统一收集，因此 `page.footer` 这类页脚 Hook 里的登记同样有效。
+- 同一个插件多次登记无副作用，核心自动去重；不同插件之间互不影响，输出顺序按登记顺序。
+- `assets` 函数仍必须无参数、返回源码、不依赖当前用户或页面数据，与默认模式一致；动态值通过 `data-*` 传递。
+- 按需资源由核心生成到 `app/assets/plugins/<插件ID>.css|js`，插件不要手写或提交这些文件，升级器也不会覆盖该目录。生成与重建由启用、停用、卸载、市场安装、更新和后台同步自动完成；文件缺失时页面首次访问会补生成。
+- 参数是插件 ID，只有已启用且声明为按需模式的插件会被接受；未启用、未声明按需或 ID 非法时静默忽略。插件之间的直接调用仍受「不得依赖其他插件」约束，通常只登记自己。
+- 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核没有这个函数，且会忽略 `assets_mode`、把资源照旧并入公共合集，兜底后界面正常、只是不按需；裸调则会抛错并被自动停用插件。兜底只包住调用，不要用它定义无前缀函数。
+- 页面内的 AJAX 局部 HTML 不会触发资源输出：局部内容若要动态用上按需资源，需在首次整页渲染时已登记，或由插件自行保证依赖可用。
+- 从默认模式改成按需模式（或反向）后，系统会在对应插件更新或下次后台同步时迁移资源位置：移入独立文件并删除合集里的旧分块，反向则写回公共合集并删除独立文件。迁移不影响其他插件。
+
+**何时不要用按需加载**：几乎每页都需要的资源（导航、主题列表样式、全局脚本）留在公共合集更划算，否则每页都要多一次请求。只在少数路由出现的功能才适合按需。
+
 ## 安全、文件与外部请求
 
 - 文件名和路径必须经过白名单验证，防止路径穿越。上传和远程文件限制协议、主机、类型和大小，并拒绝内网地址、凭据 URL 和脚本文件。
@@ -341,6 +391,7 @@ function hello_collect(array $plugin, array $task): string
 - 数据库占位符、唯一约束、索引、事务和 SQLite/MySQL/PostgreSQL 兼容性已检查：所有 `db_driver()` 分支都显式覆盖 `pgsql`（见「跨库 SQL 速查」），未出现 `LIMIT m,n`、`AUTOINCREMENT`、`date(x,'unixepoch')` 这类只在 MySQL 或 SQLite 成立的写法。
 - 只要动过 `plugin.php` 一行（含注释、空白、行尾），manifest 的 `version` 就必须递增；只改核心文件时不要去动插件版本号。漏升的后果是实打实的：后台「可更新」提示由 `Plugin::plugin_market_update_available()` 的 `version_compare($remote, $local, '>')` 判定，版本号不变就永远不提示更新；插件导出文件名是 `插件ID_版本.php1`，同版本号会互相覆盖。manifest 在文件末尾，核对时以最后的 `return [...]` 为准，不要取文件里第一处 `'version'`。
 - 插件描述已同步更新，未修改插件职责之外的核心文件或生成资源。
+- 按需模式已核对：声明了 `assets_mode` 的插件，每个会用到其界面的页面都在对应 Hook 里调用了 `plugin_asset_require()`；未登记该资源的页面确认不加载它，已登记的页面确认标签只出现一次。
 - 已运行 `php -l app/plugins/插件ID/plugin.php` 和 `git diff --check`。
 - 交付说明列出行为变化、迁移影响、验证结果，以及未执行的外部副作用操作。
 
@@ -374,7 +425,7 @@ function hello_collect(array $plugin, array $task): string
 | 论坛数据 | `forum_by_id()` `forums_cache()` `select_forum()` `refresh_topic_stats()` `pinned_topic_ids()` `create_notification()` `notification_box()` `notifications_total()` `notifications_list()` `notifications_unread_total()` `mark_notifications_read()` |
 | 列表渲染 | `topic_list_row($row, $sort)` `topic_list_select_columns()` `rows_by_ids()` `attach_topic_list_users()`（列表行会自动整页预载，见「列表行批量预载」） `topic_list_preload($rows)`（仅行不经 `attach_topic_list_users()` 等特殊场景需手动调用） |
 | 全文检索 | `topic_fts_sync()` `reply_fts_sync()` `topic_fts_delete()` `reply_fts_delete()` `content_search_condition()` `search_index_available()` `search_index_rebuild()` `search_like_pattern()` |
-| 插件 | `plugins()` `plugin_load()` `plugin_config()` `plugin_save_config()` `plugin_id_valid()` `plugin_registry_row()` `plugin_enabled()` `plugin_uses_entry()` `plugin_entry_enabled()` `plugin_call()` |
+| 插件 | `plugins()` `plugin_load()` `plugin_config()` `plugin_save_config()` `plugin_id_valid()` `plugin_registry_row()` `plugin_enabled()` `plugin_uses_entry()` `plugin_entry_enabled()` `plugin_call()` `plugin_asset_require()` |
 
 ## Hooks 与展示位置
 

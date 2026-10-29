@@ -21,6 +21,7 @@ define('UPLOAD_DIR', APP_DIR . '/upload');
 define('PLUGIN_DIR', APP_DIR . '/plugins');
 define('PLUGIN_CSS_FILE', ASSET_DIR . '/plugins.css');
 define('PLUGIN_JS_FILE', ASSET_DIR . '/plugins.js');
+define('PLUGIN_ASSET_DIR', ASSET_DIR . '/plugins');
 define('CRON_LOG_RETENTION_SECONDS', 604800);
 define('CRON_LEASE_SECONDS', 1800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
@@ -510,7 +511,7 @@ register_shutdown_function(function (): void {
 });
 function plugin_id_valid(string $id): bool
 {
-    return preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id) === 1;
+    return Plugin::plugin_id_valid($id);
 }
 function plugin_runtime_cache_reset(): void
 {
@@ -526,142 +527,72 @@ function plugin_json_encode(array $value): string
 {
     return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 }
-function plugin_update_row(string $id, array $values, bool $touch_updated_at = true): void
-{
-    if (!plugin_id_valid($id)) throw new InvalidArgumentException('插件 ID 无效');
-    $allowed = array_flip(['name', 'version', 'file', 'code_hash', 'manifest_json', 'config_json', 'entries_json', 'enabled', 'status', 'disabled_reason', 'installed_at']);
-    if (array_diff_key($values, $allowed)) throw new InvalidArgumentException('插件字段无效');
-    foreach (['manifest_json', 'config_json', 'entries_json'] as $field) {
-        if (array_key_exists($field, $values)) $values[$field] = plugin_json_encode(plugin_json_decode($values[$field]) ?? []);
-    }
-    if (!$values) return;
-    if ($touch_updated_at) $values['updated_at'] = now();
-    $fields = array_keys($values);
-    q('UPDATE app_plugins SET ' . implode('=?,', $fields) . '=? WHERE id=?', array_merge(array_values($values), [$id]));
-}
-function plugin_registry_row(array $row): ?array
-{
-    $id = (string)($row['id'] ?? '');
-    $file = str_replace('\\', '/', ltrim((string)($row['file'] ?? ''), '/'));
-    $manifest = plugin_json_decode($row['manifest_json'] ?? '', null);
-    if (!plugin_id_valid($id) || $file !== 'app/plugins/' . $id . '/plugin.php' || $manifest === null) return null;
-    return array_merge($manifest, [
-        'id' => $id,
-        'name' => (string)$row['name'],
-        'version' => (string)$row['version'],
-        'enabled' => (int)$row['enabled'] === 1,
-        'disabled_reason' => (string)($row['disabled_reason'] ?? ''),
-        'updated_at' => (int)($row['updated_at'] ?? 0),
-        'file' => APP_ROOT . '/' . $file,
-        'config' => plugin_json_decode($row['config_json'] ?? '') ?? [],
-        'entries' => plugin_json_decode($row['entries_json'] ?? '') ?? [],
-    ]);
-}
 function plugin_load(array $plugin): void
 {
-    $file = (string)($plugin['file'] ?? '');
-    if ($file === '' || !is_file($file)) return;
-    if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) return;
-    $GLOBALS['__plugin_raw'][$file] = include $file;
+    Plugin::plugin_load($plugin);
 }
 function plugin_callback_exists(mixed $callback): bool
 {
-    return is_string($callback) && $callback !== '' && function_exists($callback);
+    return Plugin::plugin_callback_exists($callback);
 }
 function plugin_call(array $plugin, callable $callback): mixed
 {
-    try {
-        plugin_load($plugin);
-        return $callback();
-    } catch (Throwable $e) {
-        Plugin::plugin_disable_after_exception((string)($plugin['id'] ?? ''), $e);
-        throw $e;
-    }
+    return Plugin::plugin_call($plugin, $callback);
 }
 function plugins(bool $refresh = false): array
 {
-    static $plugins = null;
-    if (!$refresh && $plugins !== null) return $plugins;
-    $plugins = [];
-    foreach (Plugin::plugin_runtime_cache_rows($refresh) as $plugin) {
-        $id = (string)$plugin['id'];
-        $plugin['file'] = APP_ROOT . '/' . (string)$plugin['file'];
-        $plugin['enabled'] = true;
-        $plugins[$id] = $plugin;
-    }
-    plugin_runtime_cache_reset();
-    return $plugins;
+    return Plugin::plugins($refresh);
 }
 function plugin_enabled(array $plugin): bool
 {
-    return !empty($plugin['enabled']);
+    return Plugin::plugin_enabled($plugin);
 }
 function plugin_assets_manifest(): array
 {
-    static $manifest;
-    if (is_array($manifest)) return $manifest;
-    if (setting('plugin_assets_dirty', '1') === '1' || !is_file(PLUGIN_CSS_FILE) || !is_file(PLUGIN_JS_FILE)) {
-        try { return $manifest = Plugin::plugin_assets_rebuild(); }
-        catch (Throwable $e) { debug_log_write('插件资源生成失败', $e); return $manifest = []; }
-    }
-    return $manifest = [
-        'css' => setting('plugin_assets_css_hash'),
-        'css_size' => (int)setting('plugin_assets_css_size'),
-        'js' => setting('plugin_assets_js_hash'),
-        'js_size' => (int)setting('plugin_assets_js_size'),
-    ];
+    return Plugin::plugin_assets_manifest();
 }
 function plugin_asset_tag(string $type): string
 {
-    $manifest = plugin_assets_manifest();
+    $manifest = Plugin::plugin_assets_manifest();
     if (!in_array($type, ['css', 'js'], true) || (int)($manifest[$type . '_size'] ?? 0) < 1) return '';
     $version = (string)($manifest[$type] ?? '');
     $file = 'app/assets/plugins.' . $type;
     if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
     return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
 }
+function plugin_asset_require(string $id): void
+{
+    Plugin::plugin_asset_require($id);
+}
 function plugin_entry_definitions(): array
 {
-    return [
-        'feature_links' => ['hook' => 'sidebar.feature_links', 'label' => '快捷功能'],
-        'sidebar_cards' => ['hook' => 'sidebar.stack', 'label' => '边栏卡片'],
-        'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab'],
-        'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab'],
-        'profile_settings_tabs' => ['hook' => 'profile.settings_tabs', 'label' => '个人设置Tab'],
-        'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片'],
-        'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
-        'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
-        'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单'],
-        'top_actions' => ['hook' => 'top.bar.actions', 'label' => '顶部栏入口'],
-    ];
+    return Plugin::plugin_entry_definitions();
 }
 function plugin_entry_hook_name(string $entry): string
 {
-    return (string)(plugin_entry_definitions()[$entry]['hook'] ?? '');
+    return Plugin::plugin_entry_hook_name($entry);
 }
 function plugin_uses_entry(array $plugin, string $entry): bool
 {
-    $hook = plugin_entry_hook_name($entry);
-    return $hook !== '' && isset($plugin['hooks'][$hook]);
+    return Plugin::plugin_uses_entry($plugin, $entry);
 }
 function plugin_entry_enabled(array $plugin, string $entry): bool
 {
-    if (!plugin_uses_entry($plugin, $entry)) return false;
-    return !array_key_exists($entry, (array)($plugin['entries'] ?? [])) || !empty($plugin['entries'][$entry]);
+    return Plugin::plugin_entry_enabled($plugin, $entry);
 }
 function plugin_config(string $id, array $defaults = []): array
 {
-    if (!plugin_id_valid($id)) return $defaults;
-    $plugin = plugins()[$id] ?? null;
+    if (!Plugin::plugin_id_valid($id)) return $defaults;
+    $plugin = Plugin::plugins()[$id] ?? null;
     if ($plugin) return array_merge($defaults, (array)($plugin['config'] ?? []));
     $row = one("SELECT config_json FROM app_plugins WHERE id=?", [$id]);
     return array_merge($defaults, $row ? plugin_json_decode($row['config_json'] ?? '') ?? [] : []);
 }
 function plugin_save_config(string $id, array $config): void
 {
-    if (!plugin_id_valid($id)) err('插件不存在');
-    plugin_update_row($id, ['config_json' => $config]);
-    $plugin = plugins(true)[$id] ?? null;
+    if (!Plugin::plugin_id_valid($id)) err('插件不存在');
+    Plugin::plugin_update_row($id, ['config_json' => $config]);
+    $plugin = Plugin::plugins(true)[$id] ?? null;
     if ($plugin) Cron::plugin_cron_sync($plugin);
 }
 function require_writable_dir(string $dir, string $message): void
@@ -679,11 +610,11 @@ function hook_registry(): array
 {
     if (is_array($GLOBALS['__hook_registry'] ?? null)) return $GLOBALS['__hook_registry'];
     $registry = [];
-    foreach (plugins() as $plugin) {
-        if (!plugin_enabled($plugin)) continue;
+    foreach (Plugin::plugins() as $plugin) {
+        if (!Plugin::plugin_enabled($plugin)) continue;
         foreach ($plugin['hooks'] as $name => $fn) {
-            foreach (plugin_entry_definitions() as $entry => $definition) {
-                if ($name === $definition['hook'] && !plugin_entry_enabled($plugin, $entry)) continue 2;
+            foreach (Plugin::plugin_entry_definitions() as $entry => $definition) {
+                if ($name === $definition['hook'] && !Plugin::plugin_entry_enabled($plugin, $entry)) continue 2;
             }
             $registry[$name][] = ['plugin' => $plugin, 'fn' => $fn];
         }
@@ -699,7 +630,7 @@ function hook(string $name, mixed $value = null, array $ctx = []): mixed
     foreach ($entries as $entry) {
         $plugin = $entry['plugin'];
         $fn = $entry['fn'];
-        $next = plugin_call($plugin, fn(): mixed => plugin_callback_exists($fn) ? $fn($value, $ctx) : null);
+        $next = Plugin::plugin_call($plugin, fn(): mixed => Plugin::plugin_callback_exists($fn) ? $fn($value, $ctx) : null);
         if ($next !== null) $value = $next;
     }
     return $value;
@@ -710,12 +641,12 @@ function fire(string $name, array $ctx = []): void
 }
 function plugin_route(string $action): bool
 {
-    foreach (plugins() as $plugin) {
-        if (!plugin_enabled($plugin)) continue;
+    foreach (Plugin::plugins() as $plugin) {
+        if (!Plugin::plugin_enabled($plugin)) continue;
         $fn = $plugin['routes'][$action] ?? null;
         if ($fn !== null) {
-            $handled = plugin_call($plugin, function () use ($fn, $plugin): bool {
-                if (!plugin_callback_exists($fn)) return false;
+            $handled = Plugin::plugin_call($plugin, function () use ($fn, $plugin): bool {
+                if (!Plugin::plugin_callback_exists($fn)) return false;
                 $fn($plugin);
                 return true;
             });
@@ -2051,7 +1982,7 @@ function topic_stats_html(int $view_count, int $reply_count): string
 }
 function page_head_html(string $page_title, string $meta, string $head_extra = ''): string
 {
-    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('app/assets/index.svg')) . '"><link rel="stylesheet" href="' . h(app_url('app/assets/index.css')) . '?v=' . h(APP_VERSION) . '">' . plugin_asset_tag('css') . $head_extra . '</head><body>';
+    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('app/assets/index.svg')) . '"><link rel="stylesheet" href="' . h(app_url('app/assets/index.css')) . '?v=' . h(APP_VERSION) . '"><!--plugin-assets:css-->' . $head_extra . '</head><body>';
 }
 function page_nav_html(string $site_name): string
 {
@@ -2099,7 +2030,7 @@ function page_nav_html(string $site_name): string
 function page_footer_html(string $title, string $flash): string
 {
     $footer_html = (string)hook('page.footer', '', ['title' => $title]);
-    $plugin_js = plugin_asset_tag('js');
+    $plugin_js = '<!--plugin-assets:js-->';
     return '<footer class="footer" data-slot="page.footer">' . $footer_html . '</footer>' . project_modal_html() . '<script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
 }
 function project_modal_html(): string
@@ -2110,7 +2041,8 @@ function page_template(array $data): string
 {
     $html = hook('page.template.before', null, $data);
     if (!is_string($html)) $html = page_head_html($data['page_title'], $data['meta'], $data['head_extra']) . page_nav_html($data['site_name']) . $data['header_html'] . '<main class="wrap" data-slot="page.before_render">' . $data['body'] . '</main>' . page_footer_html($data['title'], $data['flash']);
-    return (string)hook('page.template', $html, $data);
+    $html = (string)hook('page.template', $html, $data);
+    return str_replace(['<!--plugin-assets:css-->', '<!--plugin-assets:js-->'], [Plugin::plugin_assets_html('css'), Plugin::plugin_assets_html('js')], $html);
 }
 function page(string $title, string $body, array $seo = []): void
 {
@@ -3263,15 +3195,19 @@ if ($setup_action === 'update') {
     Setup::setup_update_run();
 }
 if (!db_schema_ready()) err('欢迎使用，请先进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
+$plugin_assets_changed = false;
+$plugin_assets_full = false;
+$plugin_assets_ids = [];
 $plugin_force_sync = (string)setting('plugin_force_sync', '');
 if ($plugin_force_sync !== '') {
     $plugin_force_ids = [];
     foreach (explode(',', $plugin_force_sync) as $plugin_force_id) {
-        if (plugin_id_valid($plugin_force_id)) $plugin_force_ids[] = $plugin_force_id;
+        if (Plugin::plugin_id_valid($plugin_force_id)) $plugin_force_ids[] = $plugin_force_id;
     }
     if ($plugin_force_ids !== []) {
         Plugin::plugin_registry_sync($plugin_force_ids, true);
-        Plugin::plugin_assets_mark_dirty();
+        $plugin_assets_changed = true;
+        $plugin_assets_ids = array_merge($plugin_assets_ids, $plugin_force_ids);
     }
     save_settings_values(['plugin_force_sync' => '']);
 }
@@ -3281,13 +3217,21 @@ if ($plugin_sync_pending !== '0' && $plugin_sync_pending !== '') {
     if (str_starts_with($plugin_sync_pending, 'p:')) {
         $plugin_sync_ids = [];
         foreach (explode(',', substr($plugin_sync_pending, 2)) as $plugin_sync_id) {
-            if (plugin_id_valid($plugin_sync_id)) $plugin_sync_ids[] = $plugin_sync_id;
+            if (Plugin::plugin_id_valid($plugin_sync_id)) $plugin_sync_ids[] = $plugin_sync_id;
         }
         if ($plugin_sync_ids === []) $plugin_sync_ids = null;
     }
     Plugin::plugin_registry_sync($plugin_sync_ids);
-    Plugin::plugin_assets_rebuild();
+    $plugin_assets_changed = true;
+    if ($plugin_sync_ids === null) {
+        $plugin_assets_full = true;
+    } else {
+        $plugin_assets_ids = array_merge($plugin_assets_ids, $plugin_sync_ids);
+    }
     save_settings_values(['plugin_sync_pending' => '0']);
+}
+if ($plugin_assets_changed) {
+    Plugin::plugin_assets_rebuild($plugin_assets_full ? null : array_values(array_unique($plugin_assets_ids)));
 }
 check();
 need_site_access();

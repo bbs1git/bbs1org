@@ -1,10 +1,14 @@
 <?php
+
+declare(strict_types=1);
+
 namespace app\optional;
 
 use RuntimeException;
 use ReflectionFunction;
 use Throwable;
 use WeakMap;
+use InvalidArgumentException;
 
 if (!defined('APP_ROOT')) {
     exit;
@@ -20,15 +24,20 @@ const PLUGIN_UPLOAD_MAX = 20971520;
 final class Plugin
 {
 private static array $registry_cache = [];
+private static array $asset_required = [];
+private static ?array $asset_manifest_cache = null;
+private static ?array $plugins_cache = null;
+private static bool $asset_missing_retry = false;
+private static ?array $asset_ondemand_cache = null;
 
 private static function plugin_runtime_cache_rows_valid(array $rows): bool
 {
-    $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'], true);
+    $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron'], true);
     foreach ($rows as $row) {
         if (!is_array($row) || array_diff_key($row, $fields) || array_diff_key($fields, $row)) return false;
         $id = (string)$row['id'];
         $file = str_replace('\\', '/', ltrim((string)$row['file'], '/'));
-        if (!plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php') return false;
+        if (!self::plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php') return false;
         foreach (['config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'] as $field) {
             if (!is_array($row[$field])) return false;
         }
@@ -45,7 +54,7 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
         $id = (string)($row['id'] ?? '');
         $file = str_replace('\\', '/', ltrim((string)($row['file'] ?? ''), '/'));
         $manifest = plugin_json_decode($row['manifest_json'] ?? '', null);
-        if (!plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php' || $manifest === null) continue;
+        if (!self::plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php' || $manifest === null) continue;
         $rows[] = [
             'id' => $id,
             'file' => $file,
@@ -55,6 +64,7 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
             'routes' => is_array($manifest['routes'] ?? null) ? $manifest['routes'] : [],
             'admin_tabs' => is_array($manifest['admin_tabs'] ?? null) ? $manifest['admin_tabs'] : [],
             'assets' => is_array($manifest['assets'] ?? null) ? $manifest['assets'] : [],
+            'assets_mode' => (string)($manifest['assets_mode'] ?? ''),
             'cron' => is_array($manifest['cron'] ?? null) ? $manifest['cron'] : [],
         ];
     }
@@ -62,9 +72,123 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
     return $rows;
 }
 
+public static function plugin_update_row(string $id, array $values, bool $touch_updated_at = true): void
+{
+    if (!self::plugin_id_valid($id)) throw new InvalidArgumentException('插件 ID 无效');
+    $allowed = array_flip(['name', 'version', 'file', 'code_hash', 'manifest_json', 'config_json', 'entries_json', 'enabled', 'status', 'disabled_reason', 'installed_at']);
+    if (array_diff_key($values, $allowed)) throw new InvalidArgumentException('插件字段无效');
+    foreach (['manifest_json', 'config_json', 'entries_json'] as $field) {
+        if (array_key_exists($field, $values)) $values[$field] = plugin_json_encode(plugin_json_decode($values[$field]) ?? []);
+    }
+    if (!$values) return;
+    if ($touch_updated_at) $values['updated_at'] = now();
+    $fields = array_keys($values);
+    q('UPDATE app_plugins SET ' . implode('=?,', $fields) . '=? WHERE id=?', array_merge(array_values($values), [$id]));
+}
+
+private static function plugin_registry_row(array $row): ?array
+{
+    $id = (string)($row['id'] ?? '');
+    $file = str_replace('\\', '/', ltrim((string)($row['file'] ?? ''), '/'));
+    $manifest = plugin_json_decode($row['manifest_json'] ?? '', null);
+    if (!self::plugin_id_valid($id) || $file !== 'app/plugins/' . $id . '/plugin.php' || $manifest === null) return null;
+    return array_merge($manifest, [
+        'id' => $id,
+        'name' => (string)$row['name'],
+        'version' => (string)$row['version'],
+        'enabled' => (int)$row['enabled'] === 1,
+        'disabled_reason' => (string)($row['disabled_reason'] ?? ''),
+        'updated_at' => (int)($row['updated_at'] ?? 0),
+        'file' => APP_ROOT . '/' . $file,
+        'config' => plugin_json_decode($row['config_json'] ?? '') ?? [],
+        'entries' => plugin_json_decode($row['entries_json'] ?? '') ?? [],
+    ]);
+}
+
+public static function plugin_id_valid(string $id): bool
+{
+    return preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id) === 1;
+}
+
+public static function plugin_load(array $plugin): void
+{
+    $file = (string)($plugin['file'] ?? '');
+    if ($file === '' || !is_file($file)) return;
+    if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) return;
+    $GLOBALS['__plugin_raw'][$file] = include $file;
+}
+
+public static function plugin_callback_exists(mixed $callback): bool
+{
+    return is_string($callback) && $callback !== '' && function_exists($callback);
+}
+
+public static function plugin_call(array $plugin, callable $callback): mixed
+{
+    try {
+        self::plugin_load($plugin);
+        return $callback();
+    } catch (Throwable $e) {
+        self::plugin_disable_after_exception((string)($plugin['id'] ?? ''), $e);
+        throw $e;
+    }
+}
+
+public static function plugins(bool $refresh = false): array
+{
+    if (!$refresh && self::$plugins_cache !== null) return self::$plugins_cache;
+    $plugins = [];
+    foreach (self::plugin_runtime_cache_rows($refresh) as $plugin) {
+        $id = (string)$plugin['id'];
+        $plugin['file'] = APP_ROOT . '/' . (string)$plugin['file'];
+        $plugin['enabled'] = true;
+        $plugins[$id] = $plugin;
+    }
+    plugin_runtime_cache_reset();
+    return self::$plugins_cache = $plugins;
+}
+
+public static function plugin_enabled(array $plugin): bool
+{
+    return !empty($plugin['enabled']);
+}
+
+public static function plugin_entry_definitions(): array
+{
+    return [
+        'feature_links' => ['hook' => 'sidebar.feature_links', 'label' => '快捷功能'],
+        'sidebar_cards' => ['hook' => 'sidebar.stack', 'label' => '边栏卡片'],
+        'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab'],
+        'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab'],
+        'profile_settings_tabs' => ['hook' => 'profile.settings_tabs', 'label' => '个人设置Tab'],
+        'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片'],
+        'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
+        'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
+        'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单'],
+        'top_actions' => ['hook' => 'top.bar.actions', 'label' => '顶部栏入口'],
+    ];
+}
+
+public static function plugin_entry_hook_name(string $entry): string
+{
+    return (string)(self::plugin_entry_definitions()[$entry]['hook'] ?? '');
+}
+
+public static function plugin_uses_entry(array $plugin, string $entry): bool
+{
+    $hook = self::plugin_entry_hook_name($entry);
+    return $hook !== '' && isset($plugin['hooks'][$hook]);
+}
+
+public static function plugin_entry_enabled(array $plugin, string $entry): bool
+{
+    if (!self::plugin_uses_entry($plugin, $entry)) return false;
+    return !array_key_exists($entry, (array)($plugin['entries'] ?? [])) || !empty($plugin['entries'][$entry]);
+}
+
 public static function plugin_registry(?string $id = null, bool $refresh = false): array
 {
-    if ($id !== null && !plugin_id_valid($id)) return [];
+    if ($id !== null && !self::plugin_id_valid($id)) return [];
     if ($refresh) self::$registry_cache = [];
     $key = $id === null ? '*' : $id;
     if (isset(self::$registry_cache[$key])) return self::$registry_cache[$key];
@@ -76,7 +200,7 @@ public static function plugin_registry(?string $id = null, bool $refresh = false
     $rows = q($sql . ($id === null ? ' ORDER BY id' : ' WHERE id=?'), $id === null ? [] : [$id])->fetchAll();
     foreach ($rows as $row) {
         if ((string)$row['id'] === 'plugin_market') continue;
-        $plugin = plugin_registry_row($row);
+        $plugin = self::plugin_registry_row($row);
         if ($plugin) $plugins[(string)$plugin['id']] = $plugin;
     }
     self::$registry_cache[$key] = $plugins;
@@ -204,7 +328,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
     }
     $feed_url = append_url_query(self::plugin_market_url('plugin_market_feed'), ['mode' => $need_code ? 'install' : 'list', 'market_view' => $market_view === 'beta' ? 'beta' : null]);
     if ($need_code) {
-        if (!plugin_id_valid($plugin_id) || $topic_id < 1) return ['ok' => 0, 'message' => '插件市场参数无效', 'plugins' => []];
+        if (!self::plugin_id_valid($plugin_id) || $topic_id < 1) return ['ok' => 0, 'message' => '插件市场参数无效', 'plugins' => []];
         $feed_url = append_url_query($feed_url, ['id' => $plugin_id, 'topic_id' => $topic_id, 'authorization_code' => trim($authorization_code) !== '' ? trim($authorization_code) : null]);
     }
     $response = self::remote_http_request($feed_url, $need_code ? 8 : 5, ['Accept: application/json']);
@@ -225,7 +349,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
         $price_points = max(0, (int)($item['price_points'] ?? 0));
         $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
         $item_market_view = self::plugin_market_view((string)($item['market_status'] ?? 'certified'));
-        if (!plugin_id_valid($id) || $id === 'plugin_market' || ($need_code && $online_install && trim($code) === '')) continue;
+        if (!self::plugin_id_valid($id) || $id === 'plugin_market' || ($need_code && $online_install && trim($code) === '')) continue;
         $plugins[$id] = [
             'id' => $id,
             'title' => (string)($item['title'] ?? ''),
@@ -345,7 +469,7 @@ private static function plugin_manifest_code_id(string $code): string
 
 public static function plugin_market_install(string $id, int $topic_id, bool $auto_enable = false, string $market_view = 'certified', string $authorization_code = ''): void
 {
-    if (!plugin_id_valid($id)) err('插件不存在');
+    if (!self::plugin_id_valid($id)) err('插件不存在');
     if ($id === 'plugin_market') err('该插件 ID 为系统保留');
     require_writable_dir(PLUGIN_DIR, '插件目录不可写，请检查 app/plugins/ 目录权限');
     $market_view = self::plugin_market_view($market_view);
@@ -375,7 +499,7 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     }
     if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
     $target_enabled = $auto_enable ? 1 : 0;
-    plugin_update_row($id, ['enabled' => $target_enabled, 'status' => $target_enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], true);
+    self::plugin_update_row($id, ['enabled' => $target_enabled, 'status' => $target_enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], true);
     q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$target_enabled, $id]);
     save_settings_values([
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],
@@ -383,14 +507,13 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
         'plugin_sync_pending' => self::plugin_sync_pending_mark($id),
         'plugin_force_sync' => self::plugin_force_sync_mark($id),
     ]);
-    self::plugin_assets_mark_dirty();
     self::plugin_registry_flush();
     if (!$auto_enable) return;
     if ($plugin_file_loaded) return;
     self::plugin_registry_sync([$id], true);
     self::plugin_force_sync_clear($id);
     self::plugin_set_enabled($id, true, true);
-    self::plugin_assets_rebuild();
+    self::plugin_assets_rebuild([$id]);
     save_settings_values(['plugin_sync_pending' => '0']);
 }
 
@@ -440,7 +563,7 @@ public static function plugin_market_share_page(): void
     need_admin();
     require_post();
     $id = (string)($_POST['plugin_id'] ?? '');
-    $target = plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
+    $target = self::plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
     if (!is_array($target)) err('插件不存在');
     $file = (string)($target['file'] ?? '');
     $code = $file !== '' && is_file($file) ? file_get_contents($file) : false;
@@ -460,7 +583,7 @@ public static function plugin_download_page(): void
     need_admin();
     require_post();
     $id = (string)($_POST['plugin_id'] ?? '');
-    $plugin = plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
+    $plugin = self::plugin_id_valid($id) ? (self::plugin_registry($id)[$id] ?? null) : null;
     if (!is_array($plugin)) err('插件不存在');
     $file = (string)($plugin['file'] ?? '');
     $expected = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id . '/plugin.php';
@@ -531,7 +654,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
     $items = array_filter($items, static function ($item) use ($query, $market_view, $feed_view): bool {
         if (!is_array($item)) return false;
         $id = (string)($item['id'] ?? '');
-        if (!plugin_id_valid($id)) return false;
+        if (!self::plugin_id_valid($id)) return false;
         if ($market_view === 'required' && empty($item['required'])) return false;
         return ($query !== '' || (string)($item['market_status'] ?? 'certified') === $feed_view) && self::plugin_market_matches($item, $query);
     });
@@ -612,7 +735,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
 public static function plugin_market_admin_actions(array $plugin): string
 {
     $id = (string)($plugin['id'] ?? '');
-    if (!plugin_id_valid($id)) return '';
+    if (!self::plugin_id_valid($id)) return '';
     $share = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">分享</button></form>';
     $download = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_download')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">下载</button></form>';
     return $share . $download;
@@ -642,9 +765,9 @@ public static function admin_plugin_uninstall_form(string $id): string
 }
 public static function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
 {
-    if (!plugin_uses_entry($plugin, $entry)) return '';
+    if (!self::plugin_uses_entry($plugin, $entry)) return '';
     $id = (string)$plugin['id'];
-    $checked = plugin_entry_enabled($plugin, $entry);
+    $checked = self::plugin_entry_enabled($plugin, $entry);
     return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0']) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
 }
 public static function admin_plugins_page_html(bool $with_tabs = true): string
@@ -656,14 +779,14 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         return ($b_time <=> $a_time) ?: strcmp((string)($a['id'] ?? ''), (string)($b['id'] ?? ''));
     });
     $enabled_count = 0;
-    foreach ($plugins as $plugin) if (plugin_enabled($plugin)) $enabled_count++;
+    foreach ($plugins as $plugin) if (self::plugin_enabled($plugin)) $enabled_count++;
     $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
     $search = '<label class="admin-search-field plugin-local-search"><input type="search" placeholder="搜索本地插件" aria-label="搜索本地插件" data-plugin-local-search></label>';
     $head_right = '<div class="plugin-head-actions">' . $search . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件', 'plugin-head-button') . '</div>';
     $html = ($with_tabs ? self::admin_plugins_tabs_html('local', $plugins) : '') . '<div class="admin-list-panel plugin-list-panel plugin-local-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
     foreach ($plugins as $plugin) {
         $id = (string)$plugin['id'];
-        $enabled = plugin_enabled($plugin);
+        $enabled = self::plugin_enabled($plugin);
         $manage_url = self::admin_plugin_manage_url($plugin);
         $ops = $manage_url !== '' ? '<a class="plugin-manage-link" href="' . h($manage_url) . '">管理</a>' : '';
         $market_topic_id = max(0, (int)setting('plugin_' . $id . '_market_topic_id'));
@@ -676,7 +799,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
             ? self::admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？')
             : self::admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable');
         $entry_ops = '';
-        foreach (plugin_entry_definitions() as $entry => $definition) {
+        foreach (self::plugin_entry_definitions() as $entry => $definition) {
             $entry_ops .= self::admin_plugin_entry_toggle_form($plugin, $entry, (string)$definition['label']);
         }
         $ops .= self::plugin_market_admin_actions($plugin);
@@ -705,7 +828,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
 }
 public static function admin_plugin_manage_url(array $plugin): string
 {
-    if (!plugin_enabled($plugin) || !is_array($plugin['admin_tabs'] ?? null)) return '';
+    if (!self::plugin_enabled($plugin) || !is_array($plugin['admin_tabs'] ?? null)) return '';
     foreach ($plugin['admin_tabs'] as $key => $fn) {
         if (is_string($key) && $key !== '' && is_string($fn) && $fn !== '') return admin_url(['tab' => $key]);
     }
@@ -763,11 +886,11 @@ public static function admin_plugins_cron_logs_page_html(): string
 }
 public static function admin_plugin_tab_html(string $tab): ?string
 {
-    foreach (plugins() as $plugin) {
-        if (!plugin_enabled($plugin)) continue;
+    foreach (self::plugins() as $plugin) {
+        if (!self::plugin_enabled($plugin)) continue;
         $fn = $plugin['admin_tabs'][$tab] ?? null;
         if ($fn !== null) {
-            $html = plugin_call($plugin, fn(): ?string => plugin_callback_exists($fn) ? (string)$fn($plugin) : null);
+            $html = self::plugin_call($plugin, fn(): ?string => self::plugin_callback_exists($fn) ? (string)$fn($plugin) : null);
             if ($html !== null) return self::admin_plugin_page_html($plugin, $html);
         }
     }
@@ -798,7 +921,7 @@ private static function admin_plugin_page_html(array $plugin, string $html): str
 
 public static function plugin_disable_after_exception(string $id, Throwable $e): void
 {
-    if (!plugin_id_valid($id)) return;
+    if (!self::plugin_id_valid($id)) return;
     static $handled;
     $handled ??= new WeakMap();
     if (isset($handled[$e])) return;
@@ -809,9 +932,9 @@ public static function plugin_disable_after_exception(string $id, Throwable $e):
     if (str_starts_with($file, $root)) $file = substr($file, strlen($root));
     $reason = date('Y-m-d H:i:s') . ' ' . get_class($e) . ($message !== '' ? ': ' . $message : '') . ($file !== '' ? ' (' . $file . ':' . $e->getLine() . ')' : '');
     try {
-        plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
+        self::plugin_update_row($id, ['enabled' => 0, 'status' => 'error', 'disabled_reason' => $reason]);
         q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
-        plugins(true);
+        self::plugins(true);
         self::plugin_registry_flush();
         self::plugin_assets_mark_dirty();
     } catch (Throwable $disable_error) {
@@ -825,7 +948,7 @@ public static function plugin_disable_after_exception(string $id, Throwable $e):
 public static function plugin_manifest_validate(array $plugin, string $file): ?array
 {
     $id = (string)($plugin['id'] ?? '');
-    if (!plugin_id_valid($id) || $id !== basename(dirname($file))) return null;
+    if (!self::plugin_id_valid($id) || $id !== basename(dirname($file))) return null;
     $base = [
         'id' => $id,
         'name' => (string)($plugin['name'] ?? $id),
@@ -837,6 +960,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
         'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
+        'assets_mode' => (string)($plugin['assets_mode'] ?? ''),
         'cron' => is_array($plugin['cron'] ?? null) ? $plugin['cron'] : [],
         'entries' => is_array($plugin['entries'] ?? null) ? $plugin['entries'] : [],
         'install' => (string)($plugin['install'] ?? ''),
@@ -851,7 +975,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
     $entries = [];
     foreach ($base['entries'] as $entry => $enabled) {
         $entry = (string)$entry;
-        $hook = plugin_entry_hook_name($entry);
+        $hook = self::plugin_entry_hook_name($entry);
         if ($hook !== '' && isset($base['hooks'][$hook])) $entries[$entry] = !empty($enabled);
     }
     $base['entries'] = $entries;
@@ -861,6 +985,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         if (is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $assets[$type] = $fn;
     }
     $base['assets'] = $assets;
+    $base['assets_mode'] = $base['assets_mode'] === 'ondemand' ? 'ondemand' : '';
     $cron = [];
     foreach ($base['cron'] as $name => $task) {
         if (!is_string($name) || preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $name) !== 1 || !is_array($task)) continue;
@@ -888,9 +1013,35 @@ public static function plugin_files(): array
     return array_values(array_filter($files, 'is_file'));
 }
 
+public static function plugin_assets_manifest(): array
+{
+    if (is_array(self::$asset_manifest_cache)) return self::$asset_manifest_cache;
+    if (setting('plugin_assets_dirty', '1') === '1' || !is_file(PLUGIN_CSS_FILE) || !is_file(PLUGIN_JS_FILE)) {
+        try { return self::$asset_manifest_cache = self::plugin_assets_rebuild(); }
+        catch (Throwable $e) { debug_log_write('插件资源生成失败', $e); return self::$asset_manifest_cache = []; }
+    }
+    return self::$asset_manifest_cache = [
+        'css' => setting('plugin_assets_css_hash'),
+        'css_size' => (int)setting('plugin_assets_css_size'),
+        'js' => setting('plugin_assets_js_hash'),
+        'js_size' => (int)setting('plugin_assets_js_size'),
+    ];
+}
+
 public static function plugin_assets_mark_dirty(): void
 {
+    self::$asset_manifest_cache = null;
     save_settings_values(['plugin_assets_dirty' => '1']);
+}
+
+private static function plugin_assets_refresh(string $id): void
+{
+    try {
+        self::plugin_assets_rebuild([$id]);
+    } catch (Throwable $e) {
+        self::plugin_assets_mark_dirty();
+        debug_log_write('插件资源更新失败', $e);
+    }
 }
 
 public static function plugin_asset_write(string $file, string $content): void
@@ -903,43 +1054,177 @@ public static function plugin_asset_write(string $file, string $content): void
     if (file_put_contents($file, $content, LOCK_EX) === false) throw new RuntimeException('插件资源文件不可写：' . basename($file));
 }
 
-public static function plugin_assets_rebuild(): array
+public static function plugin_assets_rebuild(?array $only_ids = null): array
 {
-    $chunks = ['css' => [], 'js' => []];
-    foreach (plugins() as $plugin) {
-        if (!plugin_enabled($plugin) || empty($plugin['assets'])) continue;
-        foreach (['css', 'js'] as $type) {
-            $fn = $plugin['assets'][$type] ?? null;
-            if (!is_string($fn)) continue;
-            $content = trim((string)plugin_call($plugin, function () use ($fn): string {
-                return plugin_callback_exists($fn) ? (string)$fn() : '';
-            }));
-            if ($content === '') continue;
-            $id = (string)$plugin['id'];
-            if ($type === 'js') {
-                $chunk = '/* ' . $id . " */\n(function(){try{\n" . $content . "\n}catch(_bbs1Err){console.error('[" . $id . "]',_bbs1Err)}})();";
-            } else {
-                $chunk = '/* ' . $id . " */\n" . $content;
-            }
-            $chunks[$type][] = $chunk;
+    if ($only_ids !== null) {
+        $only_ids = array_values(array_unique(array_filter(array_map('strval', $only_ids), 'plugin_id_valid')));
+        if ($only_ids === []) $only_ids = null;
+    }
+    $plugins = [];
+    foreach (self::plugins() as $plugin) {
+        if (self::plugin_enabled($plugin)) $plugins[(string)$plugin['id']] = $plugin;
+    }
+    $previous = plugin_json_decode(setting('plugin_assets_ondemand'));
+    $previous = is_array($previous) ? $previous : [];
+    $ondemand = $only_ids === null ? [] : $previous;
+    $bundle_dirty = $only_ids === null || (string)setting('plugin_assets_dirty', '0') === '1';
+    $targets = $only_ids === null ? array_keys($plugins) : $only_ids;
+    foreach ($targets as $id) {
+        $plugin = $plugins[$id] ?? null;
+        $was_ondemand = isset($previous[$id]);
+        if ($plugin && !empty($plugin['assets']) && (string)($plugin['assets_mode'] ?? '') === 'ondemand') {
+            $ondemand[$id] = self::plugin_asset_ondemand_write($plugin);
+            if (!$was_ondemand) $bundle_dirty = true;
+            continue;
+        }
+        if (!$plugin || !empty($plugin['assets']) || $was_ondemand) $bundle_dirty = true;
+        if ($was_ondemand) {
+            self::plugin_asset_remove((string)$id);
+            unset($ondemand[$id]);
         }
     }
-    $files = ['css' => PLUGIN_CSS_FILE, 'js' => PLUGIN_JS_FILE];
-    $manifest = [];
-    foreach ($files as $key => $file) {
-        $content = implode("\n", $chunks[$key]) . ($chunks[$key] ? "\n" : '');
-        self::plugin_asset_write($file, $content);
-        $manifest[$key] = hash('sha256', $content);
-        $manifest[$key . '_size'] = strlen($content);
+    if ($only_ids === null) {
+        foreach (array_keys($previous) as $id) {
+            if (isset($ondemand[$id])) continue;
+            self::plugin_asset_remove((string)$id);
+        }
+    }
+    $manifest = null;
+    if ($bundle_dirty) {
+        $chunks = ['css' => [], 'js' => []];
+        foreach ($plugins as $plugin) {
+            if (empty($plugin['assets']) || (string)($plugin['assets_mode'] ?? '') === 'ondemand') continue;
+            foreach (['css', 'js'] as $type) {
+                $chunk = self::plugin_asset_chunk($plugin, $type);
+                if ($chunk !== '') $chunks[$type][] = $chunk;
+            }
+        }
+        $manifest = [];
+        foreach (['css' => PLUGIN_CSS_FILE, 'js' => PLUGIN_JS_FILE] as $key => $file) {
+            $content = implode("\n", $chunks[$key]) . ($chunks[$key] ? "\n" : '');
+            self::plugin_asset_write($file, $content);
+            $manifest[$key] = hash('sha256', $content);
+            $manifest[$key . '_size'] = strlen($content);
+        }
+        save_settings_values([
+            'plugin_assets_css_hash' => (string)($manifest['css'] ?? ''),
+            'plugin_assets_css_size' => (string)(int)($manifest['css_size'] ?? 0),
+            'plugin_assets_js_hash' => (string)($manifest['js'] ?? ''),
+            'plugin_assets_js_size' => (string)(int)($manifest['js_size'] ?? 0),
+        ]);
+    } else {
+        $manifest = [
+            'css' => (string)setting('plugin_assets_css_hash'),
+            'css_size' => (int)setting('plugin_assets_css_size'),
+            'js' => (string)setting('plugin_assets_js_hash'),
+            'js_size' => (int)setting('plugin_assets_js_size'),
+        ];
     }
     save_settings_values([
-        'plugin_assets_css_hash' => (string)($manifest['css'] ?? ''),
-        'plugin_assets_css_size' => (string)(int)($manifest['css_size'] ?? 0),
-        'plugin_assets_js_hash' => (string)($manifest['js'] ?? ''),
-        'plugin_assets_js_size' => (string)(int)($manifest['js_size'] ?? 0),
+        'plugin_assets_ondemand' => plugin_json_encode($ondemand),
         'plugin_assets_dirty' => '0',
     ]);
-    return $manifest;
+    return self::$asset_manifest_cache = $manifest;
+}
+
+private static function plugin_asset_chunk(array $plugin, string $type): string
+{
+    $fn = $plugin['assets'][$type] ?? null;
+    if (!is_string($fn)) return '';
+    $content = trim((string)self::plugin_call($plugin, function () use ($fn): string {
+        return self::plugin_callback_exists($fn) ? (string)$fn() : '';
+    }));
+    if ($content === '') return '';
+    $id = (string)($plugin['id'] ?? '');
+    if ($type === 'js') return '/* ' . $id . " */\n(function(){try{\n" . $content . "\n}catch(_bbs1Err){console.error('[" . $id . "]',_bbs1Err)}})();";
+    return '/* ' . $id . " */\n" . $content;
+}
+
+private static function plugin_asset_ondemand_write(array $plugin): array
+{
+    $id = (string)($plugin['id'] ?? '');
+    if (!is_dir(PLUGIN_ASSET_DIR) && !@mkdir(PLUGIN_ASSET_DIR, 0755, true) && !is_dir(PLUGIN_ASSET_DIR)) {
+        throw new RuntimeException('插件资源目录不可写');
+    }
+    $entry = [];
+    foreach (['css', 'js'] as $type) {
+        $content = self::plugin_asset_chunk($plugin, $type);
+        $file = PLUGIN_ASSET_DIR . '/' . $id . '.' . $type;
+        if ($content === '') {
+            if (is_file($file)) @unlink($file);
+            $entry[$type] = ['hash' => '', 'size' => 0];
+            continue;
+        }
+        self::plugin_asset_write($file, $content);
+        $entry[$type] = ['hash' => hash('sha256', $content), 'size' => strlen($content)];
+    }
+    return $entry;
+}
+
+private static function plugin_asset_remove(string $id): void
+{
+    if (!self::plugin_id_valid($id)) return;
+    foreach (['css', 'js'] as $type) {
+        $file = PLUGIN_ASSET_DIR . '/' . $id . '.' . $type;
+        if (is_file($file)) @unlink($file);
+    }
+}
+
+public static function plugin_asset_require(string $id): void
+{
+    if (!self::plugin_id_valid($id)) return;
+    $plugin = self::plugins()[$id] ?? null;
+    if (!$plugin || !self::plugin_enabled($plugin) || empty($plugin['assets'])) return;
+    if ((string)($plugin['assets_mode'] ?? '') !== 'ondemand') return;
+    self::$asset_required[$id] = true;
+}
+
+private static function plugin_assets_ondemand_manifest(bool $refresh = false): array
+{
+    if ($refresh) self::$asset_ondemand_cache = null;
+    if (is_array(self::$asset_ondemand_cache)) return self::$asset_ondemand_cache;
+    $decoded = plugin_json_decode(setting('plugin_assets_ondemand'));
+    return self::$asset_ondemand_cache = is_array($decoded) ? $decoded : [];
+}
+
+public static function plugin_assets_html(string $type): string
+{
+    if (!in_array($type, ['css', 'js'], true)) return '';
+    $required = array_keys(self::$asset_required);
+    if (!$required) return plugin_asset_tag($type);
+    $html = plugin_asset_tag($type);
+    $manifest = self::plugin_assets_ondemand_manifest(true);
+    $missing = [];
+    foreach ($required as $id) {
+        $entry = $manifest[$id][$type] ?? null;
+        if (!is_array($entry)) {
+            $missing[] = $id;
+            continue;
+        }
+        if ((int)($entry['size'] ?? 0) > 0 && !is_file(PLUGIN_ASSET_DIR . '/' . $id . '.' . $type)) $missing[] = $id;
+    }
+    if ($missing && !self::$asset_missing_retry) {
+        self::$asset_missing_retry = true;
+        try {
+            self::plugin_assets_rebuild($missing);
+            $manifest = self::plugin_assets_ondemand_manifest(true);
+        } catch (Throwable $e) {
+            debug_log_write('插件资源生成失败', $e);
+        }
+    }
+    $seen = [];
+    foreach ($required as $id) {
+        if (isset($seen[$id])) continue;
+        $seen[$id] = true;
+        $entry = $manifest[$id][$type] ?? null;
+        if (!is_array($entry) || (int)($entry['size'] ?? 0) < 1) continue;
+        $file = 'app/assets/plugins/' . $id . '.' . $type;
+        $version = (string)($entry['hash'] ?? '');
+        $html .= $type === 'css'
+            ? '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">'
+            : '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
+    }
+    return $html;
 }
 
 private static function plugin_file_created_tables(string $file): array
@@ -1019,7 +1304,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
     $synced = [];
     $changed = [];
     $disable = function (string $id, string $file, string $reason) use (&$existing, &$synced, &$changed): void {
-        if (!plugin_id_valid($id) || $id === 'plugin_market') return;
+        if (!self::plugin_id_valid($id) || $id === 'plugin_market') return;
         $old = $existing[$id] ?? [];
         $code_hash = is_file($file) ? (hash_file('sha256', $file) ?: '') : '';
         app_db_upsert('app_plugins', [
@@ -1052,7 +1337,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
         $old = $existing[$id] ?? [];
         $code_hash = hash_file('sha256', $file) ?: '';
 
-        if (!$force && $code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && plugin_registry_row($old)) {
+        if (!$force && $code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && self::plugin_registry_row($old)) {
             $synced[$id] = true;
             continue;
         }
@@ -1085,7 +1370,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             : now();
         $config = plugin_json_decode($old['config_json'] ?? '') ?? [];
         $entries = isset($old['entries_json']) ? plugin_json_decode($old['entries_json']) ?? [] : [];
-        foreach (plugin_entry_definitions() as $entry => $definition) {
+        foreach (self::plugin_entry_definitions() as $entry => $definition) {
             if (!isset($plugin['hooks'][$definition['hook']]) || array_key_exists($entry, $entries)) continue;
             $entries[$entry] = !array_key_exists($entry, (array)$plugin['entries']) || !empty($plugin['entries'][$entry]);
         }
@@ -1096,7 +1381,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
-            'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron', 'install', 'uninstall']))),
+            'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron', 'install', 'uninstall']))),
             'config_json' => plugin_json_encode($config),
             'entries_json' => plugin_json_encode($entries),
             'enabled' => $enabled,
@@ -1116,13 +1401,13 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
         }
     }
     $plugins = self::plugin_registry(null, true);
-    plugins(true);
+    self::plugins(true);
     foreach ($plugins as $plugin) {
         $pid = (string)($plugin['id'] ?? '');
         if ($only_ids !== null) {
 
             if (!isset($changed[$pid])) continue;
-        } elseif (!isset($changed[$pid]) && !plugin_enabled($plugin)) {
+        } elseif (!isset($changed[$pid]) && !self::plugin_enabled($plugin)) {
             continue;
         }
         Cron::plugin_cron_sync($plugin);
@@ -1194,9 +1479,8 @@ public static function plugin_enable_uploaded_page(): void
     $id = (string)($_GET['plugin_id'] ?? '');
     $token = (string)($_GET['enable_token'] ?? '');
     $expected = hash_hmac('sha256', 'plugin-upload-enable|' . $id, csrf_token());
-    if (!plugin_id_valid($id) || !hash_equals($expected, $token)) err('插件启用参数无效');
+    if (!self::plugin_id_valid($id) || !hash_equals($expected, $token)) err('插件启用参数无效');
     self::plugin_set_enabled($id, true);
-    self::plugin_assets_rebuild();
     set_flash('插件 ' . $id . ' 已上传、同步并启用');
     go(admin_url(['tab' => 'plugins']));
 }
@@ -1209,7 +1493,7 @@ private static function plugin_sync_pending_mark(string $id): string
     $ids = [];
     if (str_starts_with($pending, 'p:')) {
         foreach (explode(',', substr($pending, 2)) as $value) {
-            if (plugin_id_valid($value)) $ids[] = $value;
+            if (self::plugin_id_valid($value)) $ids[] = $value;
         }
     }
     $ids[] = $id;
@@ -1220,7 +1504,7 @@ private static function plugin_force_sync_mark(string $id): string
 {
     $ids = [];
     foreach (explode(',', (string)setting('plugin_force_sync', '')) as $value) {
-        if (plugin_id_valid($value)) $ids[] = $value;
+        if (self::plugin_id_valid($value)) $ids[] = $value;
     }
     $ids[] = $id;
     return implode(',', array_slice(array_unique($ids), -100));
@@ -1230,7 +1514,7 @@ private static function plugin_force_sync_clear(string $id): void
 {
     $ids = [];
     foreach (explode(',', (string)setting('plugin_force_sync', '')) as $value) {
-        if (plugin_id_valid($value) && $value !== $id) $ids[] = $value;
+        if (self::plugin_id_valid($value) && $value !== $id) $ids[] = $value;
     }
     save_settings_values(['plugin_force_sync' => implode(',', $ids)]);
 }
@@ -1272,7 +1556,7 @@ private static function plugin_upload(array $file): array
             err('插件 manifest 不完整');
         }
     }
-    if (!plugin_id_valid($id) || $id === 'plugin_market') {
+    if (!self::plugin_id_valid($id) || $id === 'plugin_market') {
         @unlink($upload_file);
         err('插件 ID 无效');
     }
@@ -1311,46 +1595,46 @@ private static function plugin_upload(array $file): array
     @unlink($upload_file);
     q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='' WHERE id=?", [$id]);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
-    save_settings_values(['plugin_sync_pending' => self::plugin_sync_pending_mark($id), 'plugin_force_sync' => self::plugin_force_sync_mark($id), 'plugin_assets_dirty' => '1']);
+    save_settings_values(['plugin_sync_pending' => self::plugin_sync_pending_mark($id), 'plugin_force_sync' => self::plugin_force_sync_mark($id)]);
     self::plugin_registry_flush();
     return ['id' => $id];
 }
 
 public static function plugin_set_entry_enabled(string $id, string $entry, bool $enabled): void
 {
-    if (!plugin_id_valid($id) || plugin_entry_hook_name($entry) === '') err('参数错误');
+    if (!self::plugin_id_valid($id) || self::plugin_entry_hook_name($entry) === '') err('参数错误');
     $plugin = self::plugin_registry($id)[$id] ?? null;
-    if (!$plugin || !plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
+    if (!$plugin || !self::plugin_uses_entry($plugin, $entry)) err('插件未使用该入口');
     $entries = (array)($plugin['entries'] ?? []);
     $entries[$entry] = $enabled;
-    plugin_update_row($id, ['entries_json' => $entries], false);
-    plugins(true);
+    self::plugin_update_row($id, ['entries_json' => $entries], false);
+    self::plugins(true);
     self::plugin_registry_flush();
 }
 
 public static function plugin_set_enabled(string $id, bool $enabled, bool $run_install = false): void
 {
-    if (!plugin_id_valid($id)) err('插件不存在');
+    if (!self::plugin_id_valid($id)) err('插件不存在');
     $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
     if ($enabled) {
-        plugin_call($plugin, function () use ($plugin, $run_install): void {
-            if (($run_install || !plugin_enabled($plugin)) && plugin_callback_exists($plugin['install'] ?? null)) {
+        self::plugin_call($plugin, function () use ($plugin, $run_install): void {
+            if (($run_install || !self::plugin_enabled($plugin)) && self::plugin_callback_exists($plugin['install'] ?? null)) {
                 call_user_func((string)$plugin['install'], $plugin);
             }
         });
     }
-    plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], false);
+    self::plugin_update_row($id, ['enabled' => $enabled ? 1 : 0, 'status' => $enabled ? 'enabled' : 'disabled', 'disabled_reason' => ''], false);
     q("UPDATE app_cron_tasks SET enabled=? WHERE plugin_id=?", [$enabled ? 1 : 0, $id]);
-    $runtime_plugins = plugins(true);
+    $runtime_plugins = self::plugins(true);
     if ($enabled && isset($runtime_plugins[$id])) Cron::plugin_cron_sync($runtime_plugins[$id]);
-    self::plugin_assets_mark_dirty();
+    self::plugin_assets_refresh($id);
     self::plugin_registry_flush();
 }
 
 public static function plugin_uninstall(string $id, bool $keep_data = true): void
 {
-    if (!plugin_id_valid($id)) err('插件不存在');
+    if (!self::plugin_id_valid($id)) err('插件不存在');
     $plugin = self::plugin_registry($id)[$id] ?? null;
     if (!$plugin) err('插件不存在');
     $dir = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id;
@@ -1362,10 +1646,10 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
         if (isset($table_conflicts[$file])) err('检测到数据表重复建表，为避免删除其他插件数据，不能执行删表卸载：' . implode('；', $table_conflicts[$file]));
     }
     self::plugin_backup_php_files($id, $dir);
-    plugin_call($plugin, function () use ($plugin, $id, $keep_data): void {
+    self::plugin_call($plugin, function () use ($plugin, $id, $keep_data): void {
         $fn = (string)($plugin['uninstall'] ?? '');
-        if (!plugin_callback_exists($fn)) $fn = str_replace('-', '_', $id) . '_uninstall';
-        if (!plugin_callback_exists($fn)) return;
+        if (!self::plugin_callback_exists($fn)) $fn = str_replace('-', '_', $id) . '_uninstall';
+        if (!self::plugin_callback_exists($fn)) return;
         $accepts_keep_data = (new ReflectionFunction($fn))->getNumberOfParameters() >= 2;
         if ($keep_data && !$accepts_keep_data) return;
         if ($accepts_keep_data) call_user_func($fn, $plugin, $keep_data);
@@ -1374,9 +1658,9 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     self::plugin_remove_directory($dir);
     q("DELETE FROM app_cron_tasks WHERE plugin_id=?", [$id]);
     q("DELETE FROM app_plugins WHERE id=?", [$id]);
-    plugins(true);
+    self::plugins(true);
     plugin_runtime_cache_reset();
-    self::plugin_assets_mark_dirty();
+    self::plugin_assets_refresh($id);
     self::plugin_registry_flush();
 }
 
