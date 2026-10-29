@@ -381,12 +381,14 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
         'plugin_' . $id . '_market_sha256' => (string)$item['sha256'],
         'plugin_' . $id . '_market_topic_id' => (string)(int)$item['topic_id'],
         'plugin_sync_pending' => self::plugin_sync_pending_mark($id),
+        'plugin_force_sync' => self::plugin_force_sync_mark($id),
     ]);
     self::plugin_assets_mark_dirty();
     self::plugin_registry_flush();
     if (!$auto_enable) return;
     if ($plugin_file_loaded) return;
-    self::plugin_registry_sync([$id]);
+    self::plugin_registry_sync([$id], true);
+    self::plugin_force_sync_clear($id);
     self::plugin_set_enabled($id, true, true);
     self::plugin_assets_rebuild();
     save_settings_values(['plugin_sync_pending' => '0']);
@@ -1005,7 +1007,7 @@ private static function plugin_table_conflicts(array $files): array
     return $conflicts;
 }
 
-public static function plugin_registry_sync(?array $only_ids = null): array
+public static function plugin_registry_sync(?array $only_ids = null, bool $force = false): array
 {
     if ($only_ids !== null) {
         $only_ids = array_values(array_unique(array_filter(array_map('strval', $only_ids), 'plugin_id_valid')));
@@ -1050,7 +1052,7 @@ public static function plugin_registry_sync(?array $only_ids = null): array
         $old = $existing[$id] ?? [];
         $code_hash = hash_file('sha256', $file) ?: '';
 
-        if ($code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && plugin_registry_row($old)) {
+        if (!$force && $code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && plugin_registry_row($old)) {
             $synced[$id] = true;
             continue;
         }
@@ -1214,6 +1216,25 @@ private static function plugin_sync_pending_mark(string $id): string
     return 'p:' . implode(',', array_slice(array_unique($ids), -100));
 }
 
+private static function plugin_force_sync_mark(string $id): string
+{
+    $ids = [];
+    foreach (explode(',', (string)setting('plugin_force_sync', '')) as $value) {
+        if (plugin_id_valid($value)) $ids[] = $value;
+    }
+    $ids[] = $id;
+    return implode(',', array_slice(array_unique($ids), -100));
+}
+
+private static function plugin_force_sync_clear(string $id): void
+{
+    $ids = [];
+    foreach (explode(',', (string)setting('plugin_force_sync', '')) as $value) {
+        if (plugin_id_valid($value) && $value !== $id) $ids[] = $value;
+    }
+    save_settings_values(['plugin_force_sync' => implode(',', $ids)]);
+}
+
 private static function plugin_upload(array $file): array
 {
     $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
@@ -1290,7 +1311,7 @@ private static function plugin_upload(array $file): array
     @unlink($upload_file);
     q("UPDATE app_plugins SET enabled=0,status='disabled',disabled_reason='' WHERE id=?", [$id]);
     q("UPDATE app_cron_tasks SET enabled=0 WHERE plugin_id=?", [$id]);
-    save_settings_values(['plugin_sync_pending' => self::plugin_sync_pending_mark($id), 'plugin_assets_dirty' => '1']);
+    save_settings_values(['plugin_sync_pending' => self::plugin_sync_pending_mark($id), 'plugin_force_sync' => self::plugin_force_sync_mark($id), 'plugin_assets_dirty' => '1']);
     self::plugin_registry_flush();
     return ['id' => $id];
 }

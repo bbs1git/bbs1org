@@ -3263,6 +3263,18 @@ if ($setup_action === 'update') {
     Setup::setup_update_run();
 }
 if (!db_schema_ready()) err('欢迎使用，请先进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
+$plugin_force_sync = (string)setting('plugin_force_sync', '');
+if ($plugin_force_sync !== '') {
+    $plugin_force_ids = [];
+    foreach (explode(',', $plugin_force_sync) as $plugin_force_id) {
+        if (plugin_id_valid($plugin_force_id)) $plugin_force_ids[] = $plugin_force_id;
+    }
+    if ($plugin_force_ids !== []) {
+        Plugin::plugin_registry_sync($plugin_force_ids, true);
+        Plugin::plugin_assets_mark_dirty();
+    }
+    save_settings_values(['plugin_force_sync' => '']);
+}
 $plugin_sync_pending = (string)setting('plugin_sync_pending', '0');
 if ($plugin_sync_pending !== '0' && $plugin_sync_pending !== '') {
     $plugin_sync_ids = null;
