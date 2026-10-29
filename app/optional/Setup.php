@@ -692,7 +692,7 @@ public static function us_refresh_opcache_after_update(array $files): string
         try {
             $opcache_enabled = $opcache_enabled || is_array(@opcache_get_status(false));
         } catch (Throwable $e) {
-            // 无法读取状态时，以配置值判断，随后仍要求 opcache_reset() 成功。
+
         }
     }
     if (!$opcache_enabled) return self::us_refresh_fpm_opcache_after_update();

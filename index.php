@@ -562,6 +562,7 @@ function plugin_load(array $plugin): void
     $file = (string)($plugin['file'] ?? '');
     if ($file === '' || !is_file($file)) return;
     if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) return;
+    $GLOBALS['__plugin_raw_hash'][$file] = hash_file('sha256', $file) ?: '';
     $GLOBALS['__plugin_raw'][$file] = include $file;
 }
 function plugin_callback_exists(mixed $callback): bool
@@ -1026,7 +1027,7 @@ function notification_row_html(array $n): string
                 return '《' . $title_marker . '》';
             }, $body, 1, $count);
             if (is_string($source) && $count > 0) {
-                // Render the title as one link so mentions in it cannot create nested anchors.
+
                 $content_html = str_replace($title_marker, '<a href="' . h($url) . '">' . h($topic_title) . '</a>', markdown_html($source));
             } else {
                 $view_link = '<a href="' . h($url) . '">查看主题</a>';

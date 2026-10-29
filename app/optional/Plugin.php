@@ -385,10 +385,11 @@ public static function plugin_market_install(string $id, int $topic_id, bool $au
     self::plugin_assets_mark_dirty();
     self::plugin_registry_flush();
     if (!$auto_enable) return;
+    if ($plugin_file_loaded) return;
     self::plugin_registry_sync([$id]);
     self::plugin_set_enabled($id, true, true);
     self::plugin_assets_rebuild();
-    if (!$plugin_file_loaded) save_settings_values(['plugin_sync_pending' => '0']);
+    save_settings_values(['plugin_sync_pending' => '0']);
 }
 
 public static function plugin_market_install_page(): void
@@ -537,7 +538,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $b_id = (string)($b['id'] ?? '');
         $update = (int)isset($updates[$b_id]) <=> (int)isset($updates[$a_id]);
         if ($update !== 0) return $update;
-        // 已安装的必装插件不再置顶，避免常驻占据列表头部
+
         $required = static fn(array $item): int => !empty($item['required']) && !isset($local[(string)($item['id'] ?? '')]) ? 1 : 0;
         $required_sort = $required($b) <=> $required($a);
         if ($required_sort !== 0) return $required_sort;
@@ -774,8 +775,8 @@ public static function admin_plugin_tab_html(string $tab): ?string
 private static function admin_plugin_page_html(array $plugin, string $html): string
 {
     $id = (string)($plugin['id'] ?? 'plugin');
-    // 插件自带的 plugin-tabs 托盘是页面级工具条，放到 .plugin-admin-page 外层，
-    // 与后台主托盘同级，避免被网格间距和内层内距再套一层。
+
+
     $page_tabs = '';
     if (preg_match('/^\s*<div class="tab-bar[^"]*\bplugin-tabs\b[^"]*"[^>]*>.*?<\/div>\s*/s', $html, $match)) {
         $page_tabs = trim($match[0]);
@@ -1048,12 +1049,17 @@ public static function plugin_registry_sync(?array $only_ids = null): array
         }
         $old = $existing[$id] ?? [];
         $code_hash = hash_file('sha256', $file) ?: '';
-        // 文件没变就沿用上次同步结果：不 include、不解析源码、不写库。
+
         if ($code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && plugin_registry_row($old)) {
             $synced[$id] = true;
             continue;
         }
         if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) {
+            $loaded_hash = (string)($GLOBALS['__plugin_raw_hash'][$file] ?? '');
+            if ($loaded_hash !== '' && $loaded_hash !== $code_hash) {
+                $synced[$id] = true;
+                continue;
+            }
             $raw = $GLOBALS['__plugin_raw'][$file];
         } else {
             try {
@@ -1064,6 +1070,7 @@ public static function plugin_registry_sync(?array $only_ids = null): array
                 continue;
             }
             $GLOBALS['__plugin_raw'][$file] = $raw;
+            $GLOBALS['__plugin_raw_hash'][$file] = $code_hash;
         }
         if (!is_array($raw)) {
             $disable($id, $file, '插件定义格式无效');
@@ -1117,7 +1124,7 @@ public static function plugin_registry_sync(?array $only_ids = null): array
     foreach ($plugins as $plugin) {
         $pid = (string)($plugin['id'] ?? '');
         if ($only_ids !== null) {
-            // 定向同步只处理本次上传/安装的插件，其他插件的计划任务保持原样。
+
             if (!isset($changed[$pid])) continue;
         } elseif (!isset($changed[$pid]) && !plugin_enabled($plugin)) {
             continue;
@@ -1198,7 +1205,7 @@ public static function plugin_enable_uploaded_page(): void
     go(admin_url(['tab' => 'plugins']));
 }
 
-/** 记录待同步插件：上传/安装时已经知道是哪个插件，只重新解析它，不扫描全部插件文件。 */
+
 private static function plugin_sync_pending_mark(string $id): string
 {
     $pending = (string)setting('plugin_sync_pending', '0');
