@@ -32,13 +32,13 @@ private static ?array $asset_ondemand_cache = null;
 
 private static function plugin_runtime_cache_rows_valid(array $rows): bool
 {
-    $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron'], true);
+    $fields = array_fill_keys(['id', 'file', 'config', 'entries', 'hooks', 'links', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron'], true);
     foreach ($rows as $row) {
         if (!is_array($row) || array_diff_key($row, $fields) || array_diff_key($fields, $row)) return false;
         $id = (string)$row['id'];
         $file = str_replace('\\', '/', ltrim((string)$row['file'], '/'));
         if (!self::plugin_id_valid($id) || $id === 'plugin_market' || $file !== 'app/plugins/' . $id . '/plugin.php') return false;
-        foreach (['config', 'entries', 'hooks', 'routes', 'admin_tabs', 'assets', 'cron'] as $field) {
+        foreach (['config', 'entries', 'hooks', 'links', 'routes', 'admin_tabs', 'assets', 'cron'] as $field) {
             if (!is_array($row[$field])) return false;
         }
     }
@@ -61,6 +61,7 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
             'config' => plugin_json_decode($row['config_json'] ?? '') ?? [],
             'entries' => plugin_json_decode($row['entries_json'] ?? '') ?? [],
             'hooks' => is_array($manifest['hooks'] ?? null) ? $manifest['hooks'] : [],
+            'links' => is_array($manifest['links'] ?? null) ? $manifest['links'] : [],
             'routes' => is_array($manifest['routes'] ?? null) ? $manifest['routes'] : [],
             'admin_tabs' => is_array($manifest['admin_tabs'] ?? null) ? $manifest['admin_tabs'] : [],
             'assets' => is_array($manifest['assets'] ?? null) ? $manifest['assets'] : [],
@@ -156,15 +157,15 @@ public static function plugin_enabled(array $plugin): bool
 public static function plugin_entry_definitions(): array
 {
     return [
-        'feature_links' => ['hook' => 'sidebar.feature_links', 'label' => '快捷功能'],
+        'feature_links' => ['hook' => 'sidebar.feature_links', 'label' => '快捷功能', 'links' => true],
         'sidebar_cards' => ['hook' => 'sidebar.stack', 'label' => '边栏卡片'],
-        'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab'],
-        'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab'],
-        'profile_settings_tabs' => ['hook' => 'profile.settings_tabs', 'label' => '个人设置Tab'],
-        'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片'],
+        'home_tabs' => ['hook' => 'topic.index_tabs', 'label' => '首页Tab', 'links' => true],
+        'profile_tabs' => ['hook' => 'user.profile_tabs', 'label' => '个人主页Tab', 'links' => true],
+        'profile_settings_tabs' => ['hook' => 'profile.settings_tabs', 'label' => '个人设置Tab', 'links' => true],
+        'profile_card' => ['hook' => 'user.menu_links', 'label' => '个人卡片', 'links' => true],
         'topic_actions' => ['hook' => 'topic.actions', 'label' => '主题操作'],
-        'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab'],
-        'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单'],
+        'admin_tabs' => ['hook' => 'admin.tabs', 'label' => '后台Tab', 'links' => true],
+        'top_menu' => ['hook' => 'top.menu_links', 'label' => '顶部菜单', 'links' => true],
         'top_actions' => ['hook' => 'top.bar.actions', 'label' => '顶部栏入口'],
     ];
 }
@@ -177,13 +178,83 @@ public static function plugin_entry_hook_name(string $entry): string
 public static function plugin_uses_entry(array $plugin, string $entry): bool
 {
     $hook = self::plugin_entry_hook_name($entry);
-    return $hook !== '' && isset($plugin['hooks'][$hook]);
+    return $hook !== '' && (isset($plugin['hooks'][$hook]) || !empty($plugin['links'][$entry]));
+}
+
+public static function plugin_entry_links(array $plugin, string $entry): array
+{
+    $definition = self::plugin_entry_definitions()[$entry] ?? null;
+    if (empty($definition['links'])) return [];
+    $links = $plugin['links'][$entry] ?? null;
+    return is_array($links) ? array_values($links) : [];
+}
+
+public static function plugin_entry_is_tab(string $entry): bool
+{
+    return in_array($entry, ['admin_tabs', 'home_tabs', 'profile_tabs', 'profile_settings_tabs'], true);
 }
 
 public static function plugin_entry_enabled(array $plugin, string $entry): bool
 {
     if (!self::plugin_uses_entry($plugin, $entry)) return false;
     return !array_key_exists($entry, (array)($plugin['entries'] ?? [])) || !empty($plugin['entries'][$entry]);
+}
+
+public static function plugin_entry_links_apply(mixed $value, array $plugin, string $entry, array $ctx): array
+{
+    $items = self::plugin_entry_links($plugin, $entry);
+    $out = is_array($value) ? $value : [];
+    if (!$items) return $out;
+    $tab = self::plugin_entry_is_tab($entry);
+    foreach ($items as $item) {
+        if (!self::plugin_entry_link_visible($item, $plugin, $ctx)) continue;
+        $text = (string)($item['text'] ?? '');
+        if ($text === '') continue;
+        $url = (string)($item['url'] ?? '');
+        if ($url === '' && (string)($item['route'] ?? '') !== '') $url = route_url((string)$item['route'], (array)($item['params'] ?? []));
+        if ($url === '') continue;
+        if ($tab) {
+            $key = (string)($item['key'] ?? '');
+            if ($key === '') continue;
+            $tab_item = ['label' => h($text), 'href' => $url];
+            $before = (string)($item['before'] ?? '');
+            if ($before !== '' && array_key_exists($before, $out)) {
+                $next = [];
+                foreach ($out as $k => $v) {
+                    if ($k === $before) $next[$key] = $tab_item;
+                    $next[$k] = $v;
+                }
+                $out = $next;
+            } else {
+                $out[$key] = $tab_item;
+            }
+            continue;
+        }
+        $row = ['text' => $text, 'url' => $url];
+        if (!empty($item['icon'])) $row['icon'] = (string)$item['icon'];
+        if (!empty($item['icon_html'])) $row['icon_html'] = (string)$item['icon_html'];
+        if (!empty($item['badge'])) $row['badge'] = (string)$item['badge'];
+        if (!empty($item['badge_dot'])) $row['badge_dot'] = true;
+        $out[] = $row;
+    }
+    return $out;
+}
+
+private static function plugin_entry_link_visible(array $item, array $plugin, array $ctx): bool
+{
+    $when = is_array($item['when'] ?? null) ? $item['when'] : [];
+    if (!empty($when['login']) && !uid()) return false;
+    if (!empty($when['admin']) && !can_access_admin()) return false;
+    if (!empty($when['self']) && empty($ctx['self'])) return false;
+    if (isset($when['config']) && is_array($when['config'])) {
+        $key = (string)($when['config']['key'] ?? '');
+        if ($key !== '') {
+            $config = (array)($plugin['config'] ?? []);
+            $value = array_key_exists($key, $config) ? $config[$key] : ($when['config']['default'] ?? null);
+            if (empty($value)) return false;
+        }
+    }
+    return true;
 }
 
 public static function plugin_registry(?string $id = null, bool $refresh = false): array
@@ -957,6 +1028,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         'author' => (string)($plugin['author'] ?? ''),
         'enabled' => !empty($plugin['enabled']),
         'hooks' => is_array($plugin['hooks'] ?? null) ? $plugin['hooks'] : [],
+        'links' => is_array($plugin['links'] ?? null) ? $plugin['links'] : [],
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
         'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
@@ -972,11 +1044,12 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         foreach ($base[$map] as $name => $fn) if (is_string($name) && is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $items[$name] = $fn;
         $base[$map] = $items;
     }
+    $base['links'] = self::plugin_links_normalize($base['links']);
     $entries = [];
     foreach ($base['entries'] as $entry => $enabled) {
         $entry = (string)$entry;
         $hook = self::plugin_entry_hook_name($entry);
-        if ($hook !== '' && isset($base['hooks'][$hook])) $entries[$entry] = !empty($enabled);
+        if ($hook !== '' && (isset($base['hooks'][$hook]) || !empty($base['links'][$entry]))) $entries[$entry] = !empty($enabled);
     }
     $base['entries'] = $entries;
     $assets = [];
@@ -1004,6 +1077,93 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
     $base['cron'] = $cron;
     foreach (['install', 'uninstall'] as $key) if ($base[$key] !== '' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $base[$key]) !== 1) $base[$key] = '';
     return $base;
+}
+
+private static function plugin_link_url_valid(string $url): bool
+{
+    if ($url === '' || preg_match('/[\x00-\x1f\x7f]/', $url) === 1) return false;
+    if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $url) === 1 && preg_match('/^https?:/i', $url) !== 1) return false;
+    return true;
+}
+
+private static function plugin_link_icon_html(string $html): string
+{
+    $html = trim($html);
+    if ($html === '' || strlen($html) > 1600) return '';
+    if (str_starts_with($html, '<svg') !== true || str_ends_with($html, '</svg>') !== true) return '';
+    if (preg_match('/<\s*(?!\/?\s*(?:svg|path|circle|rect|line|polyline|polygon|g)\b)[a-z]/i', $html) === 1) return '';
+    if (preg_match('/\bon[a-z]+\s*=|javascript:|<use\b|href=|xlink|style=|@import/i', $html) === 1) return '';
+    return $html;
+}
+
+private static function plugin_links_normalize(mixed $links): array
+{
+    if (!is_array($links)) return [];
+    $definitions = self::plugin_entry_definitions();
+    $out = [];
+    foreach ($links as $entry => $items) {
+        $entry = (string)$entry;
+        if (empty($definitions[$entry]['links']) || !is_array($items)) continue;
+        $tab = self::plugin_entry_is_tab($entry);
+        $rows = [];
+        foreach ($items as $item) {
+            if (!is_array($item) || count($rows) >= 20) continue;
+            $text = $item['text'] ?? $item['label'] ?? '';
+            $text = is_scalar($text) ? trim(cut(strip_tags((string)$text), 60)) : '';
+            if ($text === '') continue;
+            $row = ['text' => $text];
+            $url = is_scalar($item['url'] ?? null) ? trim((string)$item['url']) : '';
+            $route = is_scalar($item['route'] ?? null) ? trim((string)$item['route']) : '';
+            if ($url !== '') {
+                if (!self::plugin_link_url_valid($url)) continue;
+                $row['url'] = cut($url, 512);
+            } elseif ($route !== '') {
+                if (preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $route) !== 1) continue;
+                $row['route'] = $route;
+                $params = [];
+                foreach ((array)($item['params'] ?? []) as $key => $value) {
+                    if (!is_string($key) || preg_match('/^[a-z0-9_]{1,32}$/', $key) !== 1 || !is_scalar($value)) continue;
+                    if (count($params) >= 10) break;
+                    $params[$key] = is_bool($value) ? (int)$value : $value;
+                }
+                if ($params) $row['params'] = $params;
+            } else continue;
+            $key = is_scalar($item['key'] ?? null) ? trim((string)$item['key']) : '';
+            if ($key === '' && $tab) $key = $route;
+            if ($key !== '') {
+                if (preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $key) !== 1) continue;
+                $row['key'] = $key;
+            } elseif ($tab) continue;
+            if ($tab) {
+                $before = trim((string)($item['before'] ?? ''));
+                if ($before !== '' && preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $before) === 1) $row['before'] = $before;
+            }
+            $icon = is_scalar($item['icon'] ?? null) ? trim((string)$item['icon']) : '';
+            if ($icon !== '') {
+                if (preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $icon) !== 1) continue;
+                $row['icon'] = $icon;
+            }
+            $icon_html = is_scalar($item['icon_html'] ?? null) ? self::plugin_link_icon_html((string)$item['icon_html']) : '';
+            if ($icon_html !== '') $row['icon_html'] = $icon_html;
+            $badge = trim(cut(strip_tags((string)($item['badge'] ?? '')), 20));
+            if ($badge !== '') $row['badge'] = $badge;
+            if (!empty($item['badge_dot'])) $row['badge_dot'] = true;
+            $when = [];
+            $raw_when = is_array($item['when'] ?? null) ? $item['when'] : [];
+            foreach (['login', 'admin', 'self'] as $flag) if (!empty($raw_when[$flag])) $when[$flag] = true;
+            $config = $raw_when['config'] ?? null;
+            if (is_string($config) && preg_match('/^[a-z0-9_]{1,64}$/', $config) === 1) {
+                $when['config'] = ['key' => $config, 'default' => false];
+            } elseif (is_array($config)) {
+                $config_key = (string)($config['key'] ?? '');
+                if (preg_match('/^[a-z0-9_]{1,64}$/', $config_key) === 1) $when['config'] = ['key' => $config_key, 'default' => !empty($config['default'])];
+            }
+            if ($when) $row['when'] = $when;
+            $rows[] = $row;
+        }
+        if ($rows) $out[$entry] = $rows;
+    }
+    return $out;
 }
 
 public static function plugin_files(): array
@@ -1371,7 +1531,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
         $config = plugin_json_decode($old['config_json'] ?? '') ?? [];
         $entries = isset($old['entries_json']) ? plugin_json_decode($old['entries_json']) ?? [] : [];
         foreach (self::plugin_entry_definitions() as $entry => $definition) {
-            if (!isset($plugin['hooks'][$definition['hook']]) || array_key_exists($entry, $entries)) continue;
+            if ((!isset($plugin['hooks'][$definition['hook']]) && empty($plugin['links'][$entry])) || array_key_exists($entry, $entries)) continue;
             $entries[$entry] = !array_key_exists($entry, (array)$plugin['entries']) || !empty($plugin['entries'][$entry]);
         }
         $enabled = isset($old['enabled']) ? (int)$old['enabled'] : 0;
@@ -1381,7 +1541,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
-            'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron', 'install', 'uninstall']))),
+            'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'links', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron', 'install', 'uninstall']))),
             'config_json' => plugin_json_encode($config),
             'entries_json' => plugin_json_encode($entries),
             'enabled' => $enabled,

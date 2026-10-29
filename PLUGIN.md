@@ -18,7 +18,7 @@
 - manifest 中注册已有核心 Hook 时，必须使用核心定义的原始名称，例如 `topic.after_save`；只有插件自行定义并通过 `hook()` 或 `fire()` 调用的私有 Hook 才必须以插件 ID 开头，例如 `foo_bar.after_import`。不得以兼容为由定义或保留无前缀的插件私有别名。
 - 禁止以 `function_exists()`、`class_exists()` 或类似兼容分支定义无前缀的插件函数、类或常量。插件之间不得直接调用对方的函数、类或常量，也不得依赖对方的 CSS/JavaScript；确需共享代码能力时，由提供方插件注册以自身 ID 为前缀的私有 Hook（如 `foo_bar.render_card`），消费方插件通过 `hook()` 调用并传入缺省值：提供方未安装或未启用时 Hook 无人注册、原值返回，消费方据此优雅降级，不得出现依赖错误。仅全站通用的能力才移入核心，并使用正式的核心函数或 Hook。
 - `plugin.php` 开头必须包含 `if (!defined('APP_ROOT')) exit;`。
-- manifest 必须准确声明 `id`、`name`、`version`、`description`、`author`；按需声明 `assets`、`assets_mode`、`hooks`、`routes`、`admin_tabs`、`cron`、`install`、`uninstall`。
+- manifest 必须准确声明 `id`、`name`、`version`、`description`、`author`；按需声明 `assets`、`assets_mode`、`hooks`、`links`、`routes`、`admin_tabs`、`cron`、`install`、`uninstall`。
 - `description` 面向普通用户，只说明用户可感知的功能和收益，语言简短易懂；不得写技术实现、协议或依赖、数据库与任务调度等技术名词，也不得写版本更新点或开发说明。
 - 所有插件源码修改，无论是功能、修复、样式、脚本还是重构，都必须同步提升该插件 manifest 的 `version`，至少递增补丁版本；不得沿用原版本号。涉及用户可感知能力时，`description` 也必须与当前能力一致。
 - 插件读写路径使用 `DATA_DIR`、`PLUGIN_DIR`、`UPLOAD_DIR` 等核心常量，禁止硬编码部署目录；缓存和运行数据统一放入 `DATA_DIR`，公开附件地址由附件所属插件生成，共享上传目录分片使用 `upload_hash_dir()`。
@@ -569,6 +569,35 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 | `admin_tabs` | `admin.tabs` | 后台顶部 Tab |
 | `top_menu` | `top.menu_links` | PC 顶部版块区和移动端版块列表 |
 | `top_actions` | `top.bar.actions` | 版块导航、搜索框前后 |
+
+### `links` 入口数据化
+
+入口只是在导航或 Tab 栏加一条静态链接时，不必注册 Hook，直接在 manifest 的 `links` 里声明，核心会按原有位置和顺序渲染，并且不会 include 插件文件。`links` 与旧内核兼容：老内核不认识该字段会忽略它，所以同一插件应同时保留原有 `hooks` 回调；新内核检测到 `links` 声明后自动优先使用数据、跳过该入口的回调。
+
+可声明的入口只有 7 个：`top_menu`、`feature_links`、`profile_card`、`profile_tabs`、`profile_settings_tabs`、`home_tabs`、`admin_tabs`。`sidebar_cards`、`topic_actions`、`top_actions` 返回 HTML 或依赖页面数据，继续用函数 Hook。
+
+```php
+'links' => [
+    'top_menu' => [
+        ['text' => '积分商城', 'route' => 'points_mall', 'when' => ['config' => ['key' => 'enabled', 'default' => true]]],
+    ],
+    'profile_card' => [
+        ['text' => '我的订单', 'route' => 'points_mall_orders', 'icon' => 'pages', 'when' => ['login' => true, 'self' => true]],
+    ],
+    'admin_tabs' => [
+        ['key' => 'batch_management', 'label' => '内容', 'route' => 'admin', 'params' => ['tab' => 'batch_management'], 'before' => 'plugins'],
+    ],
+],
+```
+
+- `text`（Tab 类入口可写 `label`）：必填，纯文本，核心输出时统一转义，最多 60 字。
+- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。
+- `key`：Tab 类入口必填（`admin_tabs`/`home_tabs`/`profile_tabs`/`profile_settings_tabs`），与 `$active` 比较决定高亮；`before` 可把该 Tab 插到指定核心 Tab 之前，缺省追加在末尾。
+- `icon`：核心图标名（`user`/`id`/`reply`/`notify`/`forum`/`topic`/`view`/`settings`/`admin`/`pages`/`upload`），`icon_html` 可传单行 `<svg>` 片段，仅允许绘图标签与普通属性。
+- `when`：渲染条件，全部满足才显示。`login`（已登录）、`admin`（可访问后台）、`self`（当前查看的是本人主页）、`config`（插件配置键为真，可写成 `'config' => 'enabled'`，或用 `['key' => 'enabled', 'default' => true]` 指定缺省值）。
+- 每个入口最多 20 条，非法条目在同步时直接丢弃。
+- 数据条目只输出核心链接结构，不能再调用 `plugin_asset_require()`；需要插件样式或脚本的入口继续用函数 Hook。
+- 同一入口不要同时期待数据和回调都生效：声明 `links` 后该入口的回调会被跳过，回调里的其他逻辑也会一起失效。
 
 ### 内容长度自定义配置
 

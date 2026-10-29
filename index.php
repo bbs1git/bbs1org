@@ -609,14 +609,26 @@ function require_writable_dir(string $dir, string $message): void
 function hook_registry(): array
 {
     if (is_array($GLOBALS['__hook_registry'] ?? null)) return $GLOBALS['__hook_registry'];
+    $definitions = Plugin::plugin_entry_definitions();
+    $entry_by_hook = [];
+    foreach ($definitions as $entry => $definition) $entry_by_hook[(string)$definition['hook']] = $entry;
     $registry = [];
     foreach (Plugin::plugins() as $plugin) {
         if (!Plugin::plugin_enabled($plugin)) continue;
         foreach ($plugin['hooks'] as $name => $fn) {
-            foreach (Plugin::plugin_entry_definitions() as $entry => $definition) {
-                if ($name === $definition['hook'] && !Plugin::plugin_entry_enabled($plugin, $entry)) continue 2;
+            $entry = $entry_by_hook[$name] ?? null;
+            if ($entry !== null) {
+                if (!Plugin::plugin_entry_enabled($plugin, $entry)) continue;
+                if (Plugin::plugin_entry_links($plugin, $entry)) continue;
             }
             $registry[$name][] = ['plugin' => $plugin, 'fn' => $fn];
+        }
+        if (empty($plugin['links'])) continue;
+        foreach ($definitions as $entry => $definition) {
+            if (!Plugin::plugin_entry_enabled($plugin, $entry)) continue;
+            $links = Plugin::plugin_entry_links($plugin, $entry);
+            if (!$links) continue;
+            $registry[(string)$definition['hook']][] = ['plugin' => $plugin, 'fn' => null, 'entry' => $entry];
         }
     }
     return $GLOBALS['__hook_registry'] = $registry;
@@ -630,6 +642,10 @@ function hook(string $name, mixed $value = null, array $ctx = []): mixed
     foreach ($entries as $entry) {
         $plugin = $entry['plugin'];
         $fn = $entry['fn'];
+        if ($fn === null) {
+            $value = Plugin::plugin_entry_links_apply($value, $plugin, (string)($entry['entry'] ?? ''), $ctx);
+            continue;
+        }
         $next = Plugin::plugin_call($plugin, fn(): mixed => Plugin::plugin_callback_exists($fn) ? $fn($value, $ctx) : null);
         if ($next !== null) $value = $next;
     }
