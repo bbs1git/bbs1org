@@ -1055,23 +1055,17 @@ public static function plugin_registry_sync(?array $only_ids = null): array
             continue;
         }
         if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) {
-            $loaded_hash = (string)($GLOBALS['__plugin_raw_hash'][$file] ?? '');
-            if ($loaded_hash !== '' && $loaded_hash !== $code_hash) {
-                $synced[$id] = true;
-                continue;
-            }
-            $raw = $GLOBALS['__plugin_raw'][$file];
-        } else {
-            try {
-                if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
-                $raw = include $file;
-            } catch (Throwable $e) {
-                $disable($id, $file, $e->getMessage());
-                continue;
-            }
-            $GLOBALS['__plugin_raw'][$file] = $raw;
-            $GLOBALS['__plugin_raw_hash'][$file] = $code_hash;
+            $synced[$id] = true;
+            continue;
         }
+        try {
+            if (function_exists('opcache_invalidate')) @opcache_invalidate($file, true);
+            $raw = include $file;
+        } catch (Throwable $e) {
+            $disable($id, $file, $e->getMessage());
+            continue;
+        }
+        $GLOBALS['__plugin_raw'][$file] = $raw;
         if (!is_array($raw)) {
             $disable($id, $file, '插件定义格式无效');
             continue;

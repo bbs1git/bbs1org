@@ -562,7 +562,6 @@ function plugin_load(array $plugin): void
     $file = (string)($plugin['file'] ?? '');
     if ($file === '' || !is_file($file)) return;
     if (array_key_exists($file, $GLOBALS['__plugin_raw'] ?? [])) return;
-    $GLOBALS['__plugin_raw_hash'][$file] = hash_file('sha256', $file) ?: '';
     $GLOBALS['__plugin_raw'][$file] = include $file;
 }
 function plugin_callback_exists(mixed $callback): bool
