@@ -218,11 +218,19 @@ public static function plugin_entry_links_apply(mixed $value, array $plugin, str
             if ($key === '') continue;
             $tab_item = ['label' => h($text), 'href' => $url];
             $before = (string)($item['before'] ?? '');
+            $after = (string)($item['after'] ?? '');
             if ($before !== '' && array_key_exists($before, $out)) {
                 $next = [];
                 foreach ($out as $k => $v) {
                     if ($k === $before) $next[$key] = $tab_item;
                     $next[$k] = $v;
+                }
+                $out = $next;
+            } elseif ($after !== '' && array_key_exists($after, $out)) {
+                $next = [];
+                foreach ($out as $k => $v) {
+                    $next[$k] = $v;
+                    if ($k === $after) $next[$key] = $tab_item;
                 }
                 $out = $next;
             } else {
@@ -244,14 +252,22 @@ private static function plugin_entry_link_visible(array $item, array $plugin, ar
 {
     $when = is_array($item['when'] ?? null) ? $item['when'] : [];
     if (!empty($when['login']) && !uid()) return false;
-    if (!empty($when['admin']) && !can_access_admin()) return false;
+    if (array_key_exists('admin', $when) && (bool)can_access_admin() !== (bool)$when['admin']) return false;
     if (!empty($when['self']) && empty($ctx['self'])) return false;
-    if (isset($when['config']) && is_array($when['config'])) {
-        $key = (string)($when['config']['key'] ?? '');
-        if ($key !== '') {
-            $config = (array)($plugin['config'] ?? []);
-            $value = array_key_exists($key, $config) ? $config[$key] : ($when['config']['default'] ?? null);
-            if (empty($value)) return false;
+    $config = $when['config'] ?? null;
+    if ($config !== null) {
+        $rules = is_array($config) && array_is_list($config) ? $config : [$config];
+        $values = (array)($plugin['config'] ?? []);
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) continue;
+            $key = (string)($rule['key'] ?? '');
+            if ($key === '') continue;
+            $value = array_key_exists($key, $values) ? $values[$key] : ($rule['default'] ?? null);
+            if (array_key_exists('equals', $rule)) {
+                $equals = $rule['equals'];
+                $matched = is_bool($equals) ? (bool)$value === $equals : is_scalar($value) && (string)$value === (string)$equals;
+                if (!$matched) return false;
+            } elseif (empty($value)) return false;
         }
     }
     return true;
@@ -426,6 +442,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
             'title' => (string)($item['title'] ?? ''),
             'name' => (string)($item['name'] ?? $id),
             'version' => (string)($item['version'] ?? ''),
+            'assets_mode' => (string)($item['assets_mode'] ?? '') === 'ondemand' ? 'ondemand' : '',
             'description' => (string)($item['description'] ?? ''),
             'author' => (string)($item['author'] ?? ''),
             'creator' => (string)($item['creator'] ?? ($item['username'] ?? ($item['author'] ?? ''))),
@@ -788,6 +805,8 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
         $title = h((string)($item['name'] ?? $id));
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
+        $ondemand = (string)($item['assets_mode'] ?? '') === 'ondemand' || ($installed && (string)($local[$id]['assets_mode'] ?? '') === 'ondemand');
+        $ondemand_mark = $ondemand ? self::plugin_ondemand_mark_html() : '';
         $status = [];
         if ($item_market_view === 'certified') $status[] = '站长认证';
         if (!empty($item['required'])) $status[] = '必装';
@@ -795,7 +814,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         $price_tag = $paid ? '<span class="plugin-market-price">' . $price_points . ' 积分</span>' : '';
         $required_stamp = !empty($item['required']) ? '<span class="plugin-required-stamp" aria-hidden="true">必装</span>' : '';
         $class = ' plugin-market-entry' . ($needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available')) . ($required_stamp !== '' ? ' plugin-has-required' : '');
-        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '">' . $required_stamp . '<div class="admin-row-main"><div class="plugin-title-line">' . $title . $price_tag . '</div><div class="admin-inline-ops plugin-ops">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $status)) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div>' . self::plugin_desc_html((string)($item['description'] ?? '')) . '<div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div></div></li>';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '">' . $required_stamp . '<div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . $price_tag . '</div><div class="admin-inline-ops plugin-ops">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $status)) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div>' . self::plugin_desc_html((string)($item['description'] ?? '')) . '<div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div></div></li>';
     }
     if (!$items) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : ($market_view === 'beta' ? '暂无待审核或忽略的插件。' : ($market_view === 'required' ? '暂无必装插件。' : '暂无已审核通过的插件。'))) . '</li>';
     $html .= '</ul></div>';
@@ -810,6 +829,11 @@ public static function plugin_market_admin_actions(array $plugin): string
     $share = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">分享</button></form>';
     $download = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_download')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">下载</button></form>';
     return $share . $download;
+}
+
+private static function plugin_ondemand_mark_html(): string
+{
+    return '<span class="plugin-ondemand-mark" title="支持按需加载：插件资源在用到时才加载" aria-label="支持按需加载"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>';
 }
 
 public static function plugin_desc_html(string $desc): string
@@ -890,8 +914,9 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
         $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
         $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
+        $ondemand_mark = (string)($plugin['assets_mode'] ?? '') === 'ondemand' ? self::plugin_ondemand_mark_html() : '';
         $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
-        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
+        $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
     }
     if ($plugins) $html .= '<li class="empty-state is-hidden" data-plugin-local-empty hidden>未找到匹配插件</li>';
     else $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
@@ -1135,8 +1160,10 @@ private static function plugin_links_normalize(mixed $links): array
                 $row['key'] = $key;
             } elseif ($tab) continue;
             if ($tab) {
-                $before = trim((string)($item['before'] ?? ''));
-                if ($before !== '' && preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $before) === 1) $row['before'] = $before;
+                foreach (['before', 'after'] as $position) {
+                    $anchor = trim((string)($item[$position] ?? ''));
+                    if ($anchor !== '' && preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $anchor) === 1) $row[$position] = $anchor;
+                }
             }
             $icon = is_scalar($item['icon'] ?? null) ? trim((string)$item['icon']) : '';
             if ($icon !== '') {
@@ -1150,14 +1177,27 @@ private static function plugin_links_normalize(mixed $links): array
             if (!empty($item['badge_dot'])) $row['badge_dot'] = true;
             $when = [];
             $raw_when = is_array($item['when'] ?? null) ? $item['when'] : [];
-            foreach (['login', 'admin', 'self'] as $flag) if (!empty($raw_when[$flag])) $when[$flag] = true;
-            $config = $raw_when['config'] ?? null;
-            if (is_string($config) && preg_match('/^[a-z0-9_]{1,64}$/', $config) === 1) {
-                $when['config'] = ['key' => $config, 'default' => false];
-            } elseif (is_array($config)) {
-                $config_key = (string)($config['key'] ?? '');
-                if (preg_match('/^[a-z0-9_]{1,64}$/', $config_key) === 1) $when['config'] = ['key' => $config_key, 'default' => !empty($config['default'])];
+            foreach (['login', 'self'] as $flag) if (!empty($raw_when[$flag])) $when[$flag] = true;
+            if (array_key_exists('admin', $raw_when)) {
+                if ($raw_when['admin'] === false) $when['admin'] = false;
+                elseif (!empty($raw_when['admin'])) $when['admin'] = true;
             }
+            $rules = [];
+            $raw_config = $raw_when['config'] ?? null;
+            foreach (is_array($raw_config) && array_is_list($raw_config) ? $raw_config : [$raw_config] as $rule) {
+                if (is_string($rule) && preg_match('/^[a-z0-9_]{1,64}$/', $rule) === 1) {
+                    $rules[] = ['key' => $rule, 'default' => false];
+                    continue;
+                }
+                if (!is_array($rule)) continue;
+                $config_key = (string)($rule['key'] ?? '');
+                if (preg_match('/^[a-z0-9_]{1,64}$/', $config_key) !== 1) continue;
+                $condition = ['key' => $config_key, 'default' => !empty($rule['default'])];
+                if (array_key_exists('equals', $rule) && (is_bool($rule['equals']) || is_scalar($rule['equals']))) $condition['equals'] = $rule['equals'];
+                $rules[] = $condition;
+                if (count($rules) >= 8) break;
+            }
+            if ($rules) $when['config'] = $rules;
             if ($when) $row['when'] = $when;
             $rows[] = $row;
         }

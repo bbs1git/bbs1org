@@ -4452,6 +4452,23 @@ table.list.admin-bulk-list {
     flex: 0 0 auto
 }
 
+.plugin-ondemand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    background: var(--brand-soft);
+    color: var(--brand)
+}
+
+.plugin-ondemand-mark svg {
+    width: 12px;
+    height: 12px
+}
+
 .plugin-id {
     font-family: var(--font-mono)
 }
