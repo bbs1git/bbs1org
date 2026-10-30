@@ -603,11 +603,11 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 
 - `text`（Tab 类入口可写 `label`）：纯文本，核心输出时统一转义，最多 60 字；和 `text_config` 至少写一个。
 - `text_config`：文案取自插件配置的键名（`plugin_config()` 里保存的键）。配置值非空时用它覆盖 `text`，此时 `text` 可写配置缺省值，也可以留空；纯文本、会话前经过截断与去标签，最多 60 字。
-- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。
+- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。参数值可以写 `{ctx}` 占位符，从当前入口上下文取值：`{uid}`（当前登录用户）、`{self}`、`{active}`、`{forum_id}`、`{query}`、`{page}`、`{user.id}`、`{user.username}`；取不到值或为空时整条链接不渲染。
 - `key`：Tab 类入口必填（`admin_tabs`/`home_tabs`/`profile_tabs`/`profile_settings_tabs`），与 `$active` 比较决定高亮；`before` / `after` 可把该 Tab 插到指定核心 Tab 之前/之后，锚点不存在时追加在末尾。
 - `icon`：核心图标名（`user`/`id`/`reply`/`notify`/`forum`/`topic`/`view`/`settings`/`admin`/`pages`/`upload`），`icon_html` 可传单行 `<svg>` 片段，仅允许绘图标签与普通属性。
-- `when`：渲染条件，全部满足才显示。`login`（已登录）、`self`（当前查看的是本人主页）、`admin`（`true` 要求可访问后台，`false` 要求不是管理员）、`config`（插件配置条件）。`config` 可写单个键名、单个条件数组或条件数组列表，列表内全部满足才显示；单个条件形如 `['key' => 'enabled', 'default' => true]`，`default` 是配置缺省值，再加 `'equals' => false` 表示配置值必须等于该值（布尔值按真假比较，其他按字符串比较）。
-- 文字可以来自配置（用 `text_config`），但带未读角标、URL 依赖 `$ctx`（如个人主页 `user_id`）、显示位置依赖当前页面的入口仍无法数据化，继续用函数 Hook。
+- `when`：渲染条件，全部满足才显示。`login`（已登录）、`self`（当前查看的是本人主页）、`admin`（`true` 要求可访问后台，`false` 要求不是管理员）、`config`（插件配置条件）、`ctx`（入口上下文条件）。`config` 与 `ctx` 可写单个键名、单个条件数组或条件数组列表，列表内全部满足才显示；单个条件形如 `['key' => 'enabled', 'default' => true]`，`default` 是配置缺省值，再加 `'equals' => false` 表示配置值必须等于该值（布尔值按真假比较，其他按字符串比较）。`ctx` 按当前入口上下文判断，键支持 `user.id` 这类点号路径，`'equals' => false` 表示该上下文值为空。
+- 文字可以来自配置（用 `text_config`）；依赖 `$ctx` 的显示条件和 URL 参数用 `when.ctx` 与 `{ctx}` 占位符表达；带未读角标、需要拼装动态文案或调用 `plugin_asset_require()` 的入口仍无法数据化，继续用函数 Hook。
 - 每个入口最多 20 条，非法条目在同步时直接丢弃。
 - 数据条目只输出核心链接结构，不能再调用 `plugin_asset_require()`；需要插件样式或脚本的入口继续用函数 Hook。
 - 同一入口不要同时期待数据和回调都生效：声明 `links` 后该入口的回调会被跳过，回调里的其他逻辑也会一起失效。

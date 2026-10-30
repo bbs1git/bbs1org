@@ -218,7 +218,14 @@ public static function plugin_entry_links_apply(mixed $value, array $plugin, str
         }
         if ($text === '') continue;
         $url = (string)($item['url'] ?? '');
-        if ($url === '' && (string)($item['route'] ?? '') !== '') $url = route_url((string)$item['route'], (array)($item['params'] ?? []));
+        if ($url === '' && (string)($item['route'] ?? '') !== '') {
+            $params = (array)($item['params'] ?? []);
+            if ($params) {
+                $params = self::plugin_link_params_resolve($params, $ctx);
+                if ($params === null) continue;
+            }
+            $url = route_url((string)$item['route'], $params);
+        }
         if ($url === '') continue;
         if ($tab) {
             $key = (string)($item['key'] ?? '');
@@ -261,23 +268,68 @@ private static function plugin_entry_link_visible(array $item, array $plugin, ar
     if (!empty($when['login']) && !uid()) return false;
     if (array_key_exists('admin', $when) && (bool)can_access_admin() !== (bool)$when['admin']) return false;
     if (!empty($when['self']) && empty($ctx['self'])) return false;
-    $config = $when['config'] ?? null;
-    if ($config !== null) {
-        $rules = is_array($config) && array_is_list($config) ? $config : [$config];
-        $values = (array)($plugin['config'] ?? []);
-        foreach ($rules as $rule) {
-            if (!is_array($rule)) continue;
-            $key = (string)($rule['key'] ?? '');
-            if ($key === '') continue;
-            $value = array_key_exists($key, $values) ? $values[$key] : ($rule['default'] ?? null);
-            if (array_key_exists('equals', $rule)) {
-                $equals = $rule['equals'];
-                $matched = is_bool($equals) ? (bool)$value === $equals : is_scalar($value) && (string)$value === (string)$equals;
-                if (!$matched) return false;
-            } elseif (empty($value)) return false;
-        }
+    if (!self::plugin_entry_rules_pass($when['config'] ?? null, (array)($plugin['config'] ?? []))) return false;
+    if (!self::plugin_entry_rules_pass($when['ctx'] ?? null, $ctx)) return false;
+    return true;
+}
+
+private static function plugin_entry_rules_pass(mixed $raw, array $values): bool
+{
+    if ($raw === null) return true;
+    $rules = is_array($raw) && array_is_list($raw) ? $raw : [$raw];
+    foreach ($rules as $rule) {
+        if (!is_array($rule)) continue;
+        $key = (string)($rule['key'] ?? '');
+        if ($key === '') continue;
+        $value = self::plugin_rule_value($values, $key);
+        if ($value === null && !array_key_exists($key, $values)) $value = $rule['default'] ?? null;
+        if (array_key_exists('equals', $rule)) {
+            $equals = $rule['equals'];
+            $matched = is_bool($equals) ? (bool)$value === $equals : is_scalar($value) && (string)$value === (string)$equals;
+            if (!$matched) return false;
+        } elseif (empty($value)) return false;
     }
     return true;
+}
+
+private static function plugin_rule_value(array $values, string $key): mixed
+{
+    if (array_key_exists($key, $values)) return $values[$key];
+    if (!str_contains($key, '.')) return null;
+    $value = $values;
+    foreach (explode('.', $key) as $part) {
+        if (!is_array($value) || !array_key_exists($part, $value)) return null;
+        $value = $value[$part];
+    }
+    return $value;
+}
+
+private static function plugin_link_params_resolve(array $params, array $ctx): ?array
+{
+    $out = [];
+    foreach ($params as $key => $value) {
+        if (is_string($value) && preg_match('/^\{([a-z0-9_]{1,32}(?:\.[a-z0-9_]{1,32})?)\}$/', $value, $m)) {
+            $resolved = self::plugin_link_ctx_value($m[1], $ctx);
+            if ($resolved === null || $resolved === '') return null;
+            $out[$key] = $resolved;
+            continue;
+        }
+        $out[$key] = $value;
+    }
+    return $out;
+}
+
+private static function plugin_link_ctx_value(string $path, array $ctx): int|string|null
+{
+    if ($path === 'uid') return uid() ?: null;
+    if (str_starts_with($path, 'user.')) {
+        $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : [];
+        $value = $user[substr($path, 5)] ?? null;
+        return is_scalar($value) ? $value : null;
+    }
+    $value = $ctx[$path] ?? null;
+    if (is_bool($value)) return $value ? 1 : 0;
+    return is_scalar($value) ? $value : null;
 }
 
 public static function plugin_registry(?string $id = null, bool $refresh = false): array
@@ -1111,6 +1163,11 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
     return $base;
 }
 
+private static function plugin_link_ctx_keys(): array
+{
+    return ['uid', 'self', 'active', 'forum_id', 'query', 'page', 'user.id', 'user.username'];
+}
+
 private static function plugin_link_url_valid(string $url): bool
 {
     if ($url === '' || preg_match('/[\x00-\x1f\x7f]/', $url) === 1) return false;
@@ -1159,6 +1216,11 @@ private static function plugin_links_normalize(mixed $links): array
                 foreach ((array)($item['params'] ?? []) as $key => $value) {
                     if (!is_string($key) || preg_match('/^[a-z0-9_]{1,32}$/', $key) !== 1 || !is_scalar($value)) continue;
                     if (count($params) >= 10) break;
+                    if (is_string($value) && preg_match('/^\{([a-z0-9_]{1,32}(?:\.[a-z0-9_]{1,32})?)\}$/', $value, $pm)) {
+                        if (!in_array($pm[1], self::plugin_link_ctx_keys(), true)) continue;
+                        $params[$key] = $value;
+                        continue;
+                    }
                     $params[$key] = is_bool($value) ? (int)$value : $value;
                 }
                 if ($params) $row['params'] = $params;
@@ -1208,6 +1270,18 @@ private static function plugin_links_normalize(mixed $links): array
                 if (count($rules) >= 8) break;
             }
             if ($rules) $when['config'] = $rules;
+            $ctx_rules = [];
+            $raw_ctx = $raw_when['ctx'] ?? null;
+            foreach (is_array($raw_ctx) && array_is_list($raw_ctx) ? $raw_ctx : [$raw_ctx] as $rule) {
+                if (!is_array($rule)) continue;
+                $ctx_key = (string)($rule['key'] ?? '');
+                if (preg_match('/^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)?$/', $ctx_key) !== 1 || strlen($ctx_key) > 40) continue;
+                $condition = ['key' => $ctx_key, 'default' => !empty($rule['default'])];
+                if (array_key_exists('equals', $rule) && (is_bool($rule['equals']) || is_scalar($rule['equals']))) $condition['equals'] = $rule['equals'];
+                $ctx_rules[] = $condition;
+                if (count($ctx_rules) >= 8) break;
+            }
+            if ($ctx_rules) $when['ctx'] = $ctx_rules;
             if ($when) $row['when'] = $when;
             $rows[] = $row;
         }

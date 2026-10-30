@@ -2819,7 +2819,7 @@ function topic_index_template(array $view): string
             $main .= $forum_links . '</div>';
         }
         $tab_items = ['comment' => ['label' => '新评论', 'href' => $url($search_query . 'sort=comment')], 'post' => ['label' => '新帖子', 'href' => $url($search_query . 'sort=post')]];
-        $hook_tabs = hook('topic.index_tabs', $tab_items, ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
+        $hook_tabs = hook('topic.index_tabs', $tab_items, ['forum_id' => $fid, 'query' => $q, 'sort' => $sort, 'page' => max(1, (int)($_GET['p'] ?? 1)), 'is_home_first_page' => is_home_first_page_request()]);
         if (is_array($hook_tabs)) $tab_items = $hook_tabs;
         $toolbar_actions = (string)hook('topic.toolbar_actions', '', ['forum_id' => $fid, 'query' => $q, 'sort' => $sort]);
         $main .= '<div class="topic-toolbar" data-slot="topic.index_tabs topic.toolbar_actions">' . tab_bar_html($tab_items, $sort) . $toolbar_actions . (can_speak() ? '<a class="tab-post" href="' . h(route_url('topic_edit', ['fid' => $fid ?: null])) . '">+ 发帖</a>' : '') . '</div>';
