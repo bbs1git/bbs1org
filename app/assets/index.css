@@ -2532,9 +2532,8 @@ input[type=checkbox][checked]:not(:checked) {
     max-width: 450px
 }
 
-.form-panel button:not(.avatar-option) {
-    justify-self: start;
-    min-width: 92px
+.form-panel button {
+    justify-self: start
 }
 
 .form-panel .muted {
@@ -3272,8 +3271,7 @@ input[type=checkbox][checked]:not(:checked) {
 }
 
 .reply-panel button {
-    justify-self: end;
-    min-width: 92px
+    justify-self: end
 }
 
 .reply-login-box {
