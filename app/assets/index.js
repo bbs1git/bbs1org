@@ -589,6 +589,39 @@ document.addEventListener("click", e => {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 });
+const injectOnDemandAssets = (css, js) => {
+    const existingLinks = () => [...document.querySelectorAll('link[rel="stylesheet"][href]')].map(link => link.getAttribute("href"));
+    const existingScripts = () => [...document.querySelectorAll("script[src]")].map(script => script.getAttribute("src"));
+    if (css) {
+        const tpl = document.createElement("template");
+        tpl.innerHTML = css;
+        const links = existingLinks();
+        tpl.content.querySelectorAll('link[rel="stylesheet"][href]').forEach(link => {
+            const href = link.getAttribute("href");
+            if (!href || links.includes(href)) return;
+            links.push(href);
+            document.head.appendChild(link);
+        });
+    }
+    if (js) {
+        const tpl = document.createElement("template");
+        tpl.innerHTML = js;
+        const scripts = existingScripts();
+        tpl.content.querySelectorAll("script").forEach(node => {
+            const src = node.getAttribute("src");
+            if (src && scripts.includes(src)) return;
+            const script = document.createElement("script");
+            if (src) {
+                scripts.push(src);
+                script.src = src;
+                if (node.hasAttribute("defer")) script.defer = true;
+            } else {
+                script.textContent = node.textContent || "";
+            }
+            document.body.appendChild(script);
+        });
+    }
+};
 document.addEventListener("submit", async e => {
     if (e.defaultPrevented) return;
     if (window.bbs1AttachmentUpload?.isUploading(e.target)) {
@@ -685,6 +718,7 @@ document.addEventListener("submit", async e => {
                 list.insertAdjacentHTML("beforeend", data.html);
                 reply = list.lastElementChild?.matches(".post-entry") ? list.lastElementChild : null;
             }
+            injectOnDemandAssets(data.assets_css, data.assets_js);
             const title = document.querySelector(".post-topic-title");
             const stats = title?.querySelector(".post-content-stats");
             if (title) {

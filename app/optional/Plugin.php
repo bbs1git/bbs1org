@@ -1401,12 +1401,18 @@ private static function plugin_assets_ondemand_manifest(bool $refresh = false): 
 public static function plugin_assets_html(string $type): string
 {
     if (!in_array($type, ['css', 'js'], true)) return '';
+    return plugin_asset_tag($type) . self::plugin_assets_ondemand_html($type);
+}
+
+public static function plugin_assets_ondemand_html(string $type): string
+{
+    if (!in_array($type, ['css', 'js'], true)) return '';
     $required = [];
     foreach (self::$asset_required as $id => $types) {
         if (!empty($types[$type])) $required[] = (string)$id;
     }
-    if (!$required) return plugin_asset_tag($type);
-    $html = plugin_asset_tag($type);
+    if (!$required) return '';
+    $html = '';
     $manifest = self::plugin_assets_ondemand_manifest(true);
     $missing = [];
     foreach ($required as $id) {

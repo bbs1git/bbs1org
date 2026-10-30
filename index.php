@@ -3101,7 +3101,13 @@ function reply_edit_page(): void
             $floor = reply_position_floor((int)$topic['id'], (int)$row['created_at'], (int)$row['id']);
             $ops = quote_reply_action($row, $floor);
             if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
-            json_response(['ok' => 1, 'html' => topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]), 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])]);
+            $reply_html = topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]);
+            $payload = ['ok' => 1, 'html' => $reply_html, 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])];
+            $reply_assets_css = Plugin::plugin_assets_ondemand_html('css');
+            $reply_assets_js = Plugin::plugin_assets_ondemand_html('js');
+            if ($reply_assets_css !== '') $payload['assets_css'] = $reply_assets_css;
+            if ($reply_assets_js !== '') $payload['assets_js'] = $reply_assets_js;
+            json_response($payload);
         }
         go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
     }
