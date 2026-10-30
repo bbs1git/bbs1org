@@ -560,9 +560,9 @@ function plugin_asset_tag(string $type): string
     if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
     return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
 }
-function plugin_asset_require(string $id): void
+function plugin_asset_require(string $id, string $type = ''): void
 {
-    Plugin::plugin_asset_require($id);
+    Plugin::plugin_asset_require($id, $type);
 }
 function plugin_entry_definitions(): array
 {

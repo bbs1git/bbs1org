@@ -274,7 +274,7 @@ window.bbs1?.showToast('已保存');
 
 **声明方式**：manifest 增加 `'assets_mode' => 'ondemand'`。值不是 `ondemand` 时按默认（公共合集）处理，无需为旧插件补字段。
 
-**登记方式**：在负责渲染该页面的 Hook 里调用 `plugin_asset_require('插件ID')`。核心按页面收集并去重，公共合集照常输出，被登记的插件再追加自己的 `<link>` / `<script>`；CSS 落在 `<head>`，JavaScript 在页脚以 `defer` 加载。未登记的页面完全不加载该资源。
+**登记方式**：在负责渲染该页面的 Hook 里调用 `plugin_asset_require('插件ID')`。只需要其中一类资源时传第二个参数：`plugin_asset_require('插件ID', 'css')` 只输出样式、`plugin_asset_require('插件ID', 'js')` 只输出脚本；不传（或传其它值）表示两类都要。核心按页面收集并去重，公共合集照常输出，被登记的插件再追加自己的 `<link>` / `<script>`；CSS 落在 `<head>`，JavaScript 在页脚以 `defer` 加载。未登记的页面完全不加载该资源。
 
 ```php
 function hello_editor_css(): string
@@ -305,6 +305,16 @@ return [
 ];
 ```
 
+**按类型登记**：页面只用到样式或只用到脚本时，传第二个参数，避免另一类资源白下载。
+
+```php
+function hello_list_badge($html, array $ctx): string
+{
+    if (function_exists('plugin_asset_require')) plugin_asset_require('hello', 'css');
+    return (string)$html . '<span class="hello-editor-badge">Hello</span>';
+}
+```
+
 规则：
 
 - 登记必须发生在页面输出之前，也就是插件自己的 Hook 里。核心在整页模板渲染完成后统一收集，因此 `page.footer` 这类页脚 Hook 里的登记同样有效。
@@ -312,7 +322,8 @@ return [
 - `assets` 函数仍必须无参数、返回源码、不依赖当前用户或页面数据，与默认模式一致；动态值通过 `data-*` 传递。
 - 按需资源由核心生成到 `app/assets/plugins/<插件ID>.css|js`，插件不要手写或提交这些文件，升级器也不会覆盖该目录。生成与重建由启用、停用、卸载、市场安装、更新和后台同步自动完成；文件缺失时页面首次访问会补生成。
 - 参数是插件 ID，只有已启用且声明为按需模式的插件会被接受；未启用、未声明按需或 ID 非法时静默忽略。插件之间的直接调用仍受「不得依赖其他插件」约束，通常只登记自己。
-- 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核没有这个函数，且会忽略 `assets_mode`、把资源照旧并入公共合集，兜底后界面正常、只是不按需；裸调则会抛错并被自动停用插件。兜底只包住调用，不要用它定义无前缀函数。
+- 类型过滤只决定输出哪类标签，不拆分文件：插件仍是一个 `app/assets/plugins/<插件ID>.css` 和一个 `.js`。`plugin_asset_require('插件ID', 'css')` 只是不再同时输出 `<script>`，适合「列表页只要样式、只有编辑页才要脚本」这类场景；同一请求内先后调用不同类型（或后调不带参数）时取并集，只增不减。插件没有声明该类型时不会输出任何标签。
+- 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核没有这个函数，且会忽略 `assets_mode`、把资源照旧并入公共合集，兜底后界面正常、只是不按需；裸调则会抛错并被自动停用插件。老内核的 `plugin_asset_require()` 也不认识第二个参数，多传的类型参数会被忽略并回退为两类都加载，所以上述兜底写法可以直接保留第二个参数。兜底只包住调用，不要用它定义无前缀函数。
 - 页面内的 AJAX 局部 HTML 不会触发资源输出：局部内容若要动态用上按需资源，需在首次整页渲染时已登记，或由插件自行保证依赖可用。
 - 从默认模式改成按需模式（或反向）后，系统会在对应插件更新或下次后台同步时迁移资源位置：移入独立文件并删除合集里的旧分块，反向则写回公共合集并删除独立文件。迁移不影响其他插件。
 
@@ -391,7 +402,7 @@ function hello_collect(array $plugin, array $task): string
 - 数据库占位符、唯一约束、索引、事务和 SQLite/MySQL/PostgreSQL 兼容性已检查：所有 `db_driver()` 分支都显式覆盖 `pgsql`（见「跨库 SQL 速查」），未出现 `LIMIT m,n`、`AUTOINCREMENT`、`date(x,'unixepoch')` 这类只在 MySQL 或 SQLite 成立的写法。
 - 只要动过 `plugin.php` 一行（含注释、空白、行尾），manifest 的 `version` 就必须递增；只改核心文件时不要去动插件版本号。漏升的后果是实打实的：后台「可更新」提示由 `Plugin::plugin_market_update_available()` 的 `version_compare($remote, $local, '>')` 判定，版本号不变就永远不提示更新；插件导出文件名是 `插件ID_版本.php1`，同版本号会互相覆盖。manifest 在文件末尾，核对时以最后的 `return [...]` 为准，不要取文件里第一处 `'version'`。
 - 插件描述已同步更新，未修改插件职责之外的核心文件或生成资源。
-- 按需模式已核对：声明了 `assets_mode` 的插件，每个会用到其界面的页面都在对应 Hook 里调用了 `plugin_asset_require()`；未登记该资源的页面确认不加载它，已登记的页面确认标签只出现一次。
+- 按需模式已核对：声明了 `assets_mode` 的插件，每个会用到其界面的页面都在对应 Hook 里调用了 `plugin_asset_require()`；只用样式或只用脚本的页面已传 `'css'` / `'js'` 缩小加载范围；未登记该资源的页面确认不加载它，已登记的页面确认标签只出现一次。
 - 已运行 `php -l app/plugins/插件ID/plugin.php` 和 `git diff --check`。
 - 交付说明列出行为变化、迁移影响、验证结果，以及未执行的外部副作用操作。
 

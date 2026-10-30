@@ -1370,13 +1370,14 @@ private static function plugin_asset_remove(string $id): void
     }
 }
 
-public static function plugin_asset_require(string $id): void
+public static function plugin_asset_require(string $id, string $type = ''): void
 {
     if (!self::plugin_id_valid($id)) return;
     $plugin = self::plugins()[$id] ?? null;
     if (!$plugin || !self::plugin_enabled($plugin) || empty($plugin['assets'])) return;
     if ((string)($plugin['assets_mode'] ?? '') !== 'ondemand') return;
-    self::$asset_required[$id] = true;
+    $types = in_array($type, ['css', 'js'], true) ? [$type] : ['css', 'js'];
+    foreach ($types as $item) self::$asset_required[$id][$item] = true;
 }
 
 private static function plugin_assets_ondemand_manifest(bool $refresh = false): array
@@ -1390,7 +1391,10 @@ private static function plugin_assets_ondemand_manifest(bool $refresh = false): 
 public static function plugin_assets_html(string $type): string
 {
     if (!in_array($type, ['css', 'js'], true)) return '';
-    $required = array_keys(self::$asset_required);
+    $required = [];
+    foreach (self::$asset_required as $id => $types) {
+        if (!empty($types[$type])) $required[] = (string)$id;
+    }
     if (!$required) return plugin_asset_tag($type);
     $html = plugin_asset_tag($type);
     $manifest = self::plugin_assets_ondemand_manifest(true);
