@@ -209,6 +209,13 @@ public static function plugin_entry_links_apply(mixed $value, array $plugin, str
     foreach ($items as $item) {
         if (!self::plugin_entry_link_visible($item, $plugin, $ctx)) continue;
         $text = (string)($item['text'] ?? '');
+        $text_config = (string)($item['text_config'] ?? '');
+        if ($text_config !== '') {
+            $values = is_array($plugin['config'] ?? null) ? $plugin['config'] : [];
+            $value = $values[$text_config] ?? null;
+            $value = is_scalar($value) ? trim(cut(strip_tags((string)$value), 60)) : '';
+            if ($value !== '') $text = $value;
+        }
         if ($text === '') continue;
         $url = (string)($item['url'] ?? '');
         if ($url === '' && (string)($item['route'] ?? '') !== '') $url = route_url((string)$item['route'], (array)($item['params'] ?? []));
@@ -1135,8 +1142,11 @@ private static function plugin_links_normalize(mixed $links): array
             if (!is_array($item) || count($rows) >= 20) continue;
             $text = $item['text'] ?? $item['label'] ?? '';
             $text = is_scalar($text) ? trim(cut(strip_tags((string)$text), 60)) : '';
-            if ($text === '') continue;
+            $text_config = is_scalar($item['text_config'] ?? null) ? trim((string)$item['text_config']) : '';
+            if ($text_config !== '' && preg_match('/^[a-z0-9_]{1,64}$/', $text_config) !== 1) $text_config = '';
+            if ($text === '' && $text_config === '') continue;
             $row = ['text' => $text];
+            if ($text_config !== '') $row['text_config'] = $text_config;
             $url = is_scalar($item['url'] ?? null) ? trim((string)$item['url']) : '';
             $route = is_scalar($item['route'] ?? null) ? trim((string)$item['route']) : '';
             if ($url !== '') {
