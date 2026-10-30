@@ -2532,7 +2532,7 @@ input[type=checkbox][checked]:not(:checked) {
     max-width: 450px
 }
 
-.form-panel button {
+.form-panel button:not(.avatar-option) {
     justify-self: start;
     min-width: 92px
 }
