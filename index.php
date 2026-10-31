@@ -973,7 +973,7 @@ function notification_row_html(array $n): string
         if ($url !== '') {
             $title_marker = "\x1ENOTIFICATION_TOPIC_TITLE\x1E";
             $topic_title = '';
-            $source = preg_replace_callback('/《((?:[^《》]|(?R))*)》/u', static function (array $match) use (&$topic_title, $title_marker): string {
+            $source = preg_replace_callback('/《([^《》]*)》/u', static function (array $match) use (&$topic_title, $title_marker): string {
                 $topic_title = $match[1];
                 return '《' . $title_marker . '》';
             }, $body, 1, $count);
