@@ -18,6 +18,7 @@ const PLUGIN_MARKET_ENDPOINT = 'https://bbs1.org/index.php';
 const PLUGIN_MARKET_CACHE_TTL = 900;
 const PLUGIN_MARKET_CACHE_FILE = 'plugin-market-list-cache.json';
 const PLUGIN_MARKET_PAGE_SIZE = 40;
+const REMOTE_HTTP_DEFAULT_MAX_BYTES = 8388608;
 const PLUGIN_UPLOAD_FILE = 'plugin_upload.data';
 const PLUGIN_UPLOAD_MAX = 20971520;
 
@@ -368,7 +369,7 @@ public static function remote_http_request(string $url, int $timeout = 8, array 
     if (!function_exists('curl_init')) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '服务器未启用 cURL'];
     $timeout = max(1, $timeout);
     $connect_timeout = min($timeout, max(1, (int)($options['connect_timeout'] ?? min(4, $timeout))));
-    $max_bytes = max(0, (int)($options['max_bytes'] ?? 0));
+    $max_bytes = max(0, (int)($options['max_bytes'] ?? REMOTE_HTTP_DEFAULT_MAX_BYTES));
     $user_agent = trim((string)($options['user_agent'] ?? '')) ?: 'bbs1org/' . APP_VERSION;
     $ch = curl_init($url);
     if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];

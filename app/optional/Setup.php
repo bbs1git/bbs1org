@@ -460,13 +460,17 @@ public static function us_http(string $url, int $max_bytes = UPDATE_MAX_ARCHIVE_
         'max_redirects' => 3,
         'ignore_errors' => true,
     ]]);
-    $body = @file_get_contents($url, false, $context);
+    $handle = @fopen($url, 'rb', false, $context);
+    if ($handle === false) throw new RuntimeException('连接升级源失败。');
+    $body = stream_get_contents($handle, $max_bytes > 0 ? $max_bytes + 1 : -1);
+    fclose($handle);
+    if ($body === false) throw new RuntimeException('连接升级源失败。');
     $status = 0;
     foreach (($http_response_header ?? []) as $header) {
         if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $m)) $status = (int)$m[1];
     }
-    if ($body === false || $status < 200 || $status >= 300) throw new RuntimeException('连接升级源失败（HTTP ' . ($status ?: '未知') . '）。');
-    if (strlen($body) > $max_bytes) throw new RuntimeException('升级源返回内容过大。');
+    if ($status < 200 || $status >= 300) throw new RuntimeException('连接升级源失败（HTTP ' . ($status ?: '未知') . '）。');
+    if ($max_bytes > 0 && strlen($body) > $max_bytes) throw new RuntimeException('升级源返回内容过大。');
     return $body;
 }
 
