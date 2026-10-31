@@ -284,11 +284,16 @@ function row(string $table, string $key, mixed $value): ?array
 }
 function q(string $sql, array $p = []): PDOStatement
 {
+    static $record = null;
+    if ($record === null) {
+        $record = false;
+        $record = debug_mode_enabled();
+    }
     if (strncasecmp(ltrim($sql), 'SELECT', 6) !== 0) db_row_cache_clear();
     sql_query_count(true);
     $s = db()->prepare($sql);
     $s->execute($p);
-    $GLOBALS['__sql_queries'][] = [$sql, $p];
+    if ($record) $GLOBALS['__sql_queries'][] = [$sql, $p];
     return $s;
 }
 function one(string $sql, array $p = []): ?array
