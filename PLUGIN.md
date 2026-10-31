@@ -532,6 +532,14 @@ function demo_ops_actions(array $items, array $ctx): array
 
 `topic.index_data.load` / `topic.replies_data.load` 可以提供完整数据；核心仍会继续触发对应的 `*.data.loaded` Hook。`*.data.loaded` 回调返回数组时，返回值会作为后续模板的数据；返回 `null` 表示保留原数据。模板 Hook 适合整体换肤或完全自定义布局，局部扩展优先使用已有的细粒度 Hook。
 
+主题列表的默认查询另有三个细粒度 Hook，只加列、加条件或加排序时不必整段接管 `topic.index_data.load`：
+
+- `topic.list_columns`：返回附加列名数组，核心与默认列合并后用于列表 `SELECT`。
+- `topic.index_data.where`：返回附加 WHERE 条件（不含 `WHERE` 关键字），核心以 `AND (...)` 拼到默认条件之后；`COUNT` 与列表查询共用同一份 WHERE，因此总数和分页保持一致。返回非空时总数改用实时 `COUNT`，不再走缓存的站点统计。只作用于默认主题列表（含用户主页的主题 Tab），不作用于通知、回复列表和回帖搜索分支。
+- `topic.index_data.order`：返回 ORDER BY 片段（不含 `ORDER BY` 关键字），核心把它放在默认排序之前，默认排序保留为并列时的次序；返回空串或 `null` 表示不改。
+
+这三个 Hook 的 `$ctx` 为 `forum_id`、`user`、`profile_tab`、`query`、`search_field`、`sort`、`page`、`page_size`、`offset`。返回的 SQL 片段直接拼接执行，属于受信任的插件代码；不要拼入未校验的用户输入，需要按用户输入过滤或排序时在插件内完成校验与参数化，复杂查询仍用整段接管。
+
 ### 行尾锚点（页面级精准插入用）
 
 核心在 `topic_post_row()` 输出的每条帖子行（主贴与楼层）的 `</li>` 之前追加唯一 HTML 注释锚点，供插件在 `page.before_render` 做整页级定位。行尾结构固定为：

@@ -2865,10 +2865,14 @@ function topic_index_data(int $fid, ?array $user, string $profile_tab, string $q
             $where = $where ? $where . ' AND user_id=?' : 'WHERE user_id=?';
             $params[] = $profile_uid;
         }
+        $extra_where = trim((string)hook('topic.index_data.where', '', $ctx));
+        if ($extra_where !== '') $where = ($where === '' ? 'WHERE ' : $where . ' AND ') . '(' . $extra_where . ')';
         $site_stats = hook('site_stats.data', null);
-        $total = $query !== '' ? 0 : (($fid || $profile_uid) ? (int)val("SELECT COUNT(*) FROM app_topics $where", $params) : (is_array($site_stats) && array_key_exists('topics', $site_stats) ? (int)$site_stats['topics'] : (int)val('SELECT COUNT(*) FROM app_topics')));
+        $total = $query !== '' ? 0 : (($fid || $profile_uid || $extra_where !== '') ? (int)val("SELECT COUNT(*) FROM app_topics $where", $params) : (is_array($site_stats) && array_key_exists('topics', $site_stats) ? (int)$site_stats['topics'] : (int)val('SELECT COUNT(*) FROM app_topics')));
         $order = $sort === 'post' ? 'created_at DESC,id DESC' : 'last_reply_at DESC,id DESC';
-        $index_hint = db_driver() === 'mysql' && $query === '' && !$fid && !$profile_uid ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
+        $extra_order = trim((string)hook('topic.index_data.order', '', $ctx));
+        if ($extra_order !== '') $order = $extra_order . ', ' . $order;
+        $index_hint = db_driver() === 'mysql' && $query === '' && !$fid && !$profile_uid && $extra_order === '' ? ' FORCE INDEX (' . ($sort === 'post' ? 'idx_topics_created' : 'idx_topics_last_reply') . ')' : '';
         $query_size = $query !== '' ? $size + 1 : $size;
         $rows = q("SELECT " . topic_list_select_columns() . " FROM app_topics$index_hint $where ORDER BY $order LIMIT ? OFFSET ?", array_merge($params, [$query_size, $offset]))->fetchAll();
         if ($query !== '') {
