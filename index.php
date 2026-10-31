@@ -2551,13 +2551,27 @@ function reply_position_floor(int $topic_id, int $created_at, int $reply_id): in
 }
 function floor_live_position(int $topic_id, int $floor): int
 {
+    $gaps = topic_floor_index($topic_id);
+    $limit = min(count($gaps), $floor - 1);
+    if ($limit < 1) return max(1, $floor);
     $pos = $floor;
     $i = 0;
-    foreach (topic_floor_index($topic_id) as $gap) {
-        $i++;
-        $live_before = (int)q('SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND (created_at<? OR (created_at=? AND id<?))', [$topic_id, (int)$gap['created_at'], (int)$gap['created_at'], (int)$gap['id']])->fetchColumn();
-        if ($live_before + $i < $floor) $pos--;
+    $live_before = 0;
+    $cap = $gaps[$limit - 1];
+    $live = q('SELECT created_at,id FROM app_replies WHERE topic_id=? AND (created_at,id)<(?,?) ORDER BY created_at,id', [$topic_id, (int)$cap['created_at'], (int)$cap['id']]);
+    $row = $live->fetch(PDO::FETCH_NUM);
+    for ($k = 0; $k < $limit; $k++) {
+        $i = $k + 1;
+        $gap_at = (int)$gaps[$k]['created_at'];
+        $gap_id = (int)$gaps[$k]['id'];
+        while ($row !== false && ((int)$row[0] < $gap_at || ((int)$row[0] === $gap_at && (int)$row[1] < $gap_id))) {
+            $live_before++;
+            $row = $live->fetch(PDO::FETCH_NUM);
+        }
+        if ($live_before + $i >= $floor) break;
+        $pos--;
     }
+    $live->closeCursor();
     return max(1, $pos);
 }
 function apply_reply_floors(array $replies, array $topic, int $page, int $size, bool $reply_desc): array
