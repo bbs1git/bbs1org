@@ -489,6 +489,24 @@ function hello_collect(array $plugin, array $task): string
 | `page.seo` / `page.footer` | SEO 元信息/页脚 | 返回值覆盖或追加 |
 | `user.before_save` / `user.after_save` | 用户保存前后 | before 可返回过滤数组 |
 
+### 逐楼 Hook 的 ctx
+
+`topic.before_render` / `topic.after_render`（主楼）与 `reply.before_render` / `reply.after_render`（回帖）除 `row`、`body` 外统一带以下键，插件不必再读 `$GLOBALS` 或自己推算：
+
+| 键 | 含义 |
+| --- | --- |
+| `topic_id` | 主题 ID；主楼即自身，回帖取其 `topic_id` |
+| `reply_id` | 回帖 ID；主楼为 `0` |
+| `floor` | 楼层号；主楼为 `0`，回帖与 `reply_position` 相同 |
+| `reply_position` | 仅回帖存在，等于楼层号；主楼不提供该键，因此可继续用它区分主楼与回帖 |
+| `is_reply` | 是否回帖（bool） |
+| `is_first_page` | 是否第 1 页（bool）；AJAX 新增回帖等不知道页码时为 `false` |
+| `page` / `page_size` | 当前页码与每页条数；未知时为 `0` |
+| `forum_id` | 所属版块 ID |
+| `list` | 是否列表行；详情页逐楼渲染为 `false` |
+
+`row` 仍是原始行数组，`body` 是原始正文，调用方传入的其他 ctx 键原样保留。`topic.content_html` / `reply.content_html` / `topic.content_after` / `reply.content_after` 也带同一组键。列表页的 `topic.title_suffix` 带 `topic_id`、`forum_id`、`page`、`page_size`、`is_first_page`、`list`（`true`）、`sort`；`topic.before_render` / `topic.after_render` 在列表行触发时同样带这组键。
+
 ### 帖子操作条与更多弹层
 
 内核在主楼和每个回帖的 `.post-content` 末尾渲染操作条 `.post-ops`：左侧为动作条目，右侧为楼层锚点（`#楼层号` / 主楼“主楼”标签）、更多按钮与弹层 `.post-ops-menu`，弹层的开关、定位与内置“编辑”“复制链接”由内核处理。

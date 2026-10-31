@@ -1817,7 +1817,20 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $is_reply = isset($row['topic_id']);
     $topic_id = $is_reply ? (int)$row['topic_id'] : (int)($row['id'] ?? 0);
     $floor = $is_reply ? (int)($ctx['reply_position'] ?? 0) : 0;
-    $filtered = hook($is_reply ? 'reply.before_render' : 'topic.before_render', ['row' => $row, 'body' => $body], ['time' => $time]);
+    $page = max(0, (int)($ctx['page'] ?? 0));
+    $page_size = max(0, (int)($ctx['page_size'] ?? 0));
+    $ctx = [
+        'topic_id' => $topic_id,
+        'reply_id' => $is_reply ? (int)($row['id'] ?? 0) : 0,
+        'floor' => $floor,
+        'is_reply' => $is_reply,
+        'forum_id' => (int)($ctx['forum_id'] ?? ($row['forum_id'] ?? 0)),
+        'page' => $page,
+        'page_size' => $page_size,
+        'is_first_page' => $page === 1,
+        'list' => !empty($ctx['list']),
+    ] + ($is_reply ? ['reply_position' => $floor] : []) + $ctx;
+    $filtered = hook($is_reply ? 'reply.before_render' : 'topic.before_render', ['row' => $row, 'body' => $body, 'time' => $time] + $ctx);
     if (is_array($filtered)) {
         if (isset($filtered['row']) && is_array($filtered['row'])) $row = $filtered['row'];
         if (isset($filtered['body'])) $body = (string)$filtered['body'];
@@ -1961,10 +1974,23 @@ function topic_list_rows_for_replies(array $reply_rows): array
     }
     return attach_topic_list_users($rows);
 }
-function topic_list_row(array $t, string $sort): string
+function topic_list_row(array $t, string $sort, int $page = 1, int $page_size = 0): string
 {
     topic_list_preload_flush();
-    $filtered = hook('topic.before_render', ['row' => $t], ['list' => true, 'sort' => $sort]);
+    $page = max(1, $page);
+    $row_ctx = [
+        'topic_id' => (int)($t['id'] ?? 0),
+        'reply_id' => 0,
+        'floor' => 0,
+        'is_reply' => false,
+        'forum_id' => (int)($t['forum_id'] ?? 0),
+        'page' => $page,
+        'page_size' => max(0, $page_size),
+        'is_first_page' => $page === 1,
+        'list' => true,
+        'sort' => $sort,
+    ];
+    $filtered = hook('topic.before_render', ['row' => $t], $row_ctx);
     if (is_array($filtered) && isset($filtered['row']) && is_array($filtered['row'])) $t = $filtered['row'];
     $time = (int)($t['time'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
     if (!empty($t['reply_only'])) {
@@ -1972,7 +1998,7 @@ function topic_list_row(array $t, string $sort): string
         $reply_excerpt_html = $reply_excerpt !== '' ? '<div class="profile-reply-excerpt">' . h($reply_excerpt) . '</div>' : '';
         $user_link = '<a href="' . h(route_url('user', ['id' => (int)$t['user_id']])) . '">' . svg_icon('user') . h($t['username']) . '</a>';
         $html = '<li class="post-item" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body">' . $reply_excerpt_html . '<div class="post-meta"><span>' . $user_link . '</span><span>' . human_time($time) . '</span></div></div></li>';
-        return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
+        return (string)hook('topic.after_render', $html, ['row' => $t] + $row_ctx);
     }
     $forum = $t['forum'] ?? ['id' => (int)$t['forum_id'], 'name' => ''];
     $has_forum = (int)($forum['id'] ?? 0) > 0 && trim((string)($forum['name'] ?? '')) !== '';
@@ -1990,7 +2016,7 @@ function topic_list_row(array $t, string $sort): string
     $reply_excerpt_html = $reply_excerpt !== '' ? '<div class="profile-reply-excerpt">' . h($reply_excerpt) . '</div>' : '';
     $badges = ((int)($t['is_pinned'] ?? 0) ? '<span class="topic-badge pinned">置顶</span>' : '');
     $style = (string)($t['highlight_style'] ?? '') !== '' ? ' style="' . h((string)$t['highlight_style']) . '"' : '';
-    $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t, 'list' => true, 'sort' => $sort]);
+    $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t] + $row_ctx);
     $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
     $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row" data-slot="topic.title_suffix">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
     return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
@@ -2952,7 +2978,7 @@ function topic_index_template(array $view): string
     } else foreach ($rows as $t) {
         $t['time'] = (int)($t['list_time'] ?? $t['my_reply_at'] ?? ($sort === 'post' ? $t['created_at'] : ($t['last_reply_at'] ?: $t['created_at'])));
         $t['forum'] = forum_by_id((int)$t['forum_id']) ?: ['id' => 0, 'name' => ''];
-        $main .= topic_list_row($t, $sort);
+        $main .= topic_list_row($t, $sort, (int)$p, (int)$size);
     }
     $page_query = $search_query . ($profile_uid ? 'tab=' . $profile_tab . ($profile_tab === 'notifications' ? '&box=' . notification_box() : '') : 'sort=' . $sort);
     $pagination = $simple_pagination ? simple_paginate($p > 1, $has_next_page, $p, $url($page_query)) : paginate($total, $p, $size, $url($page_query));
@@ -3055,12 +3081,12 @@ function topic_page_template(array $view): string
     $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
     $topic_url = route_url('topic', ['id' => (int)$t['id']]);
     $main = '<div class="topic-header">' . $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title"><a href="' . h($topic_url) . '">' . h($t['title']) . '</a></h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div></div><ul class="post-list topic-post-list">';
-    if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops);
+    if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops, '', '', false, ['page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
     foreach ($replies as $i => $r) {
         $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
         if (trim((string)$r['body']) === '') continue;
         $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
-        $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor]);
+        $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor, 'page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
     $pagination = paginate((int)$t['reply_count'], $p, $size, $topic_url, false);
@@ -3204,7 +3230,7 @@ function reply_edit_page(): void
             $floor = reply_position_floor((int)$topic['id'], (int)$row['created_at'], (int)$row['id']);
             $ops = quote_reply_action($row, $floor);
             if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
-            $reply_html = topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor]);
+            $reply_html = topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor, 'forum_id' => (int)($topic['forum_id'] ?? 0), 'list' => false]);
             $payload = ['ok' => 1, 'html' => $reply_html, 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])];
             $reply_assets_css = Plugin::plugin_assets_ondemand_html('css');
             $reply_assets_js = Plugin::plugin_assets_ondemand_html('js');
