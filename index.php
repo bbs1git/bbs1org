@@ -356,12 +356,17 @@ function auth_cookie_parts(): ?array
     $expire = (int)$m[2];
     return $id > 0 && $expire > 0 ? ['id' => $id, 'expire' => $expire, 'signature' => $m[3]] : null;
 }
+function csrf_cookie(): string
+{
+    $token = (string)($_COOKIE[CSRF_COOKIE_NAME] ?? '');
+    return preg_match('/^[a-f0-9]{64}$/D', $token) ? $token : '';
+}
 function csrf_token(): string
 {
     static $token = null;
     if ($token !== null) return $token;
-    $token = (string)($_COOKIE[CSRF_COOKIE_NAME] ?? '');
-    if (!preg_match('/^[a-f0-9]{64}$/D', $token)) {
+    $token = csrf_cookie();
+    if ($token === '') {
         $token = bin2hex(random_bytes(32));
         app_cookie(CSRF_COOKIE_NAME, $token, time() + COOKIE_TTL);
         $_COOKIE[CSRF_COOKIE_NAME] = $token;
@@ -1244,10 +1249,10 @@ function is_super_user(): bool
 {
     return uid() === 1;
 }
-function clear_auth_cookie(): void
+function clear_auth_cookie(bool $rotate_csrf = true): void
 {
     auth_cookie_clear();
-    csrf_cookie_clear();
+    if ($rotate_csrf) csrf_cookie_clear();
     $GLOBALS['__request_uid'] = 0;
     $GLOBALS['__me_cache'] = null;
 }
@@ -1262,7 +1267,7 @@ function me(): ?array
     $u = row('app_users', 'id', $parts['id']);
     $expected = $u ? hash_hmac('sha256', $parts['id'] . '|' . $parts['expire'], (string)$u['password']) : '';
     if (!$u || !hash_equals($expected, $parts['signature'])) {
-        clear_auth_cookie();
+        clear_auth_cookie(false);
         return null;
     }
     $g = group_by_id((int)$u['group_id']);
@@ -1270,7 +1275,7 @@ function me(): ?array
         $fallback_group_id = (int)setting('default_group_id', '2');
         $g = group_by_id($fallback_group_id);
         if (!$g) {
-            clear_auth_cookie();
+            clear_auth_cookie(false);
             return null;
         }
         q('UPDATE app_users SET group_id=? WHERE id=? AND group_id=?', [$fallback_group_id, (int)$u['id'], (int)$u['group_id']]);
@@ -1352,18 +1357,20 @@ function need_site_access(): void
     limit_pagination_request_pages();
     if (setting('site_closed') === '1' && !can_access_admin()) {
         $core_allowed = in_array($a, ['login', 'logout', 'form_error', 'cron', 'robots.txt', 'favicon.ico', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'], true);
-        if (!$core_allowed && hook('site.closed_allow', false, ['action' => $a]) !== true) err('网站已关闭');
+        if (!$core_allowed && hook('site.closed_allow', false, ['action' => $a]) !== true) err('网站维护中，请稍后重试');
     }
 }
 function check(): void
 {
-    if (uid()) me();
     $is_post = is_post_request();
     $action = (string)($_GET['a'] ?? '');
     if ($is_post && hook('request.csrf_exempt', false, ['action' => $action]) === true) return;
-    if ($is_post && !hash_equals(csrf_token(), (string)($_POST['_csrf'] ?? ''))) {
-        err('请求已过期');
+    if ($is_post) {
+        $csrf_cookie = csrf_cookie();
+        if ($csrf_cookie === '') err('请求已过期，请允许本站使用 Cookie 后重试');
+        if (!hash_equals($csrf_cookie, (string)($_POST['_csrf'] ?? ''))) err('请求已过期');
     }
+    if (uid()) me();
 }
 function ajax_request(): bool
 {
