@@ -250,11 +250,24 @@ function db_config(): array
     return $config ??= app_db_config(DB_CONFIG_FILE, DATA_DIR);
 }
 function db_driver(): string { return (string)db_config()['driver']; }
-function db(): PDO
+function db(bool $reconnect = false): PDO
 {
     static $db;
+    if ($reconnect) return $db = app_db_connect(db_config());
     if ($db) return $db;
     return $db = app_db_connect(db_config());
+}
+function db_disconnect_error(PDOException $e): bool
+{
+    $code = (int)($e->errorInfo[1] ?? 0);
+    if (in_array($code, [2006, 2013], true)) return true;
+    $state = (string)($e->errorInfo[0] ?? $e->getCode());
+    if (str_starts_with($state, '08')) return true;
+    $message = $e->getMessage();
+    foreach (['server has gone away', 'Lost connection', 'no connection to the server', 'server closed the connection'] as $needle) {
+        if (stripos($message, $needle) !== false) return true;
+    }
+    return false;
 }
 function h(string|int|float|bool|null $s): string
 {
@@ -289,10 +302,25 @@ function q(string $sql, array $p = []): PDOStatement
         $record = false;
         $record = debug_mode_enabled();
     }
-    if (strncasecmp(ltrim($sql), 'SELECT', 6) !== 0) db_row_cache_clear();
+    $read = strncasecmp(ltrim($sql), 'SELECT', 6) === 0;
+    if (!$read) db_row_cache_clear();
     sql_query_count(true);
-    $s = db()->prepare($sql);
-    $s->execute($p);
+    $connection = db();
+    try {
+        $s = $connection->prepare($sql);
+    } catch (PDOException $e) {
+        if (!db_disconnect_error($e) || !empty($GLOBALS['__tx_active'])) throw $e;
+        db_row_cache_clear();
+        $s = db(true)->prepare($sql);
+    }
+    try {
+        $s->execute($p);
+    } catch (PDOException $e) {
+        if (!$read || !db_disconnect_error($e) || !empty($GLOBALS['__tx_active'])) throw $e;
+        db_row_cache_clear();
+        $s = db(true)->prepare($sql);
+        $s->execute($p);
+    }
     if ($record) $GLOBALS['__sql_queries'][] = [$sql, $p];
     return $s;
 }
@@ -1441,7 +1469,16 @@ function error_page(string $title, string $message, int $status = 200): never
     if ($status > 0) http_response_code($status);
     $message = trim($message);
     $body = '<div class="form-panel form-error-panel"><h2>' . h($title) . '</h2><p>' . h($message !== '' ? $message : $title) . '</p></div>';
-    page($title, shell_html($body, sidebar_stack_html([sidebar_user_card_html()])));
+    try {
+        page($title, shell_html($body, sidebar_stack_html([sidebar_user_card_html()])));
+    } catch (Throwable $e) {
+        debug_log_write('错误页渲染失败', $e);
+        if (!headers_sent()) {
+            http_response_code($status > 0 ? $status : 500);
+            header('Content-Type: text/html; charset=utf-8');
+        }
+        echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . h($title) . '</title></head><body><main style="max-width:640px;margin:12vh auto;padding:0 16px;font:16px/1.7 system-ui,-apple-system,sans-serif;color:#222"><h1 style="font-size:20px;margin:0 0 12px">' . h($title) . '</h1><p style="margin:0;color:#666">' . h($message !== '' ? $message : $title) . '</p></main></body></html>';
+    }
     exit;
 }
 function database_error(Throwable $e): bool

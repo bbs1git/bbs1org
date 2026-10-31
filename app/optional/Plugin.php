@@ -1078,6 +1078,10 @@ private static function admin_plugin_page_html(array $plugin, string $html): str
 public static function plugin_disable_after_exception(string $id, Throwable $e): void
 {
     if (!self::plugin_id_valid($id)) return;
+    if (self::plugin_infra_exception($e)) {
+        debug_log_write('插件 ' . $id . ' 遇到数据库连接异常，未自动停用', $e);
+        return;
+    }
     static $handled;
     $handled ??= new WeakMap();
     if (isset($handled[$e])) return;
@@ -1099,6 +1103,20 @@ public static function plugin_disable_after_exception(string $id, Throwable $e):
         return;
     }
     debug_log_write('插件 ' . $id . ' 运行异常，已自动停用', $e);
+}
+
+private static function plugin_infra_exception(Throwable $e): bool
+{
+    if (!$e instanceof \PDOException) return false;
+    $code = (int)($e->errorInfo[1] ?? 0);
+    if (in_array($code, [2006, 2013], true)) return true;
+    $state = (string)($e->errorInfo[0] ?? $e->getCode());
+    if (str_starts_with($state, '08')) return true;
+    $message = $e->getMessage();
+    foreach (['server has gone away', 'Lost connection', 'no connection to the server', 'server closed the connection'] as $needle) {
+        if (stripos($message, $needle) !== false) return true;
+    }
+    return false;
 }
 
 public static function plugin_manifest_validate(array $plugin, string $file): ?array
