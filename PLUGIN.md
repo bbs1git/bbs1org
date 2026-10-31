@@ -329,6 +329,14 @@ function hello_list_badge($html, array $ctx): string
 
 **何时不要用按需加载**：几乎每页都需要的资源（导航、主题列表样式、全局脚本）留在公共合集更划算，否则每页都要多一次请求。只在少数路由出现的功能才适合按需。
 
+**资源加载约束（必须遵守）**：
+
+- 插件的 CSS / JavaScript 只在实际使用该插件功能的页面加载；要按类型分别登记，列表页只用样式就不要顺带输出脚本，详情页才需要的脚本不要在前一页登记。
+- 禁止在每页都会触发的全局渲染 Hook 里无条件调用 `plugin_asset_require()`。属于这一类的是 `page.before_render`、`page.head`、`page.header`、`page.footer`、`page.seo`、`page.template`、`page.template.before`、`top.menu_links`、`top.bar.actions`、`user.menu_links`、`sidebar.feature_links`、`sidebar.stack`。
+- 功能确实要挂在全局 Hook 上时，必须先判断当前路由、页面类型或 HTML 上下文（`$_GET['a']`、`$ctx` 中的页面信息、页面里是否存在对应 `data-*` 锚点等），命中才登记，不命中直接返回原 HTML。
+- 判断页面范围只能依据实际路由和 Hook 调用关系，不能凭插件名、目录名或文件名猜测；无法安全确定范围的保留现状并在交付说明里写明原因，不要为了「减少请求」删掉真实的全局依赖。
+- 主题、皮肤、全局控件这类确实每页都会用到的资源，继续留在公共合集或在全局 Hook 里有明确理由地登记；按需化改造只调整资源登记位置与加载条件，不改变现有功能、页面文案、业务逻辑和后台配置。
+
 ## 安全、文件与外部请求
 
 - 文件名和路径必须经过白名单验证，防止路径穿越。上传和远程文件限制协议、主机、类型和大小，并拒绝内网地址、凭据 URL 和脚本文件。
@@ -403,7 +411,7 @@ function hello_collect(array $plugin, array $task): string
 - 数据库占位符、唯一约束、索引、事务和 SQLite/MySQL/PostgreSQL 兼容性已检查：所有 `db_driver()` 分支都显式覆盖 `pgsql`（见「跨库 SQL 速查」），未出现 `LIMIT m,n`、`AUTOINCREMENT`、`date(x,'unixepoch')` 这类只在 MySQL 或 SQLite 成立的写法。
 - 只要动过 `plugin.php` 一行（含注释、空白、行尾），manifest 的 `version` 就必须递增；只改核心文件时不要去动插件版本号。漏升的后果是实打实的：后台「可更新」提示由 `Plugin::plugin_market_update_available()` 的 `version_compare($remote, $local, '>')` 判定，版本号不变就永远不提示更新；插件导出文件名是 `插件ID_版本.php1`，同版本号会互相覆盖。manifest 在文件末尾，核对时以最后的 `return [...]` 为准，不要取文件里第一处 `'version'`。
 - 插件描述已同步更新，未修改插件职责之外的核心文件或生成资源。
-- 按需模式已核对：声明了 `assets_mode` 的插件，每个会用到其界面的页面都在对应 Hook 里调用了 `plugin_asset_require()`；只用样式或只用脚本的页面已传 `'css'` / `'js'` 缩小加载范围；未登记该资源的页面确认不加载它，已登记的页面确认标签只出现一次。
+- 按需模式已核对：声明了 `assets_mode` 的插件，每个会用到其界面的页面都在对应 Hook 里调用了 `plugin_asset_require()`；只用样式或只用脚本的页面已传 `'css'` / `'js'` 缩小加载范围；未登记该资源的页面确认不加载它，已登记的页面确认标签只出现一次。全局渲染 Hook 中没有任何无条件的 `plugin_asset_require()` 调用，确需全局的已在交付说明里写明理由。
 - 已运行 `php -l app/plugins/插件ID/plugin.php` 和 `git diff --check`。
 - 交付说明列出行为变化、迁移影响、验证结果，以及未执行的外部副作用操作。
 
