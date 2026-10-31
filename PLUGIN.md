@@ -243,6 +243,8 @@ manifest 注册形式：
 'admin_tabs' => ['hello' => 'hello_admin_page'],
 ```
 
+用 `links.admin_tabs` 声明后台入口时，这里的 `admin_tabs` 映射仍必须保留：它才是 Tab 页面的内容回调，`links` 只负责顶栏入口。
+
 ### 前端公共 API
 
 核心在 `index.js` 中通过 `window.bbs1` 暴露一组公共函数，供插件 JavaScript 调用。核心脚本先于插件脚本执行，因此这些函数在插件代码运行时一定可用。调用前请判断存在性，便于核心版本回退时优雅降级：
@@ -274,7 +276,9 @@ window.bbs1?.showToast('已保存');
 
 **声明方式**：manifest 增加 `'assets_mode' => 'ondemand'`。值不是 `ondemand` 时按默认（公共合集）处理，无需为旧插件补字段。
 
-**登记方式**：在负责渲染该页面的 Hook 里调用 `plugin_asset_require('插件ID')`。只需要其中一类资源时传第二个参数：`plugin_asset_require('插件ID', 'css')` 只输出样式、`plugin_asset_require('插件ID', 'js')` 只输出脚本；不传（或传其它值）表示两类都要。核心按页面收集并去重，公共合集照常输出，被登记的插件再追加自己的 `<link>` / `<script>`；CSS 落在 `<head>`，JavaScript 在页脚以 `defer` 加载。未登记的页面完全不加载该资源。
+**按类型声明**：CSS 和 JavaScript 可以分开决定，`assets_mode` 支持数组：`'assets_mode' => ['css' => 'common', 'js' => 'ondemand']`。只写需要的类型即可，未写的类型按 `common` 处理；两类都声明 `ondemand` 时与字符串 `'ondemand'` 等价。典型场景是「样式每个内容页都要用、脚本只在编辑页或弹层里用」，让 CSS 留在公共合集、只把 JS 按需化。数组形式只有新内核识别，老内核按默认模式处理（两类都并入公共合集），功能不受影响，只是失去按需效果。
+
+**登记方式**：在负责渲染该页面的 Hook 里调用 `plugin_asset_require('插件ID')`。只需要其中一类资源时传第二个参数：`plugin_asset_require('插件ID', 'css')` 只输出样式、`plugin_asset_require('插件ID', 'js')` 只输出脚本；不传（或传其它值）表示该插件所有按需类型都要（声明为字符串 `'ondemand'` 时就是两类）。核心按页面收集并去重，公共合集照常输出，被登记的插件再追加自己的 `<link>` / `<script>`；CSS 落在 `<head>`，JavaScript 在页脚以 `defer` 加载。未登记的页面完全不加载该资源。
 
 ```php
 function hello_editor_css(): string
@@ -322,10 +326,13 @@ function hello_list_badge($html, array $ctx): string
 - `assets` 函数仍必须无参数、返回源码、不依赖当前用户或页面数据，与默认模式一致；动态值通过 `data-*` 传递。
 - 按需资源由核心生成到 `app/assets/plugins/<插件ID>.css|js`，插件不要手写或提交这些文件，升级器也不会覆盖该目录。生成与重建由启用、停用、卸载、市场安装、更新和后台同步自动完成；文件缺失时页面首次访问会补生成。
 - 参数是插件 ID，只有已启用且声明为按需模式的插件会被接受；未启用、未声明按需或 ID 非法时静默忽略。插件之间的直接调用仍受「不得依赖其他插件」约束，通常只登记自己。
-- 类型过滤只决定输出哪类标签，不拆分文件：插件仍是一个 `app/assets/plugins/<插件ID>.css` 和一个 `.js`。`plugin_asset_require('插件ID', 'css')` 只是不再同时输出 `<script>`，适合「列表页只要样式、只有编辑页才要脚本」这类场景；同一请求内先后调用不同类型（或后调不带参数）时取并集，只增不减。插件没有声明该类型时不会输出任何标签。
+- 类型过滤只决定输出哪类标签，不拆分按需文件：按需类型的资源仍是 `app/assets/plugins/<插件ID>.css` 和/或 `.js`。`plugin_asset_require('插件ID', 'css')` 只是不再同时输出 `<script>`；同一请求内先后调用不同类型（或后调不带参数）时取并集，只增不减。插件没有声明该类型时不会输出任何标签。
+- 混合模式下只有声明为 `ondemand` 的类型会生成独立文件、需要在页面里登记；`common` 类型直接进公共合集，对 `common` 类型调用 `plugin_asset_require()` 是空操作。`plugin_asset_require('插件ID')` 不带类型时也只登记该插件按需的那几类。
 - 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核没有这个函数，且会忽略 `assets_mode`、把资源照旧并入公共合集，兜底后界面正常、只是不按需；裸调则会抛错并被自动停用插件。老内核的 `plugin_asset_require()` 也不认识第二个参数，多传的类型参数会被忽略并回退为两类都加载，所以上述兜底写法可以直接保留第二个参数。兜底只包住调用，不要用它定义无前缀函数。
-- 页面内的 AJAX 局部 HTML 不会触发资源输出：局部内容若要动态用上按需资源，需在首次整页渲染时已登记，或由插件自行保证依赖可用。
-- 从默认模式改成按需模式（或反向）后，系统会在对应插件更新或下次后台同步时迁移资源位置：移入独立文件并删除合集里的旧分块，反向则写回公共合集并删除独立文件。迁移不影响其他插件。
+- 页面内的 AJAX 局部 HTML 不会触发资源输出：片段渲染不走整页模板，`plugin-assets` 标记不会被回填，所以局部 HTML 里不要放资源标签，也不要指望 `plugin_asset_require()` 在片段里自动生效。
+- 需要给 AJAX 片段补资源时，用 `plugin_asset_require('插件ID', 'js')` 的返回值：它返回本次登记命中的句柄数组（形如 `['js' => [['id' => '插件ID', 'type' => 'js', 'url' => '/app/assets/plugins/插件ID.js?v=...']]]`），可以直接并入自己的响应，由前端按 `url` 补 `<link>` / `<script>` 并按 `id` 去重。
+- `json_response()` 也会自动附带本次请求中 `plugin_asset_require()` 收集到的句柄：响应顶层增加 `assets` 键（结构同上，只含 `css` / `js` 下实际有资源的类型）。调用方自己写了 `assets` 时不覆盖；`ok` 为假（如 `err()` 的 AJAX 分支）时不附带。前端可统一读取 `data.assets`，不必让每个插件自行拼装。
+- 从默认模式改成按需模式（或反向）后，系统会在对应插件更新或下次后台同步时迁移资源位置：移入独立文件并删除合集里的旧分块，反向则写回公共合集并删除独立文件。混合模式逐类型迁移：只改 `css` 的类型时只移动 CSS 分块，JavaScript 保持在合集里，反之亦然。迁移不影响其他插件。
 
 **何时不要用按需加载**：几乎每页都需要的资源（导航、主题列表样式、全局脚本）留在公共合集更划算，否则每页都要多一次请求。只在少数路由出现的功能才适合按需。
 
@@ -333,7 +340,7 @@ function hello_list_badge($html, array $ctx): string
 
 - 插件的 CSS / JavaScript 只在实际使用该插件功能的页面加载；要按类型分别登记，列表页只用样式就不要顺带输出脚本，详情页才需要的脚本不要在前一页登记。
 - 禁止在每页都会触发的全局渲染 Hook 里无条件调用 `plugin_asset_require()`。属于这一类的是 `page.before_render`、`page.head`、`page.header`、`page.footer`、`page.seo`、`page.template`、`page.template.before`、`top.menu_links`、`top.bar.actions`、`user.menu_links`、`sidebar.feature_links`、`sidebar.stack`。
-- 功能确实要挂在全局 Hook 上时，必须先判断当前路由、页面类型或 HTML 上下文（`$_GET['a']`、`$ctx` 中的页面信息、页面里是否存在对应 `data-*` 锚点等），命中才登记，不命中直接返回原 HTML。
+- 功能确实要挂在全局 Hook 上时，必须先判断当前路由、页面类型或 HTML 上下文（`$ctx['route']`、`$ctx['page_type']`、`$ctx['plugin_route']`、页面里是否存在对应 `data-*` 锚点等），命中才登记，不命中直接返回原 HTML。不要自己解析 `$_GET['a']`：美化 URL、后台 Tab、AJAX 与插件路由都已在 `$ctx` 中归一化，详见「页面 Hook 通用 ctx」。
 - 判断页面范围只能依据实际路由和 Hook 调用关系，不能凭插件名、目录名或文件名猜测；无法安全确定范围的保留现状并在交付说明里写明原因，不要为了「减少请求」删掉真实的全局依赖。
 - 主题、皮肤、全局控件这类确实每页都会用到的资源，继续留在公共合集或在全局 Hook 里有明确理由地登记；按需化改造只调整资源登记位置与加载条件，不改变现有功能、页面文案、业务逻辑和后台配置。
 
@@ -504,9 +511,24 @@ function demo_ops_actions(array $items, array $ctx): array
 
 `page.template.before`、`topic.index_template.before` 和 `topic.template.before` 在核心拼接默认 HTML 前执行，初始 `$value` 为 `null`；回调返回字符串即可完全接管 HTML 拼接，返回 `null` 则继续使用核心默认拼接。对应的 `page.template`、`topic.index_template` 和 `topic.template` 在拼接后执行，可继续修改或完全替换最终 HTML。所有模板 Hook 均接收 `($value, array $ctx)`。
 
-- `page.template` 的 `$ctx` 包含 `title`、`body`、`seo`、`settings`、`site_name`、`page_title`、`meta`、`head_extra`、`header_html`、`flash`。
+- `page.template` 的 `$ctx` 包含 `title`、`body`、`seo`、`settings`、`site_name`、`page_title`、`meta`、`head_extra`、`header_html`、`flash`，以及下方「页面 Hook 通用 ctx」中的四个通用键。
 - `topic.index_template` 的 `$ctx` 包含 `rows`、`total`、`page`、`page_size`、`offset`、`forum`、`user`、`forum_id`、`profile_tab`、`profile_tabs`、`sort`、`query`、`search_field`、`simple_pagination`、`has_next_page` 等列表页数据。
 - `topic.template` 的 `$ctx` 包含 `topic`、`forum`、`replies`、`page`、`page_size`、`offset`、`reply_order`、`replyid`、`floor` 等主题详情数据。
+
+### 页面 Hook 通用 ctx
+
+所有页面级 Hook 的 `$ctx` 都带同一组路由信息，用于决定是否注入内容或登记按需资源。不要自己解析 `$_GET['a']` 或正则匹配 URL。
+
+| 键 | 类型 | 含义 |
+| --- | --- | --- |
+| `route` | string | 归一化后的当前路由：`parse_path_route()` 处理过美化 URL 之后的 `$_GET['a']`，缺省 `home`。后台固定为 `admin`，插件页面为插件注册的路由 ID。 |
+| `page_type` | string | 页面类别：`home`、`forum`（版块列表）、`topic`（主题详情）、`user`（用户主页）、`search`、`admin`（含后台各 Tab）、`form`（`login`、`register`、`profile`、`topic_edit`、`reply_edit`）、`plugin`（插件 `routes` 注册的页面）、`other`。 |
+| `is_ajax` | bool | 当前请求是否为 AJAX（`X-Requested-With: XMLHttpRequest`）。注意它只反映请求头，不代表响应是完整页面；AJAX 局部 HTML 不输出资源，见上文「按需加载」。 |
+| `plugin_route` | string | 当前路由所属插件 ID；核心路由为空字符串。插件自己的页面判断用 `$ctx['plugin_route'] === '插件ID'`，比匹配 `route` 更稳。 |
+
+提供这组键的 Hook：`page.before_render`、`page.head`、`page.header`、`page.footer`、`page.seo`、`page.template`、`page.template.before`（后两者同时保留原有的模板数据键）。`routes` 注册的页面如果自行拼接 HTML、不调用 `page()`，这些 Hook 不会触发，也就没有 `$ctx`。
+
+`page_type` 只做粗分类，不能区分后台的具体 Tab；后台内需要细分时读 `$_GET['tab']`（`route` 仍是 `admin`）。
 
 `topic.index_data.load` / `topic.replies_data.load` 可以提供完整数据；核心仍会继续触发对应的 `*.data.loaded` Hook。`*.data.loaded` 回调返回数组时，返回值会作为后续模板的数据；返回 `null` 表示保留原数据。模板 Hook 适合整体换肤或完全自定义布局，局部扩展优先使用已有的细粒度 Hook。
 
@@ -612,14 +634,46 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 
 - `text`（Tab 类入口可写 `label`）：纯文本，核心输出时统一转义，最多 60 字；和 `text_config` 至少写一个。
 - `text_config`：文案取自插件配置的键名（`plugin_config()` 里保存的键）。配置值非空时用它覆盖 `text`，此时 `text` 可写配置缺省值，也可以留空；纯文本、会话前经过截断与去标签，最多 60 字。
-- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。参数值可以写 `{ctx}` 占位符，从当前入口上下文取值：`{uid}`（当前登录用户）、`{self}`、`{active}`、`{forum_id}`、`{query}`、`{page}`、`{user.id}`、`{user.username}`；取不到值或为空时整条链接不渲染。
+- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。参数值可以写 `{ctx}` 占位符，从当前入口上下文取值：`{uid}`（当前登录用户）、`{self}`、`{active}`、`{forum_id}`、`{query}`、`{page}`、`{user.id}`、`{user.username}`；取不到值或为空时整条链接不渲染。各入口实际提供哪些键见下方「`links` 上下文（ctx）契约」，写了该入口没有的键会静默不渲染。
 - `key`：Tab 类入口必填（`admin_tabs`/`home_tabs`/`profile_tabs`/`profile_settings_tabs`），与 `$active` 比较决定高亮；`before` / `after` 可把该 Tab 插到指定核心 Tab 之前/之后，锚点不存在时追加在末尾。
-- `icon`：核心图标名（`user`/`id`/`reply`/`notify`/`forum`/`topic`/`view`/`settings`/`admin`/`pages`/`upload`），`icon_html` 可传单行 `<svg>` 片段，仅允许绘图标签与普通属性。
+- `icon`：核心图标名（`user`/`id`/`reply`/`notify`/`forum`/`topic`/`view`/`settings`/`admin`/`pages`/`upload`）。`icon_html` 可传以 `<svg` 开头、`</svg>` 结尾的单行片段（≤1600 字节），标签白名单为 `svg`、`g`、`path`、`circle`、`ellipse`、`rect`、`line`、`polyline`、`polygon`、`defs`、`linearGradient`、`radialGradient`、`stop`、`clipPath`、`mask`、`title`、`desc`、`text`、`tspan`；`use`、`a`、`image`、`style`、`script`、`foreignObject` 等其他标签一律拒绝，含 `on*` 事件属性、`href`、`xlink`、`style`、`javascript:` 的片段同样拒绝。
 - `when`：渲染条件，全部满足才显示。`login`（已登录）、`self`（当前查看的是本人主页）、`admin`（`true` 要求可访问后台，`false` 要求不是管理员）、`config`（插件配置条件）、`ctx`（入口上下文条件）。`config` 与 `ctx` 可写单个键名、单个条件数组或条件数组列表，列表内全部满足才显示；单个条件形如 `['key' => 'enabled', 'default' => true]`，`default` 是配置缺省值，再加 `'equals' => false` 表示配置值必须等于该值（布尔值按真假比较，其他按字符串比较）。`ctx` 按当前入口上下文判断，键支持 `user.id` 这类点号路径，`'equals' => false` 表示该上下文值为空。
 - 文字可以来自配置（用 `text_config`）；依赖 `$ctx` 的显示条件和 URL 参数用 `when.ctx` 与 `{ctx}` 占位符表达；带未读角标、需要拼装动态文案或调用 `plugin_asset_require()` 的入口仍无法数据化，继续用函数 Hook。
 - 每个入口最多 20 条，非法条目在同步时直接丢弃。
 - 数据条目只输出核心链接结构，不能再调用 `plugin_asset_require()`；需要插件样式或脚本的入口继续用函数 Hook。
 - 同一入口不要同时期待数据和回调都生效：声明 `links` 后该入口的回调会被跳过，回调里的其他逻辑也会一起失效。
+
+**`links.admin_tabs` 必须与 `admin_tabs` 内容回调同时保留。** `links.admin_tabs` 只登记后台顶栏 Tab 的文案、链接、高亮 `key` 和顺序，本身不提供页面内容；点进 Tab 后渲染的内容仍由 manifest 的 `admin_tabs` 映射指向的函数返回。只写 `links.admin_tabs` 而删掉 `admin_tabs`，Tab 能点进去但页面为空；只写 `admin_tabs` 映射（既没有 `links` 也没有 `hooks['admin.tabs']`），顶栏不会出现该 Tab。因此三项同时保留：
+
+```php
+'admin_tabs' => ['points_mall' => 'points_mall_admin_page'],
+'links' => [
+    'admin_tabs' => [
+        ['key' => 'points_mall', 'label' => '兑换商城', 'route' => 'admin', 'params' => ['tab' => 'points_mall']],
+    ],
+],
+'hooks' => ['admin.tabs' => 'points_mall_admin_tabs'],
+```
+
+其中 `admin_tabs` 映射负责内容，`links` 负责入口，`hooks['admin.tabs']` 仅供旧内核注册入口。声明 `links` 后新内核跳过的只是 `admin.tabs` 入口回调，`admin_tabs` 内容回调照常执行；`entries.admin_tabs` 开关仍决定入口是否展示。
+
+### `links` 上下文（ctx）契约
+
+`{ctx}` 占位符和 `when.ctx` 只能写**当前入口真实提供**的键。键不存在时按空值处理，不会报错：`{ctx}` 取不到值会让整条链接静默不渲染，`when.ctx` 按 `default` / `equals` 判定后可能静默隐藏，作者很难从页面现象定位。`uid` 是全局键（当前登录用户），所有入口都可用。
+
+| 入口 | 可用键（除全局 `uid`） | 说明 |
+| --- | --- | --- |
+| `top_menu` | `user.id`、`user.username` | `user` 是当前登录用户；游客没有该键 |
+| `feature_links` | 无 | 侧栏快捷功能不提供 `user` / `self` / `forum_id` |
+| `profile_card` | `user.id`、`user.username`、`self` | `user` 是个人卡片上的用户，`self` 表示查看者是本人 |
+| `profile_tabs` | `user.id`、`user.username`、`self`、`query` | `user` 是被访问的用户，`self` 表示看的是本人主页 |
+| `profile_settings_tabs` | `user.id`、`user.username` | `user` 是当前用户 |
+| `home_tabs` | `forum_id`、`query`、`page` | 首页/版块列表的版块、搜索词、页码 |
+| `admin_tabs` | `active` | 当前后台 Tab 的 key |
+
+- `when.self` 只在 `profile_card`、`profile_tabs` 生效；写在其他入口会永远不满足。
+- 上表以外的键（例如在 `top_menu` 写 `{forum_id}`、在 `feature_links` 写 `{self}`）不会报错，只会让链接不出现，排查时先核对此表。
+- 需要“仅登录可见”时优先用 `when.login`，不要依赖 `{user.id}` 在游客下取不到值的副作用。
 
 ### 内容长度自定义配置
 

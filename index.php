@@ -598,9 +598,9 @@ function plugin_asset_tag(string $type): string
     if ($type === 'css') return '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">';
     return '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
 }
-function plugin_asset_require(string $id, string $type = ''): void
+function plugin_asset_require(string $id, string $type = ''): array
 {
-    Plugin::plugin_asset_require($id, $type);
+    return Plugin::plugin_asset_require($id, $type);
 }
 function plugin_entry_definitions(): array
 {
@@ -1417,6 +1417,10 @@ function json_response(array $data): never
 {
     if (!isset($data['tip']) && !empty($GLOBALS['__point_change_tip'])) $data['tip'] = (string)$GLOBALS['__point_change_tip'];
     if (!isset($data['tip']) && !empty($GLOBALS['__ajax_tip'])) $data['tip'] = (string)$GLOBALS['__ajax_tip'];
+    if (!isset($data['assets']) && (!array_key_exists('ok', $data) || !empty($data['ok']))) {
+        $assets = Plugin::plugin_assets_handles();
+        if ($assets !== []) $data['assets'] = $assets;
+    }
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
@@ -2045,6 +2049,31 @@ function topic_stats_html(int $view_count, int $reply_count): string
     if ($reply_count > 0) $stats .= '<span>' . svg_icon('reply') . $reply_count . '</span>';
     return $stats ? '<div class="post-content-stats">' . $stats . '</div>' : '';
 }
+function page_ctx(array $ctx = []): array
+{
+    static $base = null;
+    if (!is_array($base)) {
+        $route = (string)($_GET['a'] ?? 'home');
+        $plugin_route = Plugin::plugin_route_owner($route);
+        $page_type = $plugin_route !== '' ? 'plugin' : match ($route) {
+            'home' => 'home',
+            'forum' => 'forum',
+            'topic' => 'topic',
+            'user' => 'user',
+            'search' => 'search',
+            'admin', 'opcache_refresh' => 'admin',
+            'login', 'register', 'profile', 'topic_edit', 'reply_edit' => 'form',
+            default => 'other',
+        };
+        $base = [
+            'route' => $route,
+            'page_type' => $page_type,
+            'is_ajax' => ajax_request(),
+            'plugin_route' => $plugin_route,
+        ];
+    }
+    return $ctx === [] ? $base : array_merge($base, $ctx);
+}
 function page_head_html(string $page_title, string $meta, string $head_extra = ''): string
 {
     return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' . $meta . '<title>' . h($page_title) . '</title><link rel="icon" type="image/svg+xml" href="' . h(asset_url('app/assets/index.svg')) . '"><link rel="stylesheet" href="' . h(app_url('app/assets/index.css')) . '?v=' . h(APP_VERSION) . '"><!--plugin-assets:css-->' . $head_extra . '</head><body>';
@@ -2094,7 +2123,7 @@ function page_nav_html(string $site_name): string
 }
 function page_footer_html(string $title, string $flash): string
 {
-    $footer_html = (string)hook('page.footer', '', ['title' => $title]);
+    $footer_html = (string)hook('page.footer', '', page_ctx(['title' => $title]));
     $plugin_js = '<!--plugin-assets:js-->';
     return '<footer class="footer" data-slot="page.footer">' . $footer_html . '</footer>' . project_modal_html() . '<script>window.__pageFlash=' . json_encode($flash, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script><script src="' . h(app_url('app/assets/index.js')) . '?v=' . h(APP_VERSION) . '" defer></script>' . $plugin_js . '</body></html>';
 }
@@ -2112,23 +2141,23 @@ function page_template(array $data): string
 function page(string $title, string $body, array $seo = []): void
 {
     $settings = settings_cache();
-    $body = (string)hook('page.before_render', $body, ['title' => $title]);
+    $body = (string)hook('page.before_render', $body, page_ctx(['title' => $title]));
     $site_name = trim((string)$settings['site_name']) ?: 'FORUM';
     $site_name_title = trim((string)($settings['site_name_title'] ?? '')) ?: $site_name;
     $is_home = ($_GET['a'] ?? 'home') === 'home' && trim((string)($_GET['q'] ?? '')) === '';
     $page_title = $is_home || $title === '' || $title === $site_name ? $site_name_title : $title . ' - ' . $site_name_title;
-    $hook_seo = hook('page.seo', $seo, ['title' => $title, 'page_title' => $page_title]);
+    $hook_seo = hook('page.seo', $seo, page_ctx(['title' => $title, 'page_title' => $page_title]));
     if (is_array($hook_seo)) $seo = $hook_seo;
     $meta = '';
     $description = trim((string)($seo['description'] ?? ($settings['site_description'] ?? '')));
     if ($is_home && ($settings['site_keywords'] ?? '') !== '') $meta .= '<meta name="keywords" content="' . h($settings['site_keywords'] ?? '') . '">';
     if ($description !== '') $meta .= '<meta name="description" content="' . h($description) . '">';
     if (!empty($seo['canonical'])) $meta .= '<link rel="canonical" href="' . h((string)$seo['canonical']) . '">';
-    $head_extra = (string)hook('page.head', '', ['title' => $title, 'page_title' => $page_title, 'seo' => $seo]);
+    $head_extra = (string)hook('page.head', '', page_ctx(['title' => $title, 'page_title' => $page_title, 'seo' => $seo]));
     $flash = trim((string)($_COOKIE['__flash'] ?? ''));
     if ($flash !== '' && !headers_sent()) app_cookie('__flash', '', time() - 3600, true, false);
-    $header_html = (string)hook('page.header', '', ['title' => $title]);
-    echo page_template(compact('title', 'body', 'seo', 'settings', 'site_name', 'page_title', 'is_home', 'meta', 'head_extra', 'header_html', 'flash'));
+    $header_html = (string)hook('page.header', '', page_ctx(['title' => $title]));
+    echo page_template(compact('title', 'body', 'seo', 'settings', 'site_name', 'page_title', 'is_home', 'meta', 'head_extra', 'header_html', 'flash') + page_ctx());
 }
 function form_field_caption(string $label, string $help = ''): string
 {

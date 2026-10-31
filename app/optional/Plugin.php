@@ -66,7 +66,7 @@ public static function plugin_runtime_cache_rows(bool $refresh = false): array
             'routes' => is_array($manifest['routes'] ?? null) ? $manifest['routes'] : [],
             'admin_tabs' => is_array($manifest['admin_tabs'] ?? null) ? $manifest['admin_tabs'] : [],
             'assets' => is_array($manifest['assets'] ?? null) ? $manifest['assets'] : [],
-            'assets_mode' => (string)($manifest['assets_mode'] ?? ''),
+            'assets_mode' => self::plugin_assets_mode_normalize($manifest['assets_mode'] ?? ''),
             'cron' => is_array($manifest['cron'] ?? null) ? $manifest['cron'] : [],
         ];
     }
@@ -502,7 +502,7 @@ public static function plugin_market_fetch(bool $need_code = false, bool $force 
             'title' => (string)($item['title'] ?? ''),
             'name' => (string)($item['name'] ?? $id),
             'version' => (string)($item['version'] ?? ''),
-            'assets_mode' => (string)($item['assets_mode'] ?? '') === 'ondemand' ? 'ondemand' : '',
+            'assets_mode' => self::plugin_assets_mode_normalize($item['assets_mode'] ?? ''),
             'description' => (string)($item['description'] ?? ''),
             'author' => (string)($item['author'] ?? ''),
             'creator' => (string)($item['creator'] ?? ($item['username'] ?? ($item['author'] ?? ''))),
@@ -865,7 +865,7 @@ public static function plugin_market_page_html(bool $with_tabs = true): string
         if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
         $title = h((string)($item['name'] ?? $id));
         $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
-        $ondemand = (string)($item['assets_mode'] ?? '') === 'ondemand' || ($installed && (string)($local[$id]['assets_mode'] ?? '') === 'ondemand');
+        $ondemand = self::plugin_assets_ondemand_any(['assets_mode' => $item['assets_mode'] ?? '']) || ($installed && self::plugin_assets_ondemand_any($local[$id] ?? []));
         $ondemand_mark = $ondemand ? self::plugin_ondemand_mark_html() : '';
         $status = [];
         if ($item_market_view === 'certified') $status[] = '站长认证';
@@ -974,7 +974,7 @@ public static function admin_plugins_page_html(bool $with_tabs = true): string
         $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
         $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
         $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
-        $ondemand_mark = (string)($plugin['assets_mode'] ?? '') === 'ondemand' ? self::plugin_ondemand_mark_html() : '';
+        $ondemand_mark = self::plugin_assets_ondemand_any($plugin) ? self::plugin_ondemand_mark_html() : '';
         $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
         $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
     }
@@ -1135,7 +1135,7 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         'routes' => is_array($plugin['routes'] ?? null) ? $plugin['routes'] : [],
         'admin_tabs' => is_array($plugin['admin_tabs'] ?? null) ? $plugin['admin_tabs'] : [],
         'assets' => is_array($plugin['assets'] ?? null) ? $plugin['assets'] : [],
-        'assets_mode' => (string)($plugin['assets_mode'] ?? ''),
+        'assets_mode' => self::plugin_assets_mode_normalize($plugin['assets_mode'] ?? ''),
         'cron' => is_array($plugin['cron'] ?? null) ? $plugin['cron'] : [],
         'entries' => is_array($plugin['entries'] ?? null) ? $plugin['entries'] : [],
         'install' => (string)($plugin['install'] ?? ''),
@@ -1161,7 +1161,6 @@ public static function plugin_manifest_validate(array $plugin, string $file): ?a
         if (is_string($fn) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $fn)) $assets[$type] = $fn;
     }
     $base['assets'] = $assets;
-    $base['assets_mode'] = $base['assets_mode'] === 'ondemand' ? 'ondemand' : '';
     $cron = [];
     foreach ($base['cron'] as $name => $task) {
         if (!is_string($name) || preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $name) !== 1 || !is_array($task)) continue;
@@ -1199,8 +1198,8 @@ private static function plugin_link_icon_html(string $html): string
     $html = trim($html);
     if ($html === '' || strlen($html) > 1600) return '';
     if (str_starts_with($html, '<svg') !== true || str_ends_with($html, '</svg>') !== true) return '';
-    if (preg_match('/<\s*(?!\/?\s*(?:svg|path|circle|rect|line|polyline|polygon|g)\b)[a-z]/i', $html) === 1) return '';
-    if (preg_match('/\bon[a-z]+\s*=|javascript:|<use\b|href=|xlink|style=|@import/i', $html) === 1) return '';
+    if (preg_match('/<\s*(?!\/?\s*(?:svg|g|path|circle|ellipse|rect|line|polyline|polygon|defs|linearGradient|radialGradient|stop|clipPath|mask|title|desc|text|tspan)\b)[a-z]/i', $html) === 1) return '';
+    if (preg_match('/\bon[a-z]+\s*=|javascript:|<use\b|href\s*=|xlink|style\s*=|@import/i', $html) === 1) return '';
     return $html;
 }
 
@@ -1374,14 +1373,20 @@ public static function plugin_assets_rebuild(?array $only_ids = null): array
     $targets = $only_ids === null ? array_keys($plugins) : $only_ids;
     foreach ($targets as $id) {
         $plugin = $plugins[$id] ?? null;
-        $was_ondemand = isset($previous[$id]);
-        if ($plugin && !empty($plugin['assets']) && (string)($plugin['assets_mode'] ?? '') === 'ondemand') {
-            $ondemand[$id] = self::plugin_asset_ondemand_write($plugin);
-            if (!$was_ondemand) $bundle_dirty = true;
+        $previous_entry = is_array($previous[$id] ?? null) ? $previous[$id] : null;
+        $types = [];
+        if ($plugin && !empty($plugin['assets'])) {
+            foreach (['css', 'js'] as $type) {
+                if (self::plugin_asset_mode($plugin, $type) === 'ondemand') $types[] = $type;
+            }
+        }
+        if ($types) {
+            $ondemand[$id] = self::plugin_asset_ondemand_write($plugin, $types);
+            if (($previous_entry === null ? [] : array_keys($previous_entry)) !== $types) $bundle_dirty = true;
             continue;
         }
-        if (!$plugin || !empty($plugin['assets']) || $was_ondemand) $bundle_dirty = true;
-        if ($was_ondemand) {
+        if (!$plugin || !empty($plugin['assets']) || $previous_entry !== null) $bundle_dirty = true;
+        if ($previous_entry !== null) {
             self::plugin_asset_remove((string)$id);
             unset($ondemand[$id]);
         }
@@ -1396,8 +1401,9 @@ public static function plugin_assets_rebuild(?array $only_ids = null): array
     if ($bundle_dirty) {
         $chunks = ['css' => [], 'js' => []];
         foreach ($plugins as $plugin) {
-            if (empty($plugin['assets']) || (string)($plugin['assets_mode'] ?? '') === 'ondemand') continue;
+            if (empty($plugin['assets'])) continue;
             foreach (['css', 'js'] as $type) {
+                if (self::plugin_asset_mode($plugin, $type) !== 'common') continue;
                 $chunk = self::plugin_asset_chunk($plugin, $type);
                 if ($chunk !== '') $chunks[$type][] = $chunk;
             }
@@ -1443,7 +1449,7 @@ private static function plugin_asset_chunk(array $plugin, string $type): string
     return '/* ' . $id . " */\n" . $content;
 }
 
-private static function plugin_asset_ondemand_write(array $plugin): array
+private static function plugin_asset_ondemand_write(array $plugin, array $types): array
 {
     $id = (string)($plugin['id'] ?? '');
     if (!is_dir(PLUGIN_ASSET_DIR) && !@mkdir(PLUGIN_ASSET_DIR, 0755, true) && !is_dir(PLUGIN_ASSET_DIR)) {
@@ -1451,8 +1457,12 @@ private static function plugin_asset_ondemand_write(array $plugin): array
     }
     $entry = [];
     foreach (['css', 'js'] as $type) {
-        $content = self::plugin_asset_chunk($plugin, $type);
         $file = PLUGIN_ASSET_DIR . '/' . $id . '.' . $type;
+        if (!in_array($type, $types, true)) {
+            if (is_file($file)) @unlink($file);
+            continue;
+        }
+        $content = self::plugin_asset_chunk($plugin, $type);
         if ($content === '') {
             if (is_file($file)) @unlink($file);
             $entry[$type] = ['hash' => '', 'size' => 0];
@@ -1473,14 +1483,55 @@ private static function plugin_asset_remove(string $id): void
     }
 }
 
-public static function plugin_asset_require(string $id, string $type = ''): void
+private static function plugin_assets_mode_normalize(mixed $mode): array|string
 {
-    if (!self::plugin_id_valid($id)) return;
+    if (!is_array($mode)) return (string)$mode === 'ondemand' ? 'ondemand' : '';
+    $ondemand = [];
+    foreach (['css', 'js'] as $type) {
+        if (is_string($mode[$type] ?? null) && $mode[$type] === 'ondemand') $ondemand[$type] = 'ondemand';
+    }
+    if (!$ondemand) return '';
+    return count($ondemand) === 2 ? 'ondemand' : $ondemand;
+}
+
+private static function plugin_asset_mode(array $plugin, string $type): string
+{
+    $mode = $plugin['assets_mode'] ?? '';
+    if (is_array($mode)) $mode = $mode[$type] ?? '';
+    return (string)$mode === 'ondemand' ? 'ondemand' : 'common';
+}
+
+private static function plugin_assets_ondemand_any(array $plugin): bool
+{
+    return self::plugin_asset_mode($plugin, 'css') === 'ondemand' || self::plugin_asset_mode($plugin, 'js') === 'ondemand';
+}
+
+public static function plugin_asset_require(string $id, string $type = ''): array
+{
+    if (!self::plugin_id_valid($id)) return [];
     $plugin = self::plugins()[$id] ?? null;
-    if (!$plugin || !self::plugin_enabled($plugin) || empty($plugin['assets'])) return;
-    if ((string)($plugin['assets_mode'] ?? '') !== 'ondemand') return;
+    if (!$plugin || !self::plugin_enabled($plugin) || empty($plugin['assets'])) return [];
     $types = in_array($type, ['css', 'js'], true) ? [$type] : ['css', 'js'];
+    $types = array_values(array_filter($types, fn(string $item): bool => self::plugin_asset_mode($plugin, $item) === 'ondemand'));
+    if (!$types) return [];
     foreach ($types as $item) self::$asset_required[$id][$item] = true;
+    $handles = [];
+    foreach ($types as $item) {
+        foreach (self::plugin_assets_ondemand_items($item)[$item] ?? [] as $handle) {
+            if ((string)($handle['id'] ?? '') === $id) $handles[$item][] = $handle;
+        }
+    }
+    return $handles;
+}
+
+public static function plugin_route_owner(string $route): string
+{
+    if ($route === '') return '';
+    foreach (self::plugins() as $plugin) {
+        if (!self::plugin_enabled($plugin)) continue;
+        if (array_key_exists($route, (array)($plugin['routes'] ?? []))) return (string)($plugin['id'] ?? '');
+    }
+    return '';
 }
 
 private static function plugin_assets_ondemand_manifest(bool $refresh = false): array
@@ -1500,44 +1551,61 @@ public static function plugin_assets_html(string $type): string
 public static function plugin_assets_ondemand_html(string $type): string
 {
     if (!in_array($type, ['css', 'js'], true)) return '';
-    $required = [];
-    foreach (self::$asset_required as $id => $types) {
-        if (!empty($types[$type])) $required[] = (string)$id;
-    }
-    if (!$required) return '';
     $html = '';
-    $manifest = self::plugin_assets_ondemand_manifest(true);
-    $missing = [];
-    foreach ($required as $id) {
-        $entry = $manifest[$id][$type] ?? null;
-        if (!is_array($entry)) {
-            $missing[] = $id;
-            continue;
-        }
-        if ((int)($entry['size'] ?? 0) > 0 && !is_file(PLUGIN_ASSET_DIR . '/' . $id . '.' . $type)) $missing[] = $id;
-    }
-    if ($missing && !self::$asset_missing_retry) {
-        self::$asset_missing_retry = true;
-        try {
-            self::plugin_assets_rebuild($missing);
-            $manifest = self::plugin_assets_ondemand_manifest(true);
-        } catch (Throwable $e) {
-            debug_log_write('插件资源生成失败', $e);
-        }
-    }
-    $seen = [];
-    foreach ($required as $id) {
-        if (isset($seen[$id])) continue;
-        $seen[$id] = true;
-        $entry = $manifest[$id][$type] ?? null;
-        if (!is_array($entry) || (int)($entry['size'] ?? 0) < 1) continue;
-        $file = 'app/assets/plugins/' . $id . '.' . $type;
-        $version = (string)($entry['hash'] ?? '');
+    foreach (self::plugin_assets_ondemand_items($type)[$type] ?? [] as $item) {
+        $url = h((string)$item['url']);
         $html .= $type === 'css'
-            ? '<link rel="stylesheet" href="' . h(asset_url($file)) . '?v=' . h($version) . '">'
-            : '<script src="' . h(asset_url($file)) . '?v=' . h($version) . '" defer></script>';
+            ? '<link rel="stylesheet" href="' . $url . '">'
+            : '<script src="' . $url . '" defer></script>';
     }
     return $html;
+}
+
+public static function plugin_assets_handles(): array
+{
+    return self::plugin_assets_ondemand_items();
+}
+
+private static function plugin_assets_ondemand_items(?string $only = null): array
+{
+    $items = [];
+    foreach (['css', 'js'] as $type) {
+        if ($only !== null && $type !== $only) continue;
+        $required = [];
+        foreach (self::$asset_required as $id => $types) {
+            if (!empty($types[$type])) $required[] = (string)$id;
+        }
+        if (!$required) continue;
+        $manifest = self::plugin_assets_ondemand_manifest();
+        $missing = [];
+        foreach ($required as $id) {
+            $entry = $manifest[$id][$type] ?? null;
+            if (!is_array($entry)) {
+                $missing[] = $id;
+                continue;
+            }
+            if ((int)($entry['size'] ?? 0) > 0 && !is_file(PLUGIN_ASSET_DIR . '/' . $id . '.' . $type)) $missing[] = $id;
+        }
+        if ($missing && !self::$asset_missing_retry) {
+            self::$asset_missing_retry = true;
+            try {
+                self::plugin_assets_rebuild($missing);
+                $manifest = self::plugin_assets_ondemand_manifest(true);
+            } catch (Throwable $e) {
+                debug_log_write('插件资源生成失败', $e);
+            }
+        }
+        foreach ($required as $id) {
+            $entry = $manifest[$id][$type] ?? null;
+            if (!is_array($entry) || (int)($entry['size'] ?? 0) < 1) continue;
+            $items[$type][] = [
+                'id' => $id,
+                'type' => $type,
+                'url' => asset_url('app/assets/plugins/' . $id . '.' . $type) . '?v=' . (string)($entry['hash'] ?? ''),
+            ];
+        }
+    }
+    return $items;
 }
 
 private static function plugin_file_created_tables(string $file): array
