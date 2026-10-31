@@ -188,6 +188,7 @@ app_db_upsert('plugin_hello_items', [
 | `sidebar.feature_links` | 首页侧栏“快捷功能”链接列表 | `sidebar.feature_links` |
 | `top.menu_links` | 桌面端顶部版块导航；移动端菜单也复用 | `top.menu_links` |
 | `user.menu_links` | 用户侧栏菜单；移动端菜单也复用 | `user.menu_links` |
+| `user.card.after_info` | 侧栏用户卡片：用户信息与链接区之间 | `user.sidebar_card.after_info` |
 | `sidebar.stack` | 整个侧栏容器 | `sidebar.stack` |
 | `mainpanel_extra` | 主内容面板，扩展内容追加在主内容之后 | `mainpanel_extra` |
 | `topic.actions` | 主题主楼操作条（主楼正文底部，引用、管理等） | `topic.actions` |
@@ -475,6 +476,7 @@ function hello_collect(array $plugin, array $task): string
 | `user.profile_tabs` | 用户资料页标签栏 | 展示位置：个人主页 Tab |
 | `user.profile_tab_allowed` | 用户资料页标签页可见性判定 | 渲染该标签页数据与内容前调用，详见下方“个人主页标签页可见性” |
 | `user.menu_links` | 个人卡片与移动端我的菜单 | 展示位置：个人卡片 |
+| `user.sidebar_card.after_info` | 侧栏用户卡片：用户信息与链接区之间 | value 为 HTML，ctx 含 `user`（卡片上的用户行）、`self`（是否本人）；仅登录用户的卡片触发，返回非空时输出在 `data-slot="user.card.after_info"` 容器内 |
 | `register.form_extra` / `login.form_extra` | 注册/登录表单附加区 | 仅渲染表单扩展 |
 | `profile.after_form` | 个人资料页附加区 | ctx 含 user |
 | `profile.settings_tabs` | 个人设置页标签栏 | value 为 Tab 数组，ctx 含 user、tab；展示位置：个人设置 Tab |
