@@ -4657,6 +4657,26 @@ table.list.admin-bulk-list {
     line-height: 1.6
 }
 
+.plugin-market-auto-enable {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    min-height: 26px;
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    user-select: none
+}
+
+.plugin-market-auto-enable input {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--brand)
+}
+
 .plugin-market-authorization-install-form .confirm-actions>.plugin-market-authorization-link {
     margin-right: auto;
 }
