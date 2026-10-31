@@ -2302,8 +2302,15 @@ function base_url(): string
 {
     $configured = clean_site_base_url(setting('site_base_url', ''));
     if ($configured !== '') return $configured;
-    $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
-    return (auth_cookie_secure() ? 'https' : 'http') . '://' . $host;
+    $secure = auth_cookie_secure();
+    $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['SERVER_NAME'] ?? ''));
+    if ($host !== '') {
+        $port = (int)($_SERVER['SERVER_PORT'] ?? 0);
+        if ($port > 0 && !in_array($port, [80, 443], true)) $host .= ':' . $port;
+    } else {
+        $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
+    }
+    return ($secure ? 'https' : 'http') . '://' . $host;
 }
 function absolute_url(string $url): string
 {
