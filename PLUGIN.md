@@ -329,10 +329,10 @@ function hello_list_badge($html, array $ctx): string
 - 参数是插件 ID，只有已启用且声明为按需模式的插件会被接受；未启用、未声明按需或 ID 非法时静默忽略。插件之间的直接调用仍受「不得依赖其他插件」约束，通常只登记自己。
 - 类型过滤只决定输出哪类标签，不拆分按需文件：按需类型的资源仍是 `app/assets/plugins/<插件ID>.css` 和/或 `.js`。`plugin_asset_require('插件ID', 'css')` 只是不再同时输出 `<script>`；同一请求内先后调用不同类型（或后调不带参数）时取并集，只增不减。插件没有声明该类型时不会输出任何标签。
 - 混合模式下只有声明为 `ondemand` 的类型会生成独立文件、需要在页面里登记；`common` 类型直接进公共合集，对 `common` 类型调用 `plugin_asset_require()` 是空操作。`plugin_asset_require('插件ID')` 不带类型时也只登记该插件按需的那几类。
-- 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核没有这个函数，且会忽略 `assets_mode`、把资源照旧并入公共合集，兜底后界面正常、只是不按需；裸调则会抛错并被自动停用插件。老内核的 `plugin_asset_require()` 也不认识第二个参数，多传的类型参数会被忽略并回退为两类都加载，所以上述兜底写法可以直接保留第二个参数。兜底只包住调用，不要用它定义无前缀函数。
+- 兼容老内核时写成 `if (function_exists('plugin_asset_require')) plugin_asset_require('插件ID');`：老内核根本没有这个函数，任何形式的调用（带不带第二个参数都一样）都会因未定义函数抛错并被自动停用插件；老内核同时会忽略 `assets_mode`、把资源照旧并入公共合集，所以跳过登记后界面依然正常，只是不按需。兜底只包住调用，不要用它定义无前缀函数。
 - 页面内的 AJAX 局部 HTML 不会触发资源输出：片段渲染不走整页模板，`plugin-assets` 标记不会被回填，所以局部 HTML 里不要放资源标签，也不要指望 `plugin_asset_require()` 在片段里自动生效。
 - 需要给 AJAX 片段补资源时，用 `plugin_asset_require('插件ID', 'js')` 的返回值：它返回本次登记命中的句柄数组（形如 `['js' => [['id' => '插件ID', 'type' => 'js', 'url' => '/app/assets/plugins/插件ID.js?v=...']]]`），可以直接并入自己的响应，由前端按 `url` 补 `<link>` / `<script>` 并按 `id` 去重。
-- `json_response()` 也会自动附带本次请求中 `plugin_asset_require()` 收集到的句柄：响应顶层增加 `assets` 键（结构同上，只含 `css` / `js` 下实际有资源的类型）。调用方自己写了 `assets` 时不覆盖；`ok` 为假（如 `err()` 的 AJAX 分支）时不附带。前端可统一读取 `data.assets`，不必让每个插件自行拼装。
+- `json_response()` 也会自动附带本次请求中 `plugin_asset_require()` 收集到的句柄：响应顶层增加 `assets` 键（结构同上，只含 `css` / `js` 下实际有资源的类型）。调用方自己写了 `assets` 时不覆盖；`ok` 为假（如 `err()` 的 AJAX 分支）时不附带。核心前端目前只在核心回帖 AJAX 里自动注入 `assets_css` / `assets_js`（由内核自己写入的响应字段），并不会读取 `assets`：插件请求走自己的前端逻辑时，需要自行按 `data.assets` 里的 `url` 补 `<link>` / `<script>` 并按 `id` 去重。
 - 从默认模式改成按需模式（或反向）后，系统会在对应插件更新或下次后台同步时迁移资源位置：移入独立文件并删除合集里的旧分块，反向则写回公共合集并删除独立文件。混合模式逐类型迁移：只改 `css` 的类型时只移动 CSS 分块，JavaScript 保持在合集里，反之亦然。迁移不影响其他插件。
 
 **何时不要用按需加载**：几乎每页都需要的资源（导航、主题列表样式、全局脚本）留在公共合集更划算，否则每页都要多一次请求。只在少数路由出现的功能才适合按需。
@@ -662,12 +662,12 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 
 - `text`（Tab 类入口可写 `label`）：纯文本，核心输出时统一转义，最多 60 字；和 `text_config` 至少写一个。
 - `text_config`：文案取自插件配置的键名（`plugin_config()` 里保存的键）。配置值非空时用它覆盖 `text`，此时 `text` 可写配置缺省值，也可以留空；纯文本、会话前经过截断与去标签，最多 60 字。
-- `url` 或 `route` + `params`：二选一。`url` 只允许相对地址或 `http`/`https` 绝对地址；`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线。参数值可以写 `{ctx}` 占位符，从当前入口上下文取值：`{uid}`（当前登录用户）、`{self}`、`{active}`、`{forum_id}`、`{query}`、`{page}`、`{user.id}`、`{user.username}`；取不到值或为空时整条链接不渲染。各入口实际提供哪些键见下方「`links` 上下文（ctx）契约」，写了该入口没有的键会静默不渲染。
-- `key`：Tab 类入口必填（`admin_tabs`/`home_tabs`/`profile_tabs`/`profile_settings_tabs`），与 `$active` 比较决定高亮；`before` / `after` 可把该 Tab 插到指定核心 Tab 之前/之后，锚点不存在时追加在末尾。
+- `url` 或 `route` + `params`：二选一（同时写时只用 `url`）。`url` 里含控制字符、或显式写了 `http`/`https` 以外的协议（如 `javascript:`、`mailto:`）时整条丢弃；相对地址和 `//host/path` 这类协议相对地址会被放行，后者会解析到站外，使用前确认目标可信。`route` 由 `route_url()` 生成，参数键只用小写字母、数字、下划线（最多 10 个）。参数值可以写 `{ctx}` 占位符，从当前入口上下文取值：`{uid}`（当前登录用户）、`{self}`、`{active}`、`{forum_id}`、`{query}`、`{page}`、`{user.id}`、`{user.username}`；取不到值或为空时整条链接不渲染。各入口实际提供哪些键见下方「`links` 上下文（ctx）契约」，写了该入口没有的键会静默不渲染。
+- `key`：Tab 类入口（`admin_tabs`/`home_tabs`/`profile_tabs`/`profile_settings_tabs`）用它与 `$active` 比较决定高亮。写 `route` 时可以省略，核心会拿 `route` 当 key；只写 `url` 时必须显式给出 `key`（否则整条丢弃）。核心不检查 key 是否与已有 Tab 冲突：同名时这条会覆盖已有 Tab，出现在原位置或被 `before`/`after` 插入的位置上，所以不要占用核心已用的 key。`before` / `after` 可把该 Tab 插到指定核心 Tab 之前/之后，锚点不存在时追加在末尾。
 - `icon`：核心图标名（`user`/`id`/`reply`/`notify`/`forum`/`topic`/`view`/`settings`/`admin`/`pages`/`upload`）。`icon_html` 可传以 `<svg` 开头、`</svg>` 结尾的单行片段（≤1600 字节），标签白名单为 `svg`、`g`、`path`、`circle`、`ellipse`、`rect`、`line`、`polyline`、`polygon`、`defs`、`linearGradient`、`radialGradient`、`stop`、`clipPath`、`mask`、`title`、`desc`、`text`、`tspan`；`use`、`a`、`image`、`style`、`script`、`foreignObject` 等其他标签一律拒绝，含 `on*` 事件属性、`href`、`xlink`、`style`、`javascript:` 的片段同样拒绝。
-- `when`：渲染条件，全部满足才显示。`login`（已登录）、`self`（当前查看的是本人主页）、`admin`（`true` 要求可访问后台，`false` 要求不是管理员）、`config`（插件配置条件）、`ctx`（入口上下文条件）。`config` 与 `ctx` 可写单个键名、单个条件数组或条件数组列表，列表内全部满足才显示；单个条件形如 `['key' => 'enabled', 'default' => true]`，`default` 是配置缺省值，再加 `'equals' => false` 表示配置值必须等于该值（布尔值按真假比较，其他按字符串比较）。`ctx` 按当前入口上下文判断，键支持 `user.id` 这类点号路径，`'equals' => false` 表示该上下文值为空。
+- `when`：渲染条件，全部满足才显示。`login`（已登录）、`self`（当前查看的是本人主页）、`admin`（`true` 要求可访问后台，`false` 要求不是管理员）、`config`（插件配置条件）、`ctx`（入口上下文条件）。`config` 接受单个键名字符串、单个条件数组或条件数组列表；`ctx` 只接受单个条件数组或条件数组列表，直接写键名字符串会被忽略。列表内全部满足才显示，两段各最多 8 条。单个条件形如 `['key' => 'enabled', 'default' => true]`，`default` 是缺省值（配置缺省值，ctx 取不到值时的替代值）；不写 `equals` 时要求该值为真；`'equals' => false` 这类布尔按真假比较（`0`、`'0'`、空字符串、`null` 都算假，不只是「空」），其他标量按字符串比较。`ctx` 按当前入口上下文判断，键支持 `user.id` 这类点号路径。
 - 文字可以来自配置（用 `text_config`）；依赖 `$ctx` 的显示条件和 URL 参数用 `when.ctx` 与 `{ctx}` 占位符表达；带未读角标、需要拼装动态文案或调用 `plugin_asset_require()` 的入口仍无法数据化，继续用函数 Hook。
-- 每个入口最多 20 条，非法条目在同步时直接丢弃。
+- 每个入口最多 20 条，同步时逐字段校验：缺少文案（`text` / `label` / `text_config` 都为空）、缺少或非法的 `url` / `route`、非法 `key`、非法 `icon` 的条目整条丢弃；`params` 与 `when.config` / `when.ctx` 里的非法项只跳过该项，条目保留——某段条件全部被跳过时等于没写该条件，入口会变成无条件显示，写错条件不会报错，只能靠页面上看不出来排查。
 - 数据条目只输出核心链接结构，不能再调用 `plugin_asset_require()`；需要插件样式或脚本的入口继续用函数 Hook。
 - 同一入口不要同时期待数据和回调都生效：声明 `links` 后该入口的回调会被跳过，回调里的其他逻辑也会一起失效。
 
