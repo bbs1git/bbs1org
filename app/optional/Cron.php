@@ -152,10 +152,25 @@ public static function cron_task_finish(array $task, string $status, string $err
     ])->rowCount() === 1;
 }
 
+private static function cron_orphan_release(): void
+{
+    $now = time();
+    $stale = $now - 300;
+    $rows = q("SELECT plugin_id,task_name FROM app_cron_tasks WHERE status='running' AND lease_until>0 AND lease_until<?", [$stale])->fetchAll();
+    foreach ($rows as $row) {
+        $plugin_id = (string)$row['plugin_id'];
+        $task_name = (string)$row['task_name'];
+        $updated = q("UPDATE app_cron_tasks SET lease_token='',lease_until=0,available_at=?,status='failed',last_error='租约超时自动释放' WHERE plugin_id=? AND task_name=? AND status='running' AND lease_until>0 AND lease_until<?", [$now, $plugin_id, $task_name, $stale])->rowCount();
+        if ($updated !== 1) continue;
+        q("UPDATE app_cron_logs SET status='failed',message='任务租约超时',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, $plugin_id, $task_name]);
+    }
+}
+
 public static function cron_run(): array
 {
     $result = ['due' => 0, 'success' => 0, 'failed' => 0, 'tasks' => []];
     try {
+        try { self::cron_orphan_release(); } catch (Throwable $e) { debug_log_write('[cron] orphan release failed', $e); }
         try { self::cron_log_prune(); } catch (Throwable $e) { debug_log_write('[cron] log prune failed', $e); }
         $plugins = Plugin::plugins();
         while ($task = self::cron_task_claim(time())) {
@@ -169,6 +184,8 @@ public static function cron_run(): array
             $log_id = 0;
             $result['due']++;
             $GLOBALS['__cron_active_lease'] = $task;
+            $GLOBALS['__cron_active_lease']['touched_at'] = 0;
+            self::cron_lease_touch();
             try { $log_id = self::cron_log_start($plugin_id, $task_name, (int)$task['last_started_at']); }
             catch (Throwable $e) { debug_log_write('[cron] ' . $key . ' log failed', $e); }
             try {
