@@ -650,5 +650,6 @@ function example_profile_tab_allowed($allowed, array $ctx): mixed
 并检查最接近的现有插件。
 请在 app/plugins/<插件ID>/plugin.php 开发插件。
 需求：<清楚描述功能、入口、设置项和权限>
+遇到不熟悉的功能，不要立即从零实现。先检索 GitHub 上维护活跃的同类开源项目，比较实现思路、依赖和已知问题。优先借鉴经过验证的设计。
 完成后请提升 version，执行 PHP 语法检查与差异检查。
 ```
