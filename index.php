@@ -600,7 +600,8 @@ function plugin_asset_tag(string $type): string
 }
 function plugin_asset_require(string $id, string $type = ''): array
 {
-    return Plugin::plugin_asset_require($id, $type);
+    $handles = Plugin::plugin_asset_require($id, $type);
+    return is_array($handles) ? $handles : [];
 }
 function plugin_entry_definitions(): array
 {
