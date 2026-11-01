@@ -1608,71 +1608,6 @@ private static function plugin_assets_ondemand_items(?string $only = null): arra
     return $items;
 }
 
-private static function plugin_file_created_tables(string $file): array
-{
-    $code = @file_get_contents($file);
-    if (!is_string($code) || $code === '') return [];
-    $tokens = token_get_all($code);
-    $tables = [];
-    $count = count($tokens);
-    $call_operators = [T_OBJECT_OPERATOR, T_DOUBLE_COLON];
-    if (defined('T_NULLSAFE_OBJECT_OPERATOR')) $call_operators[] = T_NULLSAFE_OBJECT_OPERATOR;
-    $next_meaningful = static function (array $tokens, int $index, int $count): int {
-        while (++$index < $count) {
-            $token = $tokens[$index];
-            if (!is_array($token) || !in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) return $index;
-        }
-        return $count;
-    };
-    for ($i = 0; $i < $count; $i++) {
-        $token = $tokens[$i];
-        if (!is_array($token) || $token[0] !== T_STRING || strtolower((string)$token[1]) !== 'app_db_create_table') continue;
-        $previous = $i - 1;
-        while ($previous >= 0 && is_array($tokens[$previous]) && in_array($tokens[$previous][0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) $previous--;
-        if ($previous >= 0 && is_array($tokens[$previous]) && in_array($tokens[$previous][0], $call_operators, true)) continue;
-        $j = $next_meaningful($tokens, $i, $count);
-        if ($j >= $count || $tokens[$j] !== '(') continue;
-        $j = $next_meaningful($tokens, $j, $count);
-        if ($j >= $count || !is_array($tokens[$j]) || $tokens[$j][0] !== T_CONSTANT_ENCAPSED_STRING) continue;
-        $literal = (string)$tokens[$j][1];
-        $quote = $literal[0] ?? '';
-        if (($quote !== "'" && $quote !== '"') || !str_ends_with($literal, $quote)) continue;
-        $table = substr($literal, 1, -1);
-        $table = $quote === "'" ? str_replace(["\\\\", "\\'"], ["\\", "'"], $table) : stripcslashes($table);
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1) continue;
-        $tables[strtolower($table)][] = ['table' => $table, 'line' => (int)$tokens[$j][2]];
-    }
-    return $tables;
-}
-
-private static function plugin_table_conflicts(array $files): array
-{
-    $definitions = [];
-    foreach ($files as $file) {
-        foreach (self::plugin_file_created_tables($file) as $table => $items) {
-            foreach ($items as $item) $definitions[$table][] = ['file' => $file] + $item;
-        }
-    }
-    $conflicts = [];
-    foreach ($definitions as $items) {
-        $files_for_table = array_values(array_unique(array_column($items, 'file')));
-        if (count($files_for_table) < 2) continue;
-        foreach ($files_for_table as $file) {
-            $own_lines = array_column(array_filter($items, static fn(array $item): bool => (string)$item['file'] === $file), 'line');
-            $others = [];
-            foreach ($items as $item) {
-                if ((string)$item['file'] === $file) continue;
-                $other_id = basename(dirname((string)$item['file']));
-                $others[$other_id][] = (int)$item['line'];
-            }
-            $other_parts = [];
-            foreach ($others as $other_id => $lines) $other_parts[] = $other_id . ' 第 ' . implode('、', array_unique($lines)) . ' 行';
-            $conflicts[$file][] = '数据表 ' . (string)$items[0]['table'] . ' 重复建表：本插件第 ' . implode('、', array_unique($own_lines)) . ' 行；' . implode('；', $other_parts);
-        }
-    }
-    return $conflicts;
-}
-
 public static function plugin_registry_sync(?array $only_ids = null, bool $force = false): array
 {
     if ($only_ids !== null) {
@@ -1680,6 +1615,10 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
         if ($only_ids === []) $only_ids = null;
     }
     $only_lookup = $only_ids === null ? null : array_flip($only_ids);
+    app_db_ensure_columns('app_plugins', [
+        'code_size' => 'INTEGER NOT NULL DEFAULT 0',
+        'code_mtime' => 'INTEGER NOT NULL DEFAULT 0',
+    ]);
     $existing = [];
     foreach (q("SELECT * FROM app_plugins")->fetchAll() as $row) $existing[(string)$row['id']] = $row;
     $synced = [];
@@ -1687,6 +1626,7 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
     $disable = function (string $id, string $file, string $reason) use (&$existing, &$synced, &$changed): void {
         if (!self::plugin_id_valid($id) || $id === 'plugin_market') return;
         $old = $existing[$id] ?? [];
+        $stat = is_file($file) ? @stat($file) : false;
         $code_hash = is_file($file) ? (hash_file('sha256', $file) ?: '') : '';
         app_db_upsert('app_plugins', [
             'id' => $id,
@@ -1694,6 +1634,8 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             'version' => (string)($old['version'] ?? ''),
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
+            'code_size' => $stat ? (int)$stat['size'] : 0,
+            'code_mtime' => $stat ? (int)$stat['mtime'] : 0,
             'manifest_json' => (string)($old['manifest_json'] ?? '{}'),
             'config_json' => (string)($old['config_json'] ?? '{}'),
             'entries_json' => (string)($old['entries_json'] ?? '{}'),
@@ -1716,9 +1658,18 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             continue;
         }
         $old = $existing[$id] ?? [];
-        $code_hash = hash_file('sha256', $file) ?: '';
+        $stat = @stat($file);
+        $size = $stat ? (int)$stat['size'] : 0;
+        $mtime = $stat ? (int)$stat['mtime'] : 0;
+        $code_hash = (string)($old['code_hash'] ?? '');
+        if ($force || $code_hash === '' || (int)($old['code_size'] ?? 0) !== $size || (int)($old['code_mtime'] ?? 0) !== $mtime) {
+            $code_hash = hash_file('sha256', $file) ?: '';
+        }
 
         if (!$force && $code_hash !== '' && (string)($old['code_hash'] ?? '') === $code_hash && self::plugin_registry_row($old)) {
+            if ((int)($old['code_size'] ?? 0) !== $size || (int)($old['code_mtime'] ?? 0) !== $mtime) {
+                q('UPDATE app_plugins SET code_size=?,code_mtime=? WHERE id=?', [$size, $mtime, $id]);
+            }
             $synced[$id] = true;
             continue;
         }
@@ -1762,6 +1713,8 @@ public static function plugin_registry_sync(?array $only_ids = null, bool $force
             'version' => (string)$plugin['version'],
             'file' => ltrim(str_replace(APP_ROOT, '', $file), '/'),
             'code_hash' => $code_hash,
+            'code_size' => $size,
+            'code_mtime' => $mtime,
             'manifest_json' => plugin_json_encode(array_intersect_key($plugin, array_flip(['description', 'author', 'hooks', 'links', 'routes', 'admin_tabs', 'assets', 'assets_mode', 'cron', 'install', 'uninstall']))),
             'config_json' => plugin_json_encode($config),
             'entries_json' => plugin_json_encode($entries),
@@ -2021,11 +1974,6 @@ public static function plugin_uninstall(string $id, bool $keep_data = true): voi
     $dir = rtrim(str_replace('\\', '/', PLUGIN_DIR), '/') . '/' . $id;
     if (str_replace('\\', '/', (string)($plugin['file'] ?? '')) !== $dir . '/plugin.php') err('插件目录无效');
     if (!self::plugin_directory_removable($dir)) err('插件目录不可删除，请检查目录权限');
-    if (!$keep_data) {
-        $table_conflicts = self::plugin_table_conflicts(self::plugin_files());
-        $file = (string)($plugin['file'] ?? '');
-        if (isset($table_conflicts[$file])) err('检测到数据表重复建表，为避免删除其他插件数据，不能执行删表卸载：' . implode('；', $table_conflicts[$file]));
-    }
     self::plugin_backup_php_files($id, $dir);
     self::plugin_call($plugin, function () use ($plugin, $id, $keep_data): void {
         $fn = (string)($plugin['uninstall'] ?? '');
