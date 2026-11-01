@@ -333,6 +333,54 @@ private static function plugin_link_ctx_value(string $path, array $ctx): int|str
     return is_scalar($value) ? $value : null;
 }
 
+public static function hook_ctx_prepare(string $name, array $ctx, array $stack = []): array
+{
+    $parent = $stack[$name] ?? null;
+    if (!is_array($parent)) {
+        $from = $name === 'topic.index_data.loaded' ? 'topic.index_data.load' : ($name === 'topic.replies_data.loaded' ? 'topic.replies_data.load' : '');
+        if ($from !== '') $parent = $stack[$from] ?? null;
+    }
+    if (is_array($parent)) $ctx += $parent;
+    $kind = str_starts_with($name, 'topic.') ? 'topic' : (str_starts_with($name, 'reply.') ? 'reply' : '');
+    if ($kind === '') return $ctx;
+    $row = is_array($ctx['row'] ?? null) ? $ctx['row'] : [];
+    $topic = is_array($ctx['topic'] ?? null) ? $ctx['topic'] : [];
+    if ((int)($ctx['topic_id'] ?? 0) <= 0) {
+        $topic_id = $kind === 'topic' ? (int)($row['id'] ?? 0) : (int)($row['topic_id'] ?? 0);
+        if ($topic_id <= 0) $topic_id = (int)($topic['id'] ?? 0);
+        if ($topic_id > 0) $ctx['topic_id'] = $topic_id;
+    }
+    if ((int)($ctx['forum_id'] ?? 0) <= 0) {
+        $forum_id = (int)($row['forum_id'] ?? 0);
+        if ($forum_id <= 0) $forum_id = (int)($topic['forum_id'] ?? 0);
+        if ($forum_id > 0) $ctx['forum_id'] = $forum_id;
+    }
+    return $ctx;
+}
+
+public static function hook_rows_snapshot(mixed $value): array
+{
+    if (!is_array($value) || !is_array($value['rows'] ?? null)) return [];
+    $snapshot = [];
+    foreach ($value['rows'] as $row) {
+        $id = is_array($row) ? (int)($row['id'] ?? 0) : 0;
+        if ($id <= 0) continue;
+        $snapshot[$id] = array_intersect_key($row, array_flip(['id', 'topic_id', 'forum_id']));
+    }
+    return $snapshot;
+}
+
+public static function hook_rows_restore(mixed $value, array $snapshot): mixed
+{
+    if (!$snapshot || !is_array($value) || !is_array($value['rows'] ?? null)) return $value;
+    foreach ($value['rows'] as $i => $row) {
+        $id = is_array($row) ? (int)($row['id'] ?? 0) : 0;
+        if ($id <= 0 || !isset($snapshot[$id])) continue;
+        $value['rows'][$i] = $row + $snapshot[$id];
+    }
+    return $value;
+}
+
 public static function plugin_registry(?string $id = null, bool $refresh = false): array
 {
     if ($id !== null && !self::plugin_id_valid($id)) return [];

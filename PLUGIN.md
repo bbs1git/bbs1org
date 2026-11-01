@@ -509,6 +509,10 @@ function hello_collect(array $plugin, array $task): string
 
 `row` 仍是原始行数组，`body` 是原始正文，调用方传入的其他 ctx 键原样保留。`topic.content_html` / `reply.content_html` / `topic.content_after` / `reply.content_after` 也带同一组键。列表页的 `topic.title_suffix` 带 `topic_id`、`forum_id`、`page`、`page_size`、`is_first_page`、`list`（`true`）、`sort`；`topic.before_render` / `topic.after_render` 在列表行触发时同样带这组键。
 
+内核在分发 `topic.*` / `reply.*` 钩子前统一补齐 ctx：`topic_id` 先取 ctx，再取 `row.id`（`reply.*` 取 `row.topic_id`），最后取 `ctx.topic.id`；`forum_id` 先取 ctx，再取 `row.forum_id`，最后取 `ctx.topic.forum_id`。取不到时不会写入空值，因此 `isset($ctx['forum_id'])` 仍只代表“确实能确定版块”。插件不要用这些键是否存在的副作用判断页面类型，需要区分列表行与详情页时用 `list`。
+
+插件在 `topic.index_data.load` / `topic.replies_data.load` 回调里触发对应的 `.loaded` 钩子时，新 ctx 会自动继承外层调用的 `forum_id`、`page`、`query` 等键；`topic.index_data.loaded` / `topic.replies_data.loaded` 返回的行数组会按 `id` 把被回调删掉的 `id`、`topic_id`、`forum_id` 补回。插件转发这类钩子仍必须用 `$ctx + ['新键' => …]` 合并，不要重建数组；`links` 入口不走回调，不享受这层保证。
+
 ### 帖子操作条与更多弹层
 
 内核在主楼和每个回帖的 `.post-content` 末尾渲染操作条 `.post-ops`：左侧为动作条目，右侧为楼层锚点（`#楼层号` / 主楼“主楼”标签）、更多按钮与弹层 `.post-ops-menu`，弹层的开关、定位与内置“编辑”“复制链接”由内核处理。

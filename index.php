@@ -678,15 +678,25 @@ function hook(string $name, mixed $value = null, array $ctx = []): mixed
     $entries = $registry[$name] ?? null;
     if (!$entries) return $value;
     if ($name === 'topic.index_data.loaded') topic_list_rows_mark($value);
-    foreach ($entries as $entry) {
-        $plugin = $entry['plugin'];
-        $fn = $entry['fn'];
-        if ($fn === null) {
-            $value = Plugin::plugin_entry_links_apply($value, $plugin, (string)($entry['entry'] ?? ''), $ctx);
-            continue;
+    $stack = $GLOBALS['__hook_ctx_stack'] ?? [];
+    $previous = $stack[$name] ?? null;
+    $ctx = Plugin::hook_ctx_prepare($name, $ctx, $stack);
+    $GLOBALS['__hook_ctx_stack'][$name] = $ctx;
+    $identity = in_array($name, ['topic.index_data.loaded', 'topic.replies_data.loaded'], true) ? Plugin::hook_rows_snapshot($value) : [];
+    try {
+        foreach ($entries as $entry) {
+            $plugin = $entry['plugin'];
+            $fn = $entry['fn'];
+            if ($fn === null) {
+                $value = Plugin::plugin_entry_links_apply($value, $plugin, (string)($entry['entry'] ?? ''), $ctx);
+                continue;
+            }
+            $next = Plugin::plugin_call($plugin, fn(): mixed => Plugin::plugin_callback_exists($fn) ? $fn($value, $ctx) : null);
+            if ($next !== null) $value = Plugin::hook_rows_restore($next, $identity);
         }
-        $next = Plugin::plugin_call($plugin, fn(): mixed => Plugin::plugin_callback_exists($fn) ? $fn($value, $ctx) : null);
-        if ($next !== null) $value = $next;
+    } finally {
+        if ($previous === null) unset($GLOBALS['__hook_ctx_stack'][$name]);
+        else $GLOBALS['__hook_ctx_stack'][$name] = $previous;
     }
     return $value;
 }
@@ -1844,7 +1854,7 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $floor_html = $floor > 0 ? '<a class="post-floor" href="' . h(route_url('topic', ['id' => $topic_id, 'floor' => $floor])) . '">#' . $floor . '</a>' : '<span class="post-floor">主楼</span>';
     $ops_left = '';
     $ops_menu = '';
-    foreach ((array)hook('post.ops_actions', [], ['row' => $row, 'is_reply' => $is_reply, 'topic_id' => $topic_id, 'floor' => $floor]) as $ops_item) {
+    foreach ((array)hook('post.ops_actions', [], ['row' => $row, 'is_reply' => $is_reply, 'topic_id' => $topic_id, 'floor' => $floor] + $ctx) as $ops_item) {
         $ops_item_html = is_array($ops_item) ? (string)($ops_item['html'] ?? '') : (string)$ops_item;
         if ($ops_item_html === '') continue;
         if (is_array($ops_item) && ($ops_item['placement'] ?? 'menu') === 'left') $ops_left .= $ops_item_html;
@@ -2021,7 +2031,7 @@ function topic_list_row(array $t, string $sort, int $page = 1, int $page_size = 
     $title_suffix = (string)hook('topic.title_suffix', '', ['row' => $t] + $row_ctx);
     $forum_badge = $has_forum ? '<a class="post-tag post-forum-badge" href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a>' : '';
     $html = '<li class="post-item' . ((int)($t['is_pinned'] ?? 0) ? ' topic-pinned' : '') . '" data-slot="topic.after_render"><div class="post-avatar">' . avatar_link_tag((int)$t['user_id'], (string)$t['username'], (string)($t['avatar_style'] ?? ''), '', (string)($t['avatar_seed'] ?? '')) . '</div><div class="post-body"><div class="post-title-row" data-slot="topic.title_suffix">' . $badges . '<a class="post-title" href="' . h($topic_url) . '"' . $style . '>' . h($t['title']) . '</a>' . $title_suffix . $pages . '</div>' . $reply_excerpt_html . '<div class="post-meta">' . $meta . '</div></div>' . $forum_badge . '</li>';
-    return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort]);
+    return (string)hook('topic.after_render', $html, ['row' => $t, 'list' => true, 'sort' => $sort] + $row_ctx);
 }
 function topic_list_rows_register(array $rows): void
 {
