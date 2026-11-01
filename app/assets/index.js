@@ -18,6 +18,16 @@ const formActionUrl = (form) => {
     return window.location.href;
 };
 window.formActionUrl = formActionUrl;
+const takeOverResponsePage = (response, text) => {
+    window.bbs1AttachmentUpload?.afterSubmit();
+    if (response.redirected && response.url && response.url !== window.location.href) {
+        window.location.replace(response.url);
+        return;
+    }
+    document.open();
+    document.write(text);
+    document.close();
+};
 const filterLocalPlugins = e => {
     const input = e.target instanceof HTMLInputElement && e.target.matches("[data-plugin-local-search]") ? e.target : null;
     if (!input) return;
@@ -813,10 +823,19 @@ document.addEventListener("submit", async e => {
         if (button?.name) body.append(button.name, button.value ?? "1");
         const response = await fetch(formActionUrl(form), {method: "POST", body, headers: {"X-Requested-With": "XMLHttpRequest"}});
         const text = await response.text();
-        let data;
+        let data = null;
         try {
             data = JSON.parse(text);
-        } catch (_) {
+        } catch (_) {}
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            if (/^\s*</.test(text)) {
+                takeOverResponsePage(response, text);
+                return;
+            }
+            if (text.trim() === "") {
+                window.location.reload();
+                return;
+            }
             throw new Error("操作失败");
         }
         if (!data.ok) throw new Error(data.message || "操作失败");
