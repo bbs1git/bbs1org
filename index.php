@@ -629,7 +629,7 @@ function plugin_config(string $id, array $defaults = []): array
 }
 function plugin_save_config(string $id, array $config): void
 {
-    if (!Plugin::plugin_id_valid($id)) err('插件不存在');
+    if (!Plugin::plugin_id_valid($id)) err('该插件不存在');
     Plugin::plugin_update_row($id, ['config_json' => $config]);
     $plugin = Plugin::plugins(true)[$id] ?? null;
     if ($plugin) Cron::plugin_cron_sync($plugin);
@@ -911,7 +911,7 @@ function user_points_change(int $user_id, int $delta, string $reason = '系统�
     if ($user_id === uid()) unset($GLOBALS['__me_cache']);
     $verb = $actual > 0 ? '增加' : '减少';
     $notification_message = '积分' . $verb . ' ' . abs($actual) . '，原因：' . trim($reason) . '。当前积分 ' . $now_points . '。';
-    if ($notify) create_notification($user_id, 0, 'points', '你的' . $notification_message, (int)($context['topic_id'] ?? 0), (int)($context['reply_id'] ?? 0));
+    if ($notify) create_notification($user_id, 0, 'points', $notification_message, (int)($context['topic_id'] ?? 0), (int)($context['reply_id'] ?? 0));
     elseif ($user_id === uid()) {
         $tip = '积分 ' . ($actual > 0 ? '+' : '') . $actual;
         if (ajax_request()) $GLOBALS['__point_change_tip'] = $tip;
@@ -1362,7 +1362,7 @@ function consume_auth_return_url(): string
 }
 function start_cookie_login(int $user_id): void
 {
-    $user = row('app_users', 'id', $user_id) ?: err('用户不存在');
+    $user = row('app_users', 'id', $user_id) ?: err('该用户不存在');
     csrf_cookie_clear();
     auth_cookie_set($user_id, (string)$user['password']);
     $GLOBALS['__request_uid'] = $user_id;
@@ -1381,23 +1381,23 @@ function need_speak(): void
 {
     need_login();
     $allowed = hook('user.can_speak', true, ['user' => me()]);
-    if ($allowed !== true) err(is_string($allowed) ? $allowed : '禁止发言');
-    if (is_muted()) err('禁止发言');
+    if ($allowed !== true) err(is_string($allowed) ? $allowed : '已被禁止发言，请联系管理员处理');
+    if (is_muted()) err('已被禁止发言，请联系管理员处理');
 }
 function need_admin(): void
 {
     need_login();
-    if (!can_access_admin()) err('无权限');
+    if (!can_access_admin()) err('无权限进行此操作');
 }
 function need_manage(): void
 {
     need_login();
-    if (!can_manage()) err('无权限');
+    if (!can_manage()) err('无权限进行此操作');
 }
 function need_site_access(): void
 {
-    if (!db_schema_ready()) err('请访问 index.php?a=install 进行安装', 200, 'simple', false, index_url(['a' => 'install']));
-    if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('当前用户禁止访问');
+    if (!db_schema_ready()) err('欢迎使用。请进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
+    if (!is_super_user() && me() && !can_access_admin() && (int)me()['is_banned'] === 1 && ($_GET['a'] ?? '') !== 'logout') err('已被禁止访问，请联系管理员处理');
     $a = $_GET['a'] ?? 'home';
     limit_pagination_request_pages();
     if (setting('site_closed') === '1' && !can_access_admin()) {
@@ -1468,7 +1468,7 @@ function err(string $message, int $status = 200, string $mode = 'auto', ?bool $l
     if ($mode === 'simple') {
         header('Content-Type: text/html; charset=utf-8');
         $content = $url !== '' ? '<a href="' . h($url) . '">' . h($message) . '</a>' : h($message);
-        echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错误</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
+        echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>消息</title><style>body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb;color:#222;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.box{max-width:420px;padding:28px 24px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.box a{color:#2563eb;text-decoration:none}.box a:hover{text-decoration:underline}</style></head><body><div class="box">' . $content . '</div></body></html>';
         exit;
     }
     error_page($is_not_found ? '404' : '消息', $message, $status);
@@ -2299,8 +2299,8 @@ function save_user(bool $admin = false, ?int $target_user_id = null): void
     $ip = ip_addr();
     $requested_user_id = id();
     $user_id = $admin ? $requested_user_id : ($target_user_id ?? $requested_user_id);
-    if ($admin && $user_id === 1 && !is_super_user()) err('无权限');
-    if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限');
+    if ($admin && $user_id === 1 && !is_super_user()) err('无权限进行此操作');
+    if (!$admin && $user_id > 0 && $user_id !== uid()) err('无权限进行此操作');
     if (!$admin && $target_user_id === null && (array_key_exists('id', $_GET) || array_key_exists('id', $_POST))) err('参数错误');
     if (!$admin && !$user_id && hook('security.rate_allow', true, ['ip' => $ip, 'bucket' => 'register']) === false) err('同一IP操作次数已达上限');
     $is_registration = !$admin && !$user_id;
@@ -2485,8 +2485,8 @@ function save_topic(): int
     }
     if ($topic_id) {
         $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
-        if (!can_manage_topic($t)) err('无权限');
-        if ($action !== '' && !can_manage()) err('无权限');
+        if (!can_manage_topic($t)) err('无权限进行该操作');
+        if ($action !== '' && !can_manage()) err('无权限进行该操作');
         if (in_array($action, ['delete_topic', 'delete_topic_replies'], true)) {
             del('topics', (int)$t['id'], true);
             go(route_url('home'));
@@ -2518,7 +2518,7 @@ function save_topic(): int
             go(route_url('topic', ['id' => (int)$t['id']]));
         }
         if ($action === '') {
-            if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
+            if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限进行该操作');
             if ($title === '' || $body === '') err('标题和内容不能为空');
             require_length($title, length_limit('title', 'min'), '标题');
             require_length($body, length_limit('topic_body', 'min'), '主题内容');
@@ -2534,7 +2534,7 @@ function save_topic(): int
         fire('topic.after_save', ['id' => $topic_id, 'forum_id' => $fid, 'title' => $title, 'body' => $body, 'editing' => true]);
         return $topic_id;
     }
-    if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限');
+    if (!forum_group_allowed($forum, 'allow_post_groups')) err('无权限进行该操作');
     if ($title === '' || $body === '') err('标题和内容不能为空');
     require_length($title, length_limit('title', 'min'), '标题');
     require_length($body, length_limit('topic_body', 'min'), '主题内容');
@@ -2565,7 +2565,7 @@ function save_reply(): array
     $r = null;
     if ($reply_id) {
         $r = row('app_replies', 'id', $reply_id) ?: err('回复不存在');
-        if (!can_manage_reply($r)) err('无权限');
+        if (!can_manage_reply($r)) err('无权限进行该操作');
         if (trim((string)$r['body']) === '') err('回复已删除，无法编辑');
         $tid = (int)$r['topic_id'];
     } else {
@@ -2573,7 +2573,7 @@ function save_reply(): array
     }
     $topic = row('app_topics', 'id', $tid) ?: err('主题不存在');
     $forum = forum_by_id((int)$topic['forum_id']) ?: err('版块不存在');
-    if (!forum_group_allowed($forum, 'allow_reply_groups')) err('无权限');
+    if (!forum_group_allowed($forum, 'allow_reply_groups')) err('无权限进行该操作');
     $body = post('body', length_limit('reply_body', 'max'));
     $filtered = hook('reply.before_save', ['body' => $body, 'topic_id' => $tid], ['id' => $reply_id]);
     if (is_array($filtered)) $body = cut((string)($filtered['body'] ?? $body), length_limit('reply_body', 'max'));
@@ -2610,11 +2610,11 @@ function content_delete_notify(array $row, bool $is_reply, int $topic_id = 0): v
     $author_id = (int)($row['user_id'] ?? 0);
     if ($author_id <= 0 || $author_id === uid()) return;
     if ($is_reply) {
-        create_notification($author_id, uid(), 'delete', '您的回帖已被删除。', max(0, $topic_id));
+        create_notification($author_id, uid(), 'delete', '回帖已被删除。', max(0, $topic_id));
         return;
     }
     $title = trim((string)($row['title'] ?? ''));
-    create_notification($author_id, uid(), 'delete', '您的主题《' . ($title !== '' ? $title : '#' . (int)($row['id'] ?? 0)) . '》已被删除。');
+    create_notification($author_id, uid(), 'delete', '主题《' . ($title !== '' ? $title : '#' . (int)($row['id'] ?? 0)) . '》已被删除。');
 }
 function app_topics_del_ready(): bool
 {
@@ -2704,7 +2704,7 @@ function del(string $table, int $id, bool $with_replies = false): void
         'replies' => 'app_replies',
     ];
     if (!isset($tables[$table])) err('参数错误');
-    if (in_array($table, ['users', 'groups', 'forums'], true) && !can_manage()) err('无权限');
+    if (in_array($table, ['users', 'groups', 'forums'], true) && !can_manage()) err('无权限进行该操作');
     if ($table === 'users' && $id === uid()) err('不能删除自己');
     if ($table === 'groups' && $id <= 2) err('内置用户组不能删除');
     if ($table === 'groups' && $id === (int)setting('default_group_id', '2')) err('默认用户组不能删除');
@@ -2772,7 +2772,7 @@ function login_page(): void
 function register_page(): void
 {
     if (uid()) go(consume_auth_return_url());
-    if (setting('allow_register', '1') !== '1') err('注册已关闭');
+    if (setting('allow_register', '1') !== '1') err('目前未开放注册，请联系管理员');
     if (is_post_request()) {
         if (array_key_exists('id', $_GET) || array_key_exists('id', $_POST)) err('参数错误');
         save_user(false);
@@ -2785,7 +2785,7 @@ function register_page(): void
         sidebar_notice_card_html('注册注意事项', ['邮箱信息不会公开。', '请不要使用保留用户名或冒充他人。']),
     ]);
     $form_extra = (string)hook('register.form_extra', '', []);
-    $username = '<label class="grid"><span>用户名<small>长度由后台设置控制，不能包含空白字符</small></span><input name="username" type="text"' . length_attributes('username') . ' pattern="\\S+" title="用户名不能包含空白字符" required></label>';
+    $username = '<label class="grid"><span>用户名</span><input name="username" type="text"' . length_attributes('username') . ' pattern="\\S+" title="用户名不能包含空白字符" required></label>';
     page('注册', shell_html(auth_tabs_html('register') . '<div class="form-panel auth-panel"><h2>注册</h2><form method="post" data-slot="register.form_extra">' . form_token() . $username . input('密码', 'password', '', 'password', true) . input('确认密码', 'password2', '', 'password', true) . input('邮箱', 'email', '', 'email') . $form_extra . '<button>注册</button></form></div>', $sidebar));
 }
 function profile_page(): void
@@ -2815,7 +2815,7 @@ function profile_page(): void
         $account_cards = '<div class="profile-account-grid"><div class="profile-account-card"><span>用户名</span><strong>' . h($u['username']) . '</strong></div><div class="profile-account-card"><span>用户 UID</span><strong>' . (int)$u['id'] . '</strong></div><div class="profile-account-card"><span>邮箱</span><strong title="' . h($u['email']) . '">' . h($u['email']) . '</strong></div><div class="profile-account-card"><span>注册时间</span><strong>' . date('Y-m-d H:i', (int)$u['created_at']) . '</strong></div><div class="profile-account-card"><span>积分</span><strong>' . (int)$u['points'] . '</strong></div><div class="profile-account-card profile-account-logout"><form class="post-action-form" method="post" action="' . h(route_url('logout')) . '">' . form_token() . '<button class="profile-exit-button" type="submit"><span>账号安全</span><strong>安全退出</strong></button></form></div></div>';
         $password_fields = '<div class="grid profile-disclosure" data-profile-disclosure><div><div class="profile-disclosure-summary"><span class="profile-disclosure-heading"><span>密码</span><small>不修改密码</small></span><button class="profile-edit-action" type="button" data-profile-toggle aria-expanded="false">修改</button></div><div class="profile-disclosure-detail is-hidden" data-profile-edit>' . input('新密码', 'password', '', 'password') . input('确认密码', 'password2', '', 'password') . '</div></div></div>';
         $profile_extra = (string)hook('profile.after_form', '', ['user' => $u]);
-        $body .= '<div class="form-panel" data-slot="profile.after_form">' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>保存</button></form>' . $profile_extra . '</div>';
+        $body .= '<div class="form-panel" data-slot="profile.after_form">' . $account_cards . '<form method="post">' . form_token() . avatar_picker_html($u) . textarea('简介', 'bio', $u['bio']) . $password_fields . '<button>提交</button></form>' . $profile_extra . '</div>';
     } else {
         $tab_content = (string)hook('profile.settings_tab_content', '', ['user' => $u, 'tab' => $profile_tab, 'tabs' => $profile_tabs]);
         $body .= '<div data-slot="profile.settings_tab_content">' . $tab_content . '</div>';
@@ -2831,7 +2831,7 @@ function user_page(): void
             ? one("SELECT id,username,bio,avatar_style,avatar_seed,group_id,points,is_banned,is_muted FROM app_users WHERE username=?", [$username])
             : row('app_users', 'id', id());
     }
-    $user = $user ?: err('你访问的页面不存在', 404);
+    $user = $user ?: err('访问的页面不存在', 404);
     $g = group_by_id((int)$user['group_id']) ?: ['name' => '用户'];
     $user['group_name'] = $g['name'];
     $tab = $_GET['tab'] ?? 'topics';
@@ -3061,8 +3061,8 @@ function home_page(): void
 function forum_page(): void
 {
     $fid = id();
-    $f = forum_by_id($fid) ?: err('你访问的页面不存在', 404);
-    if (!forum_group_allowed($f, 'allow_view_groups')) err('无权限');
+    $f = forum_by_id($fid) ?: err('访问的页面不存在', 404);
+    if (!forum_group_allowed($f, 'allow_view_groups')) err('无权限进行此操作');
     topic_index_page($f);
 }
 function topic_page_replies(array $topic, int $page, int $size, int $offset, bool $reply_desc): array
@@ -3118,12 +3118,12 @@ function topic_page_template(array $view): string
 function topic_page(): void
 {
     if (!id() && id('replyid')) {
-        $reply = row('app_replies', 'id', id('replyid')) ?: err('你访问的帖子可能已经删除', 404);
+        $reply = row('app_replies', 'id', id('replyid')) ?: err('访问的帖子可能已经删除', 404);
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
-    $t = row('app_topics', 'id', id()) ?: err('你访问的帖子可能已经删除', 404);
+    $t = row('app_topics', 'id', id()) ?: err('访问的帖子可能已经删除', 404);
     $forum = forum_by_id((int)$t['forum_id']);
-    if ($forum && !forum_group_allowed($forum, 'allow_view_groups')) err('无权限');
+    if ($forum && !forum_group_allowed($forum, 'allow_view_groups')) err('无权限进行此操作');
     if (mark_viewed((int)$t['id'])) {
         q("UPDATE app_topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;
@@ -3147,7 +3147,7 @@ function topic_page(): void
             $anchor_pos = floor_live_position((int)$t['id'], reply_position_floor((int)$t['id'], (int)$reply['created_at'], $replyid));
             $_GET['p'] = (string)max(1, $reply_desc ? (int)(((int)$t['reply_count'] - $anchor_pos) / $size) + 1 : (int)(($anchor_pos - 1) / $size) + 1);
         } else {
-            err('你访问的帖子可能已经删除', 404);
+            err('访问的帖子可能已经删除', 404);
         }
     }
     $p = max(1, (int)($_GET['p'] ?? 1));
@@ -3175,7 +3175,7 @@ function topic_edit_page(): void
     $t = ['id' => 0, 'forum_id' => id('fid') ?: default_post_forum_id(), 'title' => '', 'body' => '', 'user_id' => uid()];
     if ($editing) {
         $t = row('app_topics', 'id', $topic_id) ?: err('主题不存在');
-        if (!can_manage_topic($t)) err('无权限');
+        if (!can_manage_topic($t)) err('无权限进行此操作');
     }
     if (is_post_request()) go(route_url('topic', ['id' => save_topic()]));
     $title = $editing ? '编辑主题' : '发表主题';
@@ -3210,9 +3210,9 @@ function reply_edit_page(): void
     $r = ['id' => 0, 'topic_id' => id('topic_id'), 'body' => '', 'user_id' => uid()];
     if ($editing) {
         $r = row('app_replies', 'id', $reply_id) ?: err('回复不存在');
-        if (!can_manage_reply($r)) err('无权限');
+        if (!can_manage_reply($r)) err('无权限进行此操作');
         if (is_post_request() && ($_POST['do'] ?? '') === 'mute_author') {
-            if (!can_manage()) err('无权限');
+            if (!can_manage()) err('无权限进行此操作');
             if ((int)$r['user_id'] === 1) err('不能操作超级管理员');
             q("UPDATE app_users SET is_muted=1 WHERE id=?", [(int)$r['user_id']]);
             go(route_url('topic', ['id' => (int)$r['topic_id'], 'replyid' => (int)$r['id']]));
@@ -3272,7 +3272,7 @@ function admin_plugins_html(): string
     if ($view === 'market') return Plugin::plugin_market_page_html();
     if ($view === 'cron') return Plugin::admin_plugins_cron_logs_page_html();
     $html = hook('admin.plugins.view', null, ['view' => $view, 'with_tabs' => true]);
-    if (!is_string($html)) err('你访问的页面不存在', 404);
+    if (!is_string($html)) err('访问的页面不存在', 404);
     return $html;
 }
 function robots_page(): void
@@ -3305,7 +3305,7 @@ function delete_route(): void
     $type = (string)($_POST['type'] ?? '');
     $row = Admin::deletable_post_row($type, id());
     if (!$row || !in_array($type, ['topics', 'replies'], true)) err('参数错误');
-    if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限');
+    if (($type === 'topics' && !can_manage_topic($row)) || ($type === 'replies' && !can_manage_reply($row))) err('无权限进行此操作');
     del($type, id());
     if ((string)($_POST['back'] ?? '') === 'topic') go(route_url('topic', ['id' => (int)($_POST['tid'] ?? 0)]));
     go(route_url('home'));
@@ -3358,7 +3358,7 @@ if ($setup_action === 'install') {
 if ($setup_action === 'update') {
     Setup::setup_update_run();
 }
-if (!db_schema_ready()) err('欢迎使用，请先进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
+if (!db_schema_ready()) err('欢迎使用。请进行数据初始化安装', 200, 'simple', false, index_url(['a' => 'install']));
 $plugin_assets_changed = false;
 $plugin_assets_full = false;
 $plugin_assets_ids = [];
@@ -3402,12 +3402,12 @@ need_site_access();
 fire('app.boot');
 try {
     if (($_GET['__route_not_found'] ?? '') === '1') {
-        err(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '你访问的帖子可能已经删除' : '你访问的页面不存在', 404);
+        err(($_GET['__route_not_found_kind'] ?? '') === 'topic' ? '访问的帖子可能已经删除' : '访问的页面不存在', 404);
     }
     $route = (string)($_GET['a'] ?? 'home');
     $handler = core_routes()[$route] ?? null;
     if ($handler !== null) $handler();
-    elseif (!plugin_route($route)) err('你访问的页面不存在', 404);
+    elseif (!plugin_route($route)) err('访问的页面不存在', 404);
 } catch (Throwable $e) {
     debug_log_write('未捕获异常', $e);
     if (uid() === 1) {

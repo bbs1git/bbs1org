@@ -17,3 +17,4 @@ app-client/*
 /scripts/
 .venv*
 .qoder
+.claude
