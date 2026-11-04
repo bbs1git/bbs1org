@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace app\optional;
@@ -15,13 +16,20 @@ final class Admin
     public static function clear_opcache_cache(): bool
     {
         if (!function_exists('opcache_reset')) return false;
-        try { return (bool)opcache_reset(); } catch (\Throwable) { return false; }
+        try {
+            return (bool)opcache_reset();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public static function opcache_refresh_route(): void
     {
         $lock_file = DATA_DIR . '/opcache-refresh.lock';
-        if (!is_file($lock_file) || !self::clear_opcache_cache()) { http_response_code(403); exit('failed'); }
+        if (!is_file($lock_file) || !self::clear_opcache_cache()) {
+            http_response_code(403);
+            exit('failed');
+        }
         @unlink($lock_file);
         exit('ok');
     }
@@ -38,9 +46,12 @@ final class Admin
         foreach (['site_closed', 'debug_mode', 'ignore_ssl_errors', 'pretty_url', 'allow_register'] as $key) $values[$key] = isset($_POST[$key]) ? '1' : '0';
         foreach (['pc_nav_forum_count' => [0, 20, 6], 'topics_per_page' => [1, 200, 30], 'replies_per_page' => [1, 200, 50], 'max_pagination_pages' => [1, 1000, 50], 'post_interval_seconds' => [0, 3600, 5]] as $key => [$min, $max, $default]) $values[$key] = (string)min($max, max($min, (int)($_POST[$key] ?? $default)));
         $length_fields = [
-            'username' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH], 'email' => [0, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
-            'bio' => [0, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH], 'search' => [2, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
-            'title' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH], 'topic_body' => [1, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
+            'username' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'email' => [0, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'bio' => [0, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
+            'search' => [2, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'title' => [1, DB_STRING_MAX_LENGTH, DB_STRING_MAX_LENGTH],
+            'topic_body' => [1, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
             'reply_body' => [1, DB_TEXT_MAX_LENGTH, DB_TEXT_MAX_LENGTH],
         ];
         foreach ($length_fields as $key => [$default_min, $default_max, $hard_max]) {
@@ -137,20 +148,35 @@ final class Admin
             'site_name' => ['label' => '网站名', 'required' => true],
             'site_name_title' => ['label' => '网站名title', 'help' => '为空时使用网站名。'],
             'site_base_url' => ['label' => '网站固定地址', 'type' => 'url', 'help' => '填写以 https:// 开头的网站域名。'],
-            'site_keywords' => ['label' => '关键字'], 'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
-            'pinned_topic_ids' => ['label' => '置顶主题ID'], 'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
-            'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200], 'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+            'site_keywords' => ['label' => '关键字'],
+            'site_description' => ['label' => '网站介绍', 'type' => 'textarea'],
+            'pinned_topic_ids' => ['label' => '置顶主题ID'],
+            'pc_nav_forum_count' => ['label' => 'PC顶部版块数量', 'type' => 'number', 'min' => 0, 'max' => 20, 'help' => 'PC端顶部默认展示的版块数量，默认6个；设为0仅显示“全部版块”。'],
+            'topics_per_page' => ['label' => '列表单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
+            'replies_per_page' => ['label' => '回帖单页数量', 'type' => 'number', 'min' => 1, 'max' => 200],
             'max_pagination_pages' => ['label' => '最大分页数', 'type' => 'number', 'min' => 1, 'max' => 1000, 'help' => '限制除主题回帖外的所有分页，默认50。'],
-            'username_min_length' => ['label' => '用户名最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'username_max_length' => ['label' => '用户名最大长度', 'type' => 'number', 'min' => 1, 'max' => DB_STRING_MAX_LENGTH],
-            'email_min_length' => ['label' => '邮箱最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'email_max_length' => ['label' => '邮箱最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
-            'bio_min_length' => ['label' => '个人简介最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'bio_max_length' => ['label' => '个人简介最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
-            'search_min_length' => ['label' => '搜索关键词最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'search_max_length' => ['label' => '搜索关键词最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
-            'title_min_length' => ['label' => '标题最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH], 'title_max_length' => ['label' => '标题最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
-            'topic_body_min_length' => ['label' => '主题内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'topic_body_max_length' => ['label' => '主题内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
-            'reply_body_min_length' => ['label' => '回帖内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH], 'reply_body_max_length' => ['label' => '回帖内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'username_min_length' => ['label' => '用户名最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'username_max_length' => ['label' => '用户名最大长度', 'type' => 'number', 'min' => 1, 'max' => DB_STRING_MAX_LENGTH],
+            'email_min_length' => ['label' => '邮箱最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'email_max_length' => ['label' => '邮箱最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'bio_min_length' => ['label' => '个人简介最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'bio_max_length' => ['label' => '个人简介最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'search_min_length' => ['label' => '搜索关键词最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'search_max_length' => ['label' => '搜索关键词最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'title_min_length' => ['label' => '标题最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'title_max_length' => ['label' => '标题最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_STRING_MAX_LENGTH],
+            'topic_body_min_length' => ['label' => '主题内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'topic_body_max_length' => ['label' => '主题内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'reply_body_min_length' => ['label' => '回帖内容最小长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
+            'reply_body_max_length' => ['label' => '回帖内容最大长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
             'excerpt_length' => ['label' => '摘要长度', 'type' => 'number', 'min' => 0, 'max' => DB_TEXT_MAX_LENGTH],
-            'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'], 'site_closed' => ['label' => '是否关闭站点进行维护', 'type' => 'checkbox'], 'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
-            'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'], 'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'], 'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')], 'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
+            'pretty_url' => ['label' => '是否开启rewrite', 'type' => 'checkbox'],
+            'site_closed' => ['label' => '是否关闭站点进行维护', 'type' => 'checkbox'],
+            'debug_mode' => ['label' => 'Debug模式', 'type' => 'checkbox'],
+            'ignore_ssl_errors' => ['label' => '忽略 SSL 证书错误', 'type' => 'checkbox', 'help' => '警示篡改风险'],
+            'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
+            'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
+            'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
         ];
         $tools = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
         if ((string)($settings['debug_mode'] ?? '0') === '1') $tools .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
@@ -176,7 +202,10 @@ final class Admin
         $html = '<table class="list admin-bulk-list"><tr><th>名称</th><th>排序</th><th>权限</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => 0])) . '">添加</a></th></tr>';
         foreach (forums_cache() as $forum) {
             $permissions = [];
-            foreach (['allow_view_groups' => '浏览', 'allow_post_groups' => '发帖', 'allow_reply_groups' => '回帖'] as $field => $label) { $count = count(forum_group_ids($forum, $field)); $permissions[] = $label . ':' . ($count ? $count . '组' : '不限'); }
+            foreach (['allow_view_groups' => '浏览', 'allow_post_groups' => '发帖', 'allow_reply_groups' => '回帖'] as $field => $label) {
+                $count = count(forum_group_ids($forum, $field));
+                $permissions[] = $label . ':' . ($count ? $count . '组' : '不限');
+            }
             $html .= '<tr><td><strong class="admin-name">' . h($forum['name']) . '</strong></td><td><span class="admin-group-pill">' . (int)$forum['sort'] . '</span></td><td>' . h(implode(' / ', $permissions)) . '</td><td class="ops"><a href="' . h(admin_url(['do' => 'edit', 'type' => 'forum', 'id' => (int)$forum['id']])) . '">编辑</a>' . post_action_form(admin_url(['do' => 'delete']), '删除', ['type' => 'forums', 'id' => (int)$forum['id'], 'tab' => 'forums'], 'danger', '确定删除？') . '</td></tr>';
         }
         return $html . '</table>';
@@ -186,11 +215,21 @@ final class Admin
     {
         need_admin();
         $tab = (string)($_GET['tab'] ?? 'settings');
-        if ($tab === 'settings' && (string)($_GET['debug_log'] ?? '') === 'view') { header('Content-Type: text/plain; charset=utf-8'); echo is_file(DEBUG_LOG_FILE) ? (string)file_get_contents(DEBUG_LOG_FILE) : ''; exit; }
+        if ($tab === 'settings' && (string)($_GET['debug_log'] ?? '') === 'view') {
+            header('Content-Type: text/plain; charset=utf-8');
+            echo is_file(DEBUG_LOG_FILE) ? (string)file_get_contents(DEBUG_LOG_FILE) : '';
+            exit;
+        }
         if ($tab === 'plugins' && is_post_request()) Plugin::admin_plugins_handle_post();
         if ($tab === 'plugins' && (string)($_GET['plugin_action'] ?? '') === 'enable_uploaded') Plugin::plugin_enable_uploaded_page();
         if ($tab === 'settings' && is_post_request()) self::settings_handle_post();
-        $html = match ($tab) { 'settings' => self::settings_html(), 'groups' => self::groups_html(), 'forums' => self::forums_html(), 'plugins' => admin_plugins_html(), default => Plugin::admin_plugin_tab_html($tab) };
+        $html = match ($tab) {
+            'settings' => self::settings_html(),
+            'groups' => self::groups_html(),
+            'forums' => self::forums_html(),
+            'plugins' => admin_plugins_html(),
+            default => Plugin::admin_plugin_tab_html($tab)
+        };
         if ($html === null) err('你访问的页面不存在', 404);
         page('后台', self::layout($tab, $html));
     }
@@ -199,10 +238,22 @@ final class Admin
     {
         need_admin();
         $type = $_GET['type'] ?? $_POST['type'] ?? '';
-        if (is_post_request()) { if ($type === 'group') self::save_group(); elseif ($type === 'forum') self::save_forum(); else err('参数错误'); go(admin_url(['tab' => $type . 's'])); }
-        if ($type === 'group') { $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0]; $tab = 'groups'; $body = input('名称', 'name', $g['name'], 'text', true) . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0)); }
-        elseif ($type === 'forum') { $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => '']; if (!$f) err('版块不存在'); $tab = 'forums'; $body = input('名称', 'name', $f['name'], 'text', true) . number_input('排序', 'sort', $f['sort']) . textarea('描述', 'description', $f['description']) . self::forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . self::forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . self::forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组'); }
-        else err('参数错误');
+        if (is_post_request()) {
+            if ($type === 'group') self::save_group();
+            elseif ($type === 'forum') self::save_forum();
+            else err('参数错误');
+            go(admin_url(['tab' => $type . 's']));
+        }
+        if ($type === 'group') {
+            $g = id() ? (group_by_id(id()) ?: err('用户组不存在')) : ['id' => 0, 'name' => '', 'allow_manage' => 0, 'allow_admin' => 0];
+            $tab = 'groups';
+            $body = input('名称', 'name', $g['name'], 'text', true) . checkbox('允许用户和内容管理', 'allow_manage', (bool)(int)($g['allow_manage'] ?? 0)) . checkbox('允许后台管理', 'allow_admin', (bool)(int)($g['allow_admin'] ?? 0));
+        } elseif ($type === 'forum') {
+            $f = id() ? forum_by_id(id()) : ['id' => 0, 'name' => '', 'description' => '', 'sort' => 0, 'allow_view_groups' => '', 'allow_post_groups' => '', 'allow_reply_groups' => ''];
+            if (!$f) err('版块不存在');
+            $tab = 'forums';
+            $body = input('名称', 'name', $f['name'], 'text', true) . number_input('排序', 'sort', $f['sort']) . textarea('描述', 'description', $f['description']) . self::forum_group_select_options($f, 'allow_view_groups', '允许浏览用户组') . self::forum_group_select_options($f, 'allow_post_groups', '允许发帖用户组') . self::forum_group_select_options($f, 'allow_reply_groups', '允许回帖用户组');
+        } else err('参数错误');
         $is_new = id() === 0;
         $label = $type === 'group' ? '用户组' : '版块';
         $title = ($is_new ? '添加' : '编辑') . $label;
@@ -215,10 +266,17 @@ final class Admin
     public static function route(): void
     {
         $do = (string)($_GET['do'] ?? '');
-        if ($do === 'edit') { self::edit_page(); return; }
-        if ($do === '') { self::page(); return; }
+        if ($do === 'edit') {
+            self::edit_page();
+            return;
+        }
+        if ($do === '') {
+            self::page();
+            return;
+        }
         if ($do !== 'delete') err('你访问的页面不存在', 404);
-        require_post(); need_admin();
+        require_post();
+        need_admin();
         $type = ['group' => 'groups', 'groups' => 'groups', 'forum' => 'forums', 'forums' => 'forums'][$_POST['type'] ?? ''] ?? '';
         if (!in_array($type, ['groups', 'forums'], true)) err('参数错误');
         if (!self::can_delete($type, id())) err('无权限');

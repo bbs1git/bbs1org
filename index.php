@@ -1,10 +1,13 @@
 <?php
+
 declare(strict_types=1);
+
 use app\optional\Cron;
 use app\optional\Admin;
 use app\optional\Plugin;
 use app\optional\Search;
 use app\optional\Setup;
+
 ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 date_default_timezone_set('Asia/Shanghai');
@@ -122,7 +125,9 @@ function app_db_columns(PDO $db, string $driver, string $table): array
     if ($driver === 'sqlite') $rows = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll();
     else {
         $sql = 'SELECT column_name FROM information_schema.columns WHERE table_schema=' . ($driver === 'mysql' ? 'DATABASE()' : 'current_schema()') . ' AND table_name=?';
-        $stmt = $db->prepare($sql); $stmt->execute([$table]); $rows = $stmt->fetchAll();
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$table]);
+        $rows = $stmt->fetchAll();
     }
     $columns = [];
     foreach ($rows as $row) {
@@ -139,7 +144,9 @@ function app_db_table_exists(PDO $db, string $driver, string $table): bool
         'pgsql' => 'SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=?',
         default => "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
     };
-    $stmt = $db->prepare($sql); $stmt->execute([$table]); return (bool)$stmt->fetchColumn();
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$table]);
+    return (bool)$stmt->fetchColumn();
 }
 function app_db_index_exists(PDO $db, string $driver, string $index, string $table = ''): bool
 {
@@ -148,7 +155,9 @@ function app_db_index_exists(PDO $db, string $driver, string $index, string $tab
         'pgsql' => 'SELECT 1 FROM pg_indexes WHERE schemaname=current_schema() AND indexname=?' . ($table !== '' ? ' AND tablename=?' : ''),
         default => "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?" . ($table !== '' ? ' AND tbl_name=?' : ''),
     };
-    $stmt = $db->prepare($sql); $stmt->execute($table !== '' ? [$index, $table] : [$index]); return (bool)$stmt->fetchColumn();
+    $stmt = $db->prepare($sql);
+    $stmt->execute($table !== '' ? [$index, $table] : [$index]);
+    return (bool)$stmt->fetchColumn();
 }
 function app_db_upsert_sql(string $driver, string $table, array $columns, array $keys): string
 {
@@ -249,7 +258,10 @@ function db_config(): array
     static $config;
     return $config ??= app_db_config(DB_CONFIG_FILE, DATA_DIR);
 }
-function db_driver(): string { return (string)db_config()['driver']; }
+function db_driver(): string
+{
+    return (string)db_config()['driver'];
+}
 function db(bool $reconnect = false): PDO
 {
     static $db;
@@ -285,7 +297,7 @@ function db_row_cache_clear(): void
 }
 function row(string $table, string $key, mixed $value): ?array
 {
-    $cache =& $GLOBALS['__db_row_cache'];
+    $cache = &$GLOBALS['__db_row_cache'];
     if (!is_array($cache)) $cache = [];
     $cache_key = $table . "\0" . $key . "\0" . serialize($value);
     if (!array_key_exists($cache_key, $cache)) {
@@ -348,7 +360,10 @@ function tx(callable $fn): mixed
         return $result;
     } catch (Throwable $e) {
         if ($sqlite) {
-            try { $db->exec('ROLLBACK'); } catch (Throwable) {}
+            try {
+                $db->exec('ROLLBACK');
+            } catch (Throwable) {
+            }
         } elseif ($db->inTransaction()) $db->rollBack();
         db_row_cache_clear();
         throw $e;
@@ -459,13 +474,20 @@ function default_settings(): array
         'topics_per_page' => '30',
         'replies_per_page' => '50',
         'max_pagination_pages' => '50',
-        'username_min_length' => '2', 'username_max_length' => '20',
-        'email_min_length' => '7', 'email_max_length' => '150',
-        'bio_min_length' => '0', 'bio_max_length' => '10000',
-        'search_min_length' => '2', 'search_max_length' => '80',
-        'title_min_length' => '1', 'title_max_length' => (string)DB_STRING_MAX_LENGTH,
-        'topic_body_min_length' => '1', 'topic_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
-        'reply_body_min_length' => '1', 'reply_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
+        'username_min_length' => '2',
+        'username_max_length' => '20',
+        'email_min_length' => '7',
+        'email_max_length' => '150',
+        'bio_min_length' => '0',
+        'bio_max_length' => '10000',
+        'search_min_length' => '2',
+        'search_max_length' => '80',
+        'title_min_length' => '1',
+        'title_max_length' => (string)DB_STRING_MAX_LENGTH,
+        'topic_body_min_length' => '1',
+        'topic_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
+        'reply_body_min_length' => '1',
+        'reply_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
         'excerpt_length' => '200',
         'post_interval_seconds' => '5',
     ];
@@ -487,7 +509,10 @@ function length_limit(string $type, string $bound): int
     if ($bound === 'max') $value = max($value, min($hard_max, max(0, (int)setting($type . '_min_length', '0'))));
     return $value;
 }
-function excerpt_length(): int { return length_limit('excerpt', 'value'); }
+function excerpt_length(): int
+{
+    return length_limit('excerpt', 'value');
+}
 function require_length(string $value, int $minimum, string $label): void
 {
     if ($minimum > 0 && preg_match_all('/./us', $value) < $minimum) err($label . '至少' . $minimum . '个字符');
@@ -730,29 +755,13 @@ function set_pinned_topic(int $tid, bool $pin): void
     $ids = $pin ? array_values(array_unique(array_merge([$tid], $ids))) : array_values(array_diff($ids, [$tid]));
     save_settings_values(['pinned_topic_ids' => implode(',', $ids)]);
 }
-function clean_ip(string $value): string
+function clean_ip(string $v): string
 {
-    $value = trim($value, " \t\n\r\0\x0B\"'");
-    if ($value === '') return '';
-    if (in_array(strtolower($value), ['unknown', 'null', 'undefined'], true)) return '';
-    if (($p = strpos($value, ';')) !== false) $value = substr($value, 0, $p);
-    if (stripos($value, 'for=') === 0) $value = substr($value, 4);
-    $value = trim($value, " \t\n\r\0\x0B\"'");
-    if (str_starts_with($value, '[')) {
-        $end = strpos($value, ']');
-        if ($end === false) return '';
-        $port = substr($value, $end + 1);
-        if ($port !== '' && !preg_match('/^:\d+$/D', $port)) return '';
-        $value = substr($value, 1, $end - 1);
-    } elseif (substr_count($value, ':') === 1) {
-        [$host, $port] = explode(':', $value, 2);
-        if ($port !== '' && ctype_digit($port)) $value = $host;
-    }
-    if (($p = strpos($value, '%')) !== false) $value = substr($value, 0, $p);
-    $packed = inet_pton($value);
-    if ($packed === false) return '';
-    $normalized = inet_ntop($packed);
-    return is_string($normalized) ? strtolower($normalized) : '';
+    $v = trim(explode(';', $v)[0], " \t\n\r\0\x0B\"'");
+    $v = preg_replace('/^for=["\']?/i', '', $v);
+    $v = preg_replace('/^\[(.+)](?::\d+)?$|^([^:]+):\d+$/', '$1$2', $v);
+    $v = explode('%', $v)[0];
+    return filter_var($v, FILTER_VALIDATE_IP) ? strtolower(inet_ntop(inet_pton($v))) : '';
 }
 function ip_addr(): string
 {
@@ -1031,7 +1040,11 @@ function notification_row_html(array $n): string
             }
         }
     }
-    $kind = match ((string)($n['kind'] ?? '')) { 'mention' => '提及', 'sent' => '已发出', default => '通知' };
+    $kind = match ((string)($n['kind'] ?? '')) {
+        'mention' => '提及',
+        'sent' => '已发出',
+        default => '通知'
+    };
     $unread = (int)($n['read_at'] ?? 0) === 0;
     $quote = notification_excerpt($body);
     $action = (string)($n['kind'] ?? '') === 'direct' && $sender_id > 0 ? '<a class="post-tag post-forum-badge notification-reply-action" href="' . h(route_url('notify', ['id' => $sender_id, 'quote' => $quote])) . '" onclick="openNotify(this.href);return false">回复TA</a>' : '';
@@ -2204,9 +2217,12 @@ function form_field_caption(string $label, string $help = ''): string
 function length_attributes(string $name): string
 {
     $limits = match ($name) {
-        'username' => [length_limit('username', 'min'), length_limit('username', 'max')], 'email' => [length_limit('email', 'min'), length_limit('email', 'max')],
-        'bio' => [length_limit('bio', 'min'), length_limit('bio', 'max')], 'q' => [length_limit('search', 'min'), length_limit('search', 'max')],
-        'title' => [length_limit('title', 'min'), length_limit('title', 'max')], 'content' => [0, DB_TEXT_MAX_LENGTH],
+        'username' => [length_limit('username', 'min'), length_limit('username', 'max')],
+        'email' => [length_limit('email', 'min'), length_limit('email', 'max')],
+        'bio' => [length_limit('bio', 'min'), length_limit('bio', 'max')],
+        'q' => [length_limit('search', 'min'), length_limit('search', 'max')],
+        'title' => [length_limit('title', 'min'), length_limit('title', 'max')],
+        'content' => [0, DB_TEXT_MAX_LENGTH],
         'body' => [min(length_limit('topic_body', 'min'), length_limit('reply_body', 'min')), max(length_limit('topic_body', 'max'), length_limit('reply_body', 'max'))],
         default => [null, null],
     };
@@ -3301,7 +3317,8 @@ function logout_route(): void
 }
 function delete_route(): void
 {
-    require_post(); need_login();
+    require_post();
+    need_login();
     $type = (string)($_POST['type'] ?? '');
     $row = Admin::deletable_post_row($type, id());
     if (!$row || !in_array($type, ['topics', 'replies'], true)) err('参数错误');
