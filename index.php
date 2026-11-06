@@ -3126,7 +3126,7 @@ function topic_page_template(array $view): string
     } elseif (!uid()) $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">登录后回复</a></div>';
     elseif (!$can_reply_forum) $main .= '<div class="reply-login-box disabled">当前用户组无回帖权限</div>';
     else $main .= '<div class="reply-login-box disabled">当前用户禁止发言</div>';
-    $html = shell_html($main . '</div>', sidebar_stack_html([sidebar_user_card_html(null, true)]));
+    $html = shell_html($main . '</div>', sidebar_stack_html([sidebar_user_card_html(null, true)], ['route' => 'topic', 'topic_id' => (int)$t['id'], 'forum_id' => (int)$forum['id'], 'topic' => $t]));
     return (string)hook('topic.template', $html, $view);
 }
 function topic_page(): void
