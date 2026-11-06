@@ -310,10 +310,8 @@ function row(string $table, string $key, mixed $value): ?array
 function q(string $sql, array $p = []): PDOStatement
 {
     static $record = null;
-    if ($record === null) {
-        $record = false;
-        $record = debug_mode_enabled();
-    }
+    if ($record === null && isset($GLOBALS['__settings_cache'])) $record = debug_mode_enabled();
+    $debug = (bool)($record ?? false);
     $read = strncasecmp(ltrim($sql), 'SELECT', 6) === 0;
     if (!$read) db_row_cache_clear();
     sql_query_count(true);
@@ -333,7 +331,7 @@ function q(string $sql, array $p = []): PDOStatement
         $s = db(true)->prepare($sql);
         $s->execute($p);
     }
-    if ($record) $GLOBALS['__sql_queries'][] = [$sql, $p];
+    if ($debug) $GLOBALS['__sql_queries'][] = [$sql, $p];
     return $s;
 }
 function one(string $sql, array $p = []): ?array

@@ -1048,7 +1048,7 @@ final class Plugin
         $entry_html = '';
         if ($active === 'local') {
             $entries = [];
-            foreach (($plugins ?? self::plugin_registry()) as $plugin) {
+            foreach (($plugins ?? self::plugins()) as $plugin) {
                 $url = self::admin_plugin_manage_url($plugin);
                 if ($url !== '') $entries[] = '<a href="' . h($url) . '">' . h((string)($plugin['name'] ?? $plugin['id'])) . '</a>';
             }
