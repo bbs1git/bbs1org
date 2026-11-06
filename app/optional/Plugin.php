@@ -744,8 +744,19 @@ final class Plugin
         self::plugin_market_install($plugin_id, $topic_id, $auto_enable, $market_view, $authorization_code);
         $message = $auto_enable ? '插件已安装或更新并启用。' : '插件已安装或更新，已停用。';
         if (ajax_request()) {
+            $card = '';
+            $market = self::plugin_market_fetch(false, false, '', 0, $market_view);
+            $item = is_array($market['plugins'][$plugin_id] ?? null) ? $market['plugins'][$plugin_id] : null;
+            if ($item) {
+                $local = self::plugin_registry(null, true);
+                $needs_update = isset($local[$plugin_id]) && self::plugin_market_update_available($local[$plugin_id], $item);
+                $card = self::admin_plugin_market_card_html($item, $needs_update, $market_view, $local);
+            }
+            $payload = ['ok' => 1, 'message' => $message];
+            if ($card !== '') $payload['card'] = $card;
+            else $payload['refresh'] = 1;
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1, 'redirect' => admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $return_view])], JSON_UNESCAPED_UNICODE);
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE);
             exit;
         }
         set_flash($message);
@@ -884,43 +895,7 @@ final class Plugin
         if (!(int)($market['ok'] ?? 0)) return $html . '<li class="empty-state">' . h((string)($market['message'] ?? '插件市场暂不可用')) . '</li></ul></div>';
         foreach ($items as $item) {
             $id = (string)($item['id'] ?? '');
-            $installed = isset($local[$id]);
-            $needs_update = isset($updates[$id]);
-            $price_points = max(0, (int)($item['price_points'] ?? 0));
-            $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
-            $paid = $price_points > 0;
-            $item_market_view = self::plugin_market_view((string)($item['market_status'] ?? 'certified'));
-            $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
-            $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
-            $topic_url = (string)($item['url'] ?? '');
-            if ($paid) {
-                $online_label = $installed ? ($needs_update ? '在线更新' : '在线重装') : '在线安装';
-                $online_form = '<form class="post-action-form plugin-market-online-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => ($market_view === 'required' ? 'required' : $item_market_view), 'authorization_required' => '1']) . '<button type="submit" class="plugin-enable" data-loading-text="准备中">' . h($online_label) . '</button></form>';
-                $ops = $online_form;
-            } elseif ($online_install) {
-                $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => ($market_view === 'required' ? 'required' : $item_market_view)]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
-            } else {
-                $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">下载</a>' : '';
-            }
-            if ($topic_url !== '') $ops .= '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">插件主题</a>';
-            $meta = [];
-            if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
-            $creator = trim((string)($item['creator'] ?? ''));
-            $meta[] = '插件制作者 ' . ($creator !== '' ? $creator : '未声明');
-            if (!$paid) $meta[] = '免费';
-            if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
-            $title = h((string)($item['name'] ?? $id));
-            $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
-            $ondemand = self::plugin_assets_ondemand_any(['assets_mode' => $item['assets_mode'] ?? '']) || ($installed && self::plugin_assets_ondemand_any($local[$id] ?? []));
-            $ondemand_mark = $ondemand ? self::plugin_ondemand_mark_html() : '';
-            $status = [];
-            if ($item_market_view === 'certified') $status[] = '站长认证';
-            if (!empty($item['required'])) $status[] = '必装';
-            $status[] = $installed ? ($needs_update ? '可更新' : '已安装') : '未安装';
-            $price_tag = $paid ? '<span class="plugin-market-price">' . $price_points . ' 积分</span>' : '';
-            $required_stamp = !empty($item['required']) ? '<span class="plugin-required-stamp" aria-hidden="true">必装</span>' : '';
-            $class = ' plugin-market-entry' . ($needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available')) . ($required_stamp !== '' ? ' plugin-has-required' : '');
-            $html .= '<li class="admin-list-item admin-object-row plugin-item' . $class . '">' . $required_stamp . '<div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . $price_tag . '</div><div class="admin-inline-ops plugin-ops">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $status)) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div>' . self::plugin_desc_html((string)($item['description'] ?? '')) . '<div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div></div></li>';
+            $html .= self::admin_plugin_market_card_html($item, isset($updates[$id]), $market_view, $local);
         }
         if (!$items) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : ($market_view === 'beta' ? '暂无待审核或忽略的插件。' : ($market_view === 'required' ? '暂无必装插件。' : '暂无已审核通过的插件。'))) . '</li>';
         $html .= '</ul></div>';
@@ -928,12 +903,57 @@ final class Plugin
         return $html . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     }
 
-    public static function plugin_market_admin_actions(array $plugin): string
+    public static function admin_plugin_market_card_html(array $item, bool $needs_update, string $market_view, array $local): string
+    {
+        $id = (string)($item['id'] ?? '');
+        $installed = isset($local[$id]);
+        $price_points = max(0, (int)($item['price_points'] ?? 0));
+        $online_install = !array_key_exists('online_install', $item) ? $price_points === 0 : !empty($item['online_install']);
+        $paid = $price_points > 0;
+        $item_market_view = self::plugin_market_view((string)($item['market_status'] ?? 'certified'));
+        $label = $installed ? ($needs_update ? '更新' : '重新安装') : '安装';
+        $button_class = $installed && !$needs_update ? '' : 'plugin-enable';
+        $topic_url = (string)($item['url'] ?? '');
+        if ($paid) {
+            $online_label = $installed ? ($needs_update ? '在线更新' : '在线重装') : '在线安装';
+            $online_form = '<form class="post-action-form plugin-market-online-install-form" method="post" action="' . h(route_url('plugin_market_install')) . '">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => ($market_view === 'required' ? 'required' : $item_market_view), 'authorization_required' => '1']) . '<button type="submit" class="plugin-enable" data-loading-text="准备中">' . h($online_label) . '</button></form>';
+            $ops = $online_form;
+        } elseif ($online_install) {
+            $ops = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_install')) . '" data-replace-target=".plugin-list-panel" data-plugin-market-install="1" data-plugin-market-action="' . h($label) . '" data-confirm="确定' . h($label) . '该插件？插件代码将写入本地 plugins 目录。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'topic_id' => (int)($item['topic_id'] ?? 0), 'auto_enable' => '1', 'market_view' => ($market_view === 'required' ? 'required' : $item_market_view)]) . '<button type="submit" data-loading-text="安装中"' . ($button_class !== '' ? ' class="' . h($button_class) . '"' : '') . '>' . h($label) . '</button></form>';
+        } else {
+            $ops = $topic_url !== '' ? '<a class="btn plugin-enable" href="' . h($topic_url) . '" target="_blank" rel="noopener">下载</a>' : '';
+        }
+        $extra = ['card_scope' => 'market', 'market_view' => $market_view];
+        $local_ops = $installed ? self::admin_plugin_local_actions_html($local[$id], $extra) : '';
+        $entry_line = $installed ? self::admin_plugin_entry_line_html($local[$id], $extra) : '';
+        $topic_link = $topic_url !== '' ? '<a href="' . h($topic_url) . '" target="_blank" rel="noopener">插件主题</a>' : '';
+        $ops .= $local_ops . $topic_link;
+        $meta = [];
+        if ((string)($item['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$item['version'];
+        $creator = trim((string)($item['creator'] ?? ''));
+        $meta[] = '插件制作者 ' . ($creator !== '' ? $creator : '未声明');
+        if (!$paid) $meta[] = '免费';
+        if ((int)($item['updated_at'] ?? 0) > 0) $meta[] = date('Y-m-d H:i', (int)$item['updated_at']);
+        $title = h((string)($item['name'] ?? $id));
+        $title = $topic_url !== '' ? '<a class="admin-content-title" href="' . h($topic_url) . '" target="_blank" rel="noopener">' . $title . '</a>' : '<strong class="admin-content-title">' . $title . '</strong>';
+        $ondemand = self::plugin_assets_ondemand_any(['assets_mode' => $item['assets_mode'] ?? '']) || ($installed && self::plugin_assets_ondemand_any($local[$id] ?? []));
+        $ondemand_mark = $ondemand ? self::plugin_ondemand_mark_html() : '';
+        $status = [];
+        if ($item_market_view === 'certified') $status[] = '站长认证';
+        if (!empty($item['required'])) $status[] = '必装';
+        $status[] = $installed ? ($needs_update ? '可更新' : '已安装') : '未安装';
+        $price_tag = $paid ? '<span class="plugin-market-price">' . $price_points . ' 积分</span>' : '';
+        $required_stamp = !empty($item['required']) ? '<span class="plugin-required-stamp" aria-hidden="true">必装</span>' : '';
+        $class = ' plugin-market-entry' . ($needs_update ? ' plugin-market-update plugin-update-item' : ($installed ? ' plugin-market-installed' : ' plugin-market-available')) . ($required_stamp !== '' ? ' plugin-has-required' : '');
+        return '<li class="admin-list-item admin-object-row plugin-item' . $class . '" data-plugin-id="' . h($id) . '">' . $required_stamp . '<div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . $price_tag . '</div><div class="admin-inline-ops plugin-ops">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h(implode(' / ', $status)) . '</span><span>' . h(implode(' / ', $meta)) . '</span></div>' . self::plugin_desc_html((string)($item['description'] ?? '')) . '<div class="plugin-file">' . h(substr((string)($item['sha256'] ?? ''), 0, 16)) . '</div></div></div>' . $entry_line . '</li>';
+    }
+
+    public static function plugin_market_admin_actions(array $plugin, array $extra = []): string
     {
         $id = (string)($plugin['id'] ?? '');
         if (!self::plugin_id_valid($id)) return '';
-        $share = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">分享</button></form>';
-        $download = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_download')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(['plugin_id' => $id]) . '<button type="submit">下载</button></form>';
+        $share = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_market_share')) . '" target="_blank" rel="noopener" data-no-ajax="1">' . form_token() . hidden_inputs(array_merge(['plugin_id' => $id], $extra)) . '<button type="submit">分享</button></form>';
+        $download = '<form class="post-action-form" method="post" action="' . h(route_url('plugin_download')) . '" data-no-ajax="1">' . form_token() . hidden_inputs(array_merge(['plugin_id' => $id], $extra)) . '<button type="submit">下载</button></form>';
         return $share . $download;
     }
 
@@ -949,27 +969,55 @@ final class Plugin
         return '<div class="plugin-desc-row"><div class="admin-content-text plugin-desc">' . h($desc) . '</div><button type="button" class="plugin-desc-toggle" data-plugin-desc-toggle aria-expanded="false" hidden>展开</button></div>';
     }
 
-    public static function admin_plugin_action_form(string $id, string $action, string $label, string $class = '', string $confirm = ''): string
+    public static function admin_plugin_action_form(string $id, string $action, string $label, string $class = '', string $confirm = '', array $extra = []): string
     {
         $confirm_attr = $confirm !== '' ? ' data-confirm="' . h($confirm) . '"' : '';
         $loading_attr = $action === 'enable' ? ' data-loading-text="正在启用"' : '';
-        return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => $action]) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . $loading_attr . '>' . h($label) . '</button></form>';
+        return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel"' . $confirm_attr . '>' . form_token() . hidden_inputs(array_merge(['plugin_id' => $id, 'plugin_action' => $action], $extra)) . '<button type="submit"' . ($class !== '' ? ' class="' . h($class) . '"' : '') . $loading_attr . '>' . h($label) . '</button></form>';
     }
     public static function admin_plugin_upload_form(): string
     {
         $form = '<form class="plugin-upload-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" enctype="multipart/form-data">' . form_token() . hidden_inputs(['plugin_action' => 'upload']) . '<input type="file" name="plugin_file" data-plugin-upload-file required><div class="plugin-upload-note">请选择插件脚本文件上传。⚠️ 同名插件将覆盖安装。</div><div class="confirm-actions"><button type="button" class="btn alt" data-modal-close>取消</button><button type="submit" class="plugin-enable" data-loading-text="上传中">上传</button></div></form>';
         return '<button type="button" class="plugin-head-button" data-plugin-upload-open>插件上传</button><template data-plugin-upload-template>' . $form . '</template>';
     }
-    public static function admin_plugin_uninstall_form(string $id): string
+    public static function admin_plugin_uninstall_form(string $id, array $extra = []): string
     {
-        return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？插件目录将被永久删除。">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1']) . '<button type="submit" class="danger" data-loading-text="正在卸载">卸载</button></form>';
+        return '<form class="post-action-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-plugin-uninstall="1" data-replace-target=".plugin-list-panel" data-confirm="确定卸载插件？插件目录将被永久删除。">' . form_token() . hidden_inputs(array_merge(['plugin_id' => $id, 'plugin_action' => 'uninstall', 'keep_plugin_data' => '1'], $extra)) . '<button type="submit" class="danger" data-loading-text="正在卸载">卸载</button></form>';
     }
-    public static function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label): string
+    public static function admin_plugin_entry_toggle_form(array $plugin, string $entry, string $label, array $extra = []): string
     {
         if (!self::plugin_uses_entry($plugin, $entry)) return '';
         $id = (string)$plugin['id'];
         $checked = self::plugin_entry_enabled($plugin, $entry);
-        return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0']) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
+        return '<form class="post-action-form plugin-entry-form" method="post" action="' . h(admin_url(['tab' => 'plugins'])) . '" data-replace-target=".plugin-list-panel">' . form_token() . hidden_inputs(array_merge(['plugin_id' => $id, 'plugin_action' => 'entry_toggle', 'entry' => $entry, 'entry_enabled' => '0'], $extra)) . '<label class="plugin-entry-check"><input type="checkbox" name="entry_enabled" value="1" data-auto-submit' . ($checked ? ' checked' : '') . '><span>' . h($label) . '</span></label></form>';
+    }
+    public static function admin_plugin_entry_line_html(array $plugin, array $extra = []): string
+    {
+        $entry_ops = '';
+        foreach (self::plugin_entry_definitions() as $entry => $definition) {
+            $entry_ops .= self::admin_plugin_entry_toggle_form($plugin, $entry, (string)$definition['label'], $extra);
+        }
+        return $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
+    }
+    public static function admin_plugin_local_actions_html(array $plugin, array $extra = []): string
+    {
+        $id = (string)$plugin['id'];
+        $manage_url = self::admin_plugin_manage_url($plugin);
+        $ops = $manage_url !== '' ? '<a class="plugin-manage-link" href="' . h($manage_url) . '">管理</a>' : '';
+        $market_topic_id = max(0, (int)setting('plugin_' . $id . '_market_topic_id'));
+        $feedback = '';
+        if ($market_topic_id > 0) {
+            $feedback_url = append_url_query(self::plugin_market_url('topic'), ['id' => $market_topic_id]);
+            $feedback = '<a href="' . h($feedback_url) . '" target="_blank" rel="noopener" title="查看插件帖子并反馈问题">反馈</a>';
+        }
+        $ops .= self::plugin_enabled($plugin)
+            ? self::admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？', $extra)
+            : self::admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable', '', $extra);
+        $ops .= self::plugin_market_admin_actions($plugin, $extra);
+        $ops .= (string)hook('admin.plugin.actions', '', ['plugin' => $plugin]);
+        $ops .= self::admin_plugin_uninstall_form($id, $extra);
+        $ops .= $feedback;
+        return $ops;
     }
     public static function admin_plugins_page_html(bool $with_tabs = true): string
     {
@@ -979,54 +1027,44 @@ final class Plugin
             $b_time = (int)($b['updated_at'] ?? 0);
             return ($b_time <=> $a_time) ?: strcmp((string)($a['id'] ?? ''), (string)($b['id'] ?? ''));
         });
-        $enabled_count = 0;
-        foreach ($plugins as $plugin) if (self::plugin_enabled($plugin)) $enabled_count++;
-        $head_left = '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
+        $head_left = self::admin_plugin_summary_html($plugins);
         $search = '<label class="admin-search-field plugin-local-search"><input type="search" placeholder="搜索本地插件" aria-label="搜索本地插件" data-plugin-local-search></label>';
         $head_right = '<div class="plugin-head-actions">' . $search . self::admin_plugin_upload_form() . self::admin_plugin_action_form('', 'sync', '同步插件', 'plugin-head-button') . '</div>';
         $html = ($with_tabs ? self::admin_plugins_tabs_html('local', $plugins) : '') . '<div class="admin-list-panel plugin-list-panel plugin-local-list-panel">' . admin_list_head($head_left, $head_right) . '<ul class="admin-manage-list plugin-list" data-plugin-local-list>';
-        foreach ($plugins as $plugin) {
-            $id = (string)$plugin['id'];
-            $enabled = self::plugin_enabled($plugin);
-            $manage_url = self::admin_plugin_manage_url($plugin);
-            $ops = $manage_url !== '' ? '<a class="plugin-manage-link" href="' . h($manage_url) . '">管理</a>' : '';
-            $market_topic_id = max(0, (int)setting('plugin_' . $id . '_market_topic_id'));
-            $feedback = '';
-            if ($market_topic_id > 0) {
-                $feedback_url = append_url_query(self::plugin_market_url('topic'), ['id' => $market_topic_id]);
-                $feedback = '<a href="' . h($feedback_url) . '" target="_blank" rel="noopener" title="查看插件帖子并反馈问题">反馈</a>';
-            }
-            $ops .= $enabled
-                ? self::admin_plugin_action_form($id, 'disable', '停用', 'danger', '确定停用插件？')
-                : self::admin_plugin_action_form($id, 'enable', '启用', 'plugin-enable');
-            $entry_ops = '';
-            foreach (self::plugin_entry_definitions() as $entry => $definition) {
-                $entry_ops .= self::admin_plugin_entry_toggle_form($plugin, $entry, (string)$definition['label']);
-            }
-            $ops .= self::plugin_market_admin_actions($plugin);
-            $ops .= (string)hook('admin.plugin.actions', '', ['plugin' => $plugin]);
-            $ops .= self::admin_plugin_uninstall_form($id);
-            $ops .= $feedback;
-            $meta = [];
-            if ((string)($plugin['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$plugin['version'];
-            if ((string)($plugin['author'] ?? '') !== '') $meta[] = (string)$plugin['author'];
-            $features = [];
-            if (!empty($plugin['hooks'])) $features[] = count($plugin['hooks']) . ' 个钩子';
-            if (!empty($plugin['routes'])) $features[] = count($plugin['routes']) . ' 个路由';
-            if (!empty($plugin['admin_tabs'])) $features[] = count($plugin['admin_tabs']) . ' 个后台页';
-            $file = str_replace(APP_ROOT . '/', '', (string)($plugin['file'] ?? ''));
-            $disabled_reason = !$enabled ? trim((string)($plugin['disabled_reason'] ?? '')) : '';
-            $reason_line = $disabled_reason !== '' ? '<div class="plugin-disabled-reason"><strong>自动停用原因</strong><span>' . h($disabled_reason) . '</span></div>' : '';
-            $entry_line = $entry_ops !== '' ? '<div class="plugin-entry-line"><span class="plugin-entry-label">展示位置</span><div class="plugin-entry-options">' . $entry_ops . '</div></div>' : '';
-            $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
-            $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
-            $ondemand_mark = self::plugin_assets_ondemand_any($plugin) ? self::plugin_ondemand_mark_html() : '';
-            $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
-            $html .= '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
-        }
+        foreach ($plugins as $plugin) $html .= self::admin_plugin_local_card_html($plugin);
         if ($plugins) $html .= '<li class="empty-state is-hidden" data-plugin-local-empty hidden>未找到匹配插件</li>';
         else $html .= '<li class="empty-state">暂无插件，放入 app/plugins/*/plugin.php 后点击“同步插件”。</li>';
         return $html . '</ul></div>';
+    }
+    public static function admin_plugin_summary_html(?array $plugins = null): string
+    {
+        $plugins ??= self::plugin_registry();
+        $enabled_count = 0;
+        foreach ($plugins as $plugin) if (self::plugin_enabled($plugin)) $enabled_count++;
+        return '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
+    }
+    public static function admin_plugin_local_card_html(array $plugin): string
+    {
+        $id = (string)$plugin['id'];
+        $enabled = self::plugin_enabled($plugin);
+        $manage_url = self::admin_plugin_manage_url($plugin);
+        $ops = self::admin_plugin_local_actions_html($plugin);
+        $entry_line = self::admin_plugin_entry_line_html($plugin);
+        $meta = [];
+        if ((string)($plugin['version'] ?? '') !== '') $meta[] = '版本 ' . (string)$plugin['version'];
+        if ((string)($plugin['author'] ?? '') !== '') $meta[] = (string)$plugin['author'];
+        $features = [];
+        if (!empty($plugin['hooks'])) $features[] = count($plugin['hooks']) . ' 个钩子';
+        if (!empty($plugin['routes'])) $features[] = count($plugin['routes']) . ' 个路由';
+        if (!empty($plugin['admin_tabs'])) $features[] = count($plugin['admin_tabs']) . ' 个后台页';
+        $file = str_replace(APP_ROOT . '/', '', (string)($plugin['file'] ?? ''));
+        $disabled_reason = !$enabled ? trim((string)($plugin['disabled_reason'] ?? '')) : '';
+        $reason_line = $disabled_reason !== '' ? '<div class="plugin-disabled-reason"><strong>自动停用原因</strong><span>' . h($disabled_reason) . '</span></div>' : '';
+        $local_class = $enabled ? ' plugin-local-enabled' : ' plugin-local-disabled';
+        $title = $manage_url !== '' ? '<a class="admin-content-title" href="' . h($manage_url) . '">' . h((string)$plugin['name']) . '</a>' : '<strong class="admin-content-title">' . h((string)$plugin['name']) . '</strong>';
+        $ondemand_mark = self::plugin_assets_ondemand_any($plugin) ? self::plugin_ondemand_mark_html() : '';
+        $search_text = implode("\n", [(string)($plugin['name'] ?? ''), $id, (string)($plugin['author'] ?? ''), (string)($plugin['description'] ?? '')]);
+        return '<li class="admin-list-item admin-object-row plugin-item' . $local_class . '" data-plugin-id="' . h($id) . '" data-plugin-local-search-text="' . h($search_text) . '"><div class="admin-row-main"><div class="plugin-title-line">' . $title . $ondemand_mark . '</div><div class="admin-inline-ops plugin-ops" data-slot="admin.plugin.actions">' . $ops . '</div><div class="plugin-row-detail"><div class="admin-row-meta"><span class="plugin-id">ID ' . h($id) . '</span><span>' . h($enabled ? '已启用' : '已停用') . '</span>' . ($meta ? '<span>' . h(implode(' / ', $meta)) . '</span>' : '') . ($features ? '<span>' . h(implode(' / ', $features)) . '</span>' : '') . '</div>' . self::plugin_desc_html((string)($plugin['description'] ?? '')) . '<div class="plugin-file">' . h($file) . '</div></div>' . $reason_line . '</div>' . $entry_line . '</li>';
     }
     public static function admin_plugin_manage_url(array $plugin): string
     {
@@ -1849,9 +1887,31 @@ final class Plugin
                 echo json_encode(['ok' => 1, 'message' => $message, 'refresh' => 1], JSON_UNESCAPED_UNICODE);
                 exit;
             }
-            $html = self::admin_plugins_page_html(false);
+            $payload = ['ok' => 1, 'message' => $message];
+            $card_scope = (string)($_POST['card_scope'] ?? '');
+            if ($card_scope === 'market') {
+                $market_view = self::plugin_market_view((string)($_POST['market_view'] ?? ''));
+                $market = self::plugin_market_fetch(false, false, '', 0, $market_view);
+                $item = is_array($market['plugins'][$plugin_id] ?? null) ? $market['plugins'][$plugin_id] : null;
+                $plugins = self::plugin_registry(null, true);
+                if ($item) {
+                    $needs_update = isset($plugins[$plugin_id]) && self::plugin_market_update_available($plugins[$plugin_id], $item);
+                    $payload['card'] = self::admin_plugin_market_card_html($item, $needs_update, $market_view, $plugins);
+                } else {
+                    $payload['refresh'] = 1;
+                }
+            } else {
+                if ($plugin_action === 'uninstall') {
+                    $payload['removed'] = 1;
+                } else {
+                    $plugins = self::plugin_registry(null, true);
+                    $plugin = $plugins[$plugin_id] ?? null;
+                    $payload['card'] = is_array($plugin) ? self::admin_plugin_local_card_html($plugin) : '';
+                }
+                $payload['summary'] = self::admin_plugin_summary_html($plugins ?? self::plugin_registry(null, true));
+            }
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => 1, 'message' => $message, 'html' => $html], JSON_UNESCAPED_UNICODE);
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE);
             exit;
         }
         set_flash($message);

@@ -464,6 +464,17 @@ document.addEventListener("change", async e => {
         const response = await fetch(formActionUrl(form), {method: "POST", body, credentials: "same-origin", headers: {"X-Requested-With": "XMLHttpRequest"}});
         const data = await response.json();
         if (!data?.ok) throw new Error(data?.message || "保存失败");
+        const cardId = form.querySelector("input[name=plugin_id]")?.value || "";
+        const cardEl = cardId ? document.querySelector('[data-plugin-id="' + cardId + '"]') : null;
+        if (typeof data.card === "string" && data.card !== "" && cardEl) {
+            cardEl.outerHTML = data.card;
+            if (data.summary) {
+                const summaryEl = document.querySelector(".plugin-list-panel .admin-plugin-summary");
+                if (summaryEl) summaryEl.outerHTML = data.summary;
+            }
+            showToast(data.message || "已保存");
+            return;
+        }
         const replaceTarget = form.dataset.replaceTarget || "";
         const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
         if (replaceEl && data.html) {
@@ -849,6 +860,19 @@ document.addEventListener("submit", async e => {
             return;
         }
         if (modalForm) closeModal();
+        const cardId = form.querySelector("input[name=plugin_id]")?.value || "";
+        const cardEl = cardId ? document.querySelector('[data-plugin-id="' + cardId + '"]') : null;
+        if (data.card !== undefined || data.removed) {
+            if (data.removed) cardEl?.remove();
+            else if (data.card && cardEl) cardEl.outerHTML = data.card;
+            if (data.summary) {
+                const summaryEl = document.querySelector(".plugin-list-panel .admin-plugin-summary");
+                if (summaryEl) summaryEl.outerHTML = data.summary;
+            }
+            resetButton();
+            showToast(successMessage);
+            return;
+        }
         const replaceTarget = form.dataset.replaceTarget || "";
         const replaceEl = replaceTarget ? (form.closest(replaceTarget) || document.querySelector(replaceTarget)) : null;
         if (data.refresh && replaceEl) {
