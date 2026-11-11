@@ -653,7 +653,7 @@ function plugin_config(string $id, array $defaults = []): array
 function plugin_save_config(string $id, array $config): void
 {
     if (!Plugin::plugin_id_valid($id)) err('该插件不存在');
-    Plugin::plugin_update_row($id, ['config_json' => $config]);
+    Plugin::plugin_update_row($id, ['config_json' => $config], false);
     $plugin = Plugin::plugins(true)[$id] ?? null;
     if ($plugin) Cron::plugin_cron_sync($plugin);
 }
