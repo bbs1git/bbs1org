@@ -11,10 +11,8 @@ app-client/*
 .vscode
 .codebuddy
 .trae
-.workbuddy*
 /docker/
 /tmp/
-/scripts/
 .venv*
 .qoder
 .claude

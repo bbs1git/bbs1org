@@ -567,7 +567,6 @@ h3 {
     align-items: center;
     max-width: 100%;
     flex-wrap: wrap;
-    gap: 0;
     margin: 0 0 10px
 }
 
@@ -625,16 +624,6 @@ h3 {
     font-size: var(--font-size-sm)
 }
 
-.tab:first-child {
-    border-top-left-radius: var(--radius-sm);
-    border-bottom-left-radius: var(--radius-sm)
-}
-
-.tab:not(:has(~ .tab)) {
-    border-top-right-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm)
-}
-
 .tab + .tab {
     margin-left: -1px
 }
@@ -647,15 +636,17 @@ h3 {
     z-index: 1
 }
 
-.tab-bar>.tab.tab-line-start {
+.tab:first-child,
+.tab.tab-line-start {
     margin-left: 0;
-    border-top-left-radius: var(--radius-sm);
-    border-bottom-left-radius: var(--radius-sm)
+    border-top-left-radius: var(--radius);
+    border-bottom-left-radius: var(--radius)
 }
 
-.tab-bar>.tab.tab-line-end {
-    border-top-right-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm)
+.tab:not(:has(~ .tab)),
+.tab.tab-line-end {
+    border-top-right-radius: var(--radius);
+    border-bottom-right-radius: var(--radius)
 }
 
 .tab-bar>.tab.tab-wrapped {
@@ -3667,6 +3658,18 @@ table.list.admin-bulk-list {
     color: var(--text-subtle);
     font-size: var(--font-size-sm);
     line-height: 1.35
+}
+
+.admin-plugin-summary .admin-plugin-summary-filter {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px
+}
+
+.admin-plugin-summary .admin-plugin-summary-filter.is-active {
+    color: var(--text);
+    font-weight: 700;
+    text-decoration: none
 }
 
 .plugin-list {

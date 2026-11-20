@@ -28,16 +28,17 @@ const takeOverResponsePage = (response, text) => {
     document.write(text);
     document.close();
 };
-const filterLocalPlugins = e => {
-    const input = e.target instanceof HTMLInputElement && e.target.matches("[data-plugin-local-search]") ? e.target : null;
-    if (!input) return;
-    const panel = input.closest(".plugin-list-panel");
+const pluginLocalFilter = {enabledOnly: false};
+const applyPluginLocalFilter = () => {
+    const panel = document.querySelector(".plugin-local-list-panel");
     const list = panel?.querySelector("[data-plugin-local-list]");
     if (!list) return;
-    const query = input.value.trim().toLocaleLowerCase();
+    const input = panel.querySelector("[data-plugin-local-search]");
+    const query = input ? input.value.trim().toLocaleLowerCase() : "";
     let matches = 0;
     list.querySelectorAll("[data-plugin-local-search-text]").forEach(item => {
-        const matched = query === "" || (item.dataset.pluginLocalSearchText || "").toLocaleLowerCase().includes(query);
+        const text = (item.dataset.pluginLocalSearchText || "").toLocaleLowerCase();
+        const matched = (query === "" || text.includes(query)) && (!pluginLocalFilter.enabledOnly || item.classList.contains("plugin-local-enabled"));
         item.hidden = !matched;
         item.classList.toggle("is-hidden", !matched);
         if (matched) matches++;
@@ -48,8 +49,29 @@ const filterLocalPlugins = e => {
         empty.classList.toggle("is-hidden", matches > 0);
     }
 };
+const syncPluginLocalFilterLink = () => {
+    document.querySelectorAll("[data-plugin-local-filter]").forEach(link => {
+        link.classList.toggle("is-active", pluginLocalFilter.enabledOnly);
+        link.setAttribute("aria-pressed", pluginLocalFilter.enabledOnly ? "true" : "false");
+    });
+};
+const filterLocalPlugins = e => {
+    const input = e.target instanceof HTMLInputElement && e.target.matches("[data-plugin-local-search]") ? e.target : null;
+    if (!input) return;
+    applyPluginLocalFilter();
+};
 document.addEventListener("input", filterLocalPlugins);
 document.addEventListener("search", filterLocalPlugins);
+document.addEventListener("click", e => {
+    const link = e.target.closest("[data-plugin-local-filter]");
+    if (!link) return;
+    e.preventDefault();
+    pluginLocalFilter.enabledOnly = !pluginLocalFilter.enabledOnly;
+    syncPluginLocalFilterLink();
+    applyPluginLocalFilter();
+});
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", syncPluginLocalFilterLink);
+else syncPluginLocalFilterLink();
 const pluginDescOf = button => {
     const row = button.closest(".plugin-desc-row");
     return row ? row.querySelector(".plugin-desc") : null;
@@ -342,7 +364,7 @@ const initTabBarWrap = () => {
     const bars = Array.from(document.querySelectorAll(".tab-bar"));
     if (!bars.length) return;
     const refresh = bar => {
-        const tabs = Array.from(bar.querySelectorAll(":scope > .tab"));
+        const tabs = Array.from(bar.querySelectorAll(":scope > .tab")).filter(tab => tab.getClientRects().length);
         tabs.forEach(tab => tab.classList.remove("tab-wrapped", "tab-line-start", "tab-line-end"));
         const first = tabs[0];
         if (!first) return;
@@ -472,6 +494,8 @@ document.addEventListener("change", async e => {
                 const summaryEl = document.querySelector(".plugin-list-panel .admin-plugin-summary");
                 if (summaryEl) summaryEl.outerHTML = data.summary;
             }
+            syncPluginLocalFilterLink();
+            applyPluginLocalFilter();
             showToast(data.message || "已保存");
             return;
         }
@@ -869,6 +893,8 @@ document.addEventListener("submit", async e => {
                 const summaryEl = document.querySelector(".plugin-list-panel .admin-plugin-summary");
                 if (summaryEl) summaryEl.outerHTML = data.summary;
             }
+            syncPluginLocalFilterLink();
+            applyPluginLocalFilter();
             resetButton();
             showToast(successMessage);
             return;

@@ -1041,7 +1041,8 @@ final class Plugin
         $plugins ??= self::plugin_registry();
         $enabled_count = 0;
         foreach ($plugins as $plugin) if (self::plugin_enabled($plugin)) $enabled_count++;
-        return '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，已启用 ' . $enabled_count . ' 个</span></div>';
+        $filter = '<a class="admin-plugin-summary-filter" href="#" role="button" data-plugin-local-filter="enabled" aria-pressed="false">已启用 ' . $enabled_count . ' 个</a>';
+        return '<div class="admin-plugin-summary"><strong>插件</strong><span>已发现 ' . count($plugins) . ' 个，' . $filter . '</span></div>';
     }
     public static function admin_plugin_local_card_html(array $plugin): string
     {
