@@ -7,6 +7,7 @@ use app\optional\Admin;
 use app\optional\Plugin;
 use app\optional\Search;
 use app\optional\Setup;
+use app\optional\Ai;
 
 ini_set('display_errors', '0');
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
@@ -488,6 +489,9 @@ function default_settings(): array
         'reply_body_max_length' => (string)DB_TEXT_MAX_LENGTH,
         'excerpt_length' => '200',
         'post_interval_seconds' => '5',
+        'ai_temperature' => '0.7',
+        'ai_max_tokens' => '16384',
+        'ai_timeout_seconds' => '30',
     ];
 }
 function settings_cache(): array
@@ -514,6 +518,18 @@ function excerpt_length(): int
 function require_length(string $value, int $minimum, string $label): void
 {
     if ($minimum > 0 && preg_match_all('/./us', $value) < $minimum) err($label . '至少' . $minimum . '个字符');
+}
+function ai_ready(): bool
+{
+    return Ai::ready();
+}
+function ai_chat(array $messages, array $options = []): array
+{
+    return Ai::chat($messages, $options);
+}
+function ai_chat_text(string $system, string $user, array $options = []): array
+{
+    return Ai::chat_text($system, $user, $options);
 }
 function save_settings_values(array $values): void
 {
@@ -2630,26 +2646,18 @@ function content_delete_notify(array $row, bool $is_reply, int $topic_id = 0): v
     $title = trim((string)($row['title'] ?? ''));
     create_notification($author_id, uid(), 'delete', '主题《' . ($title !== '' ? $title : '#' . (int)($row['id'] ?? 0)) . '》已被删除。');
 }
-function app_topics_del_ready(): bool
-{
-    static $ready = null;
-    if ($ready === null) $ready = app_db_table_exists(db(), db_driver(), 'app_topics_del');
-    return $ready;
-}
 function floor_index_clear(): void
 {
     unset($GLOBALS['__floor_cache']);
 }
 function floor_index_record(int $topic_id, int $reply_id, int $created_at): void
 {
-    if (!app_topics_del_ready()) return;
     q('INSERT INTO app_topics_del(topic_id,reply_id,created_at) VALUES(?,?,?)', [$topic_id, $reply_id, $created_at]);
     floor_index_clear();
 }
 function topic_floor_index(int $topic_id): array
 {
     if (isset($GLOBALS['__floor_cache'][$topic_id])) return $GLOBALS['__floor_cache'][$topic_id];
-    if (!app_topics_del_ready()) return $GLOBALS['__floor_cache'][$topic_id] = [];
     $rows = q('SELECT reply_id AS id,created_at FROM app_topics_del WHERE topic_id=? ORDER BY created_at,id', [$topic_id])->fetchAll();
     return $GLOBALS['__floor_cache'][$topic_id] = array_map(static fn(array $r): array => ['id' => (int)$r['id'], 'created_at' => (int)$r['created_at']], $rows);
 }

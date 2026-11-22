@@ -416,6 +416,7 @@ final class Plugin
         $timeout = max(1, $timeout);
         $connect_timeout = min($timeout, max(1, (int)($options['connect_timeout'] ?? min(4, $timeout))));
         $max_bytes = max(0, (int)($options['max_bytes'] ?? REMOTE_HTTP_DEFAULT_MAX_BYTES));
+        $raw_body = array_key_exists('raw_body', $options) && is_string($options['raw_body']) ? $options['raw_body'] : null;
         $user_agent = trim((string)($options['user_agent'] ?? '')) ?: 'bbs1org/' . APP_VERSION;
         $ch = curl_init($url);
         if (!$ch) return ['ok' => false, 'status' => 0, 'body' => '', 'error' => '无法初始化请求'];
@@ -444,7 +445,10 @@ final class Plugin
             $options[CURLOPT_SSL_VERIFYHOST] = 0;
         }
         if ($headers) $options[CURLOPT_HTTPHEADER] = $headers;
-        if ($post_fields !== null) {
+        if ($raw_body !== null) {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = $raw_body;
+        } elseif ($post_fields !== null) {
             $options[CURLOPT_POST] = true;
             $options[CURLOPT_POSTFIELDS] = http_build_query($post_fields);
         }

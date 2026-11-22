@@ -61,6 +61,13 @@ final class Admin
             $values[$key . '_max_length'] = (string)$max;
         }
         $values['excerpt_length'] = (string)min(DB_TEXT_MAX_LENGTH, max(0, (int)($_POST['excerpt_length'] ?? 200)));
+        $values['ai_api_url'] = cut(trim((string)($_POST['ai_api_url'] ?? '')), DB_STRING_MAX_LENGTH);
+        $values['ai_api_key'] = cut(trim((string)($_POST['ai_api_key'] ?? '')), DB_STRING_MAX_LENGTH);
+        $values['ai_model'] = cut(trim((string)($_POST['ai_model'] ?? '')), DB_STRING_MAX_LENGTH);
+        foreach (['ai_temperature' => [0, 2, '0.7'], 'ai_max_tokens' => [1, 200000, '16384'], 'ai_timeout_seconds' => [1, 300, '30']] as $key => [$min, $max, $default]) {
+            $raw = trim((string)($_POST[$key] ?? ''));
+            $values[$key] = $raw === '' ? $default : (string)(min($max, max($min, (float)$raw)));
+        }
         save_settings_values($values);
     }
 
@@ -128,6 +135,11 @@ final class Admin
             set_flash('Debug日志已清空');
             go(admin_url(['tab' => 'settings']));
         }
+        if ((string)($_POST['ai_log_action'] ?? '') === 'clear') {
+            q("DELETE FROM app_ai_logs");
+            set_flash('AI 调用日志已清空');
+            go(admin_url(['tab' => 'settings'] + ((string)($_POST['ai_log_return'] ?? '') === 'view' ? ['ai_log' => 'view'] : [])));
+        }
         if (isset($_POST['clear_opcache'])) {
             self::clear_opcache_cache();
             set_flash('OPcache已清理');
@@ -177,6 +189,12 @@ final class Admin
             'allow_register' => ['label' => '是否允许注册', 'type' => 'checkbox'],
             'default_group_id' => ['label' => '新用户默认用户组', 'type' => 'select', 'options' => array_column(groups_cache(), 'name', 'id')],
             'post_interval_seconds' => ['label' => '发帖/回复间隔（秒）', 'type' => 'number', 'min' => 0, 'max' => 3600, 'help' => '发帖/回复间隔设置为 0 可关闭限制，默认 5 秒一次。'],
+            'ai_api_url' => ['label' => 'AI 接口地址', 'help' => 'OpenAI 兼容接口基础地址，如 https://api.deepseek.com/v1。配置后内核统一向插件提供 AI 能力（ai_chat）。'],
+            'ai_api_key' => ['label' => 'AI API Key', 'type' => 'password', 'help' => '地址、Key、模型三项都填写后内核 AI 服务可用。'],
+            'ai_model' => ['label' => 'AI 模型', 'help' => '如 gpt-4o-mini、deepseek-chat、qwen-plus。'],
+            'ai_temperature' => ['label' => 'AI 温度', 'type' => 'number', 'min' => 0, 'max' => 2, 'required' => false, 'help' => '默认 0.7。控制回答的随机性：越低越稳定精准，越高越发散有创意。'],
+            'ai_max_tokens' => ['label' => 'AI 单次最大输出', 'type' => 'number', 'min' => 1, 'max' => 200000, 'required' => false, 'help' => '默认 16384，只限制上限不增加费用；超过所用模型上限时部分接口会报错，可按模型调整。'],
+            'ai_timeout_seconds' => ['label' => 'AI 请求超时（秒）', 'type' => 'number', 'min' => 1, 'max' => 300, 'required' => false, 'help' => '默认 30 秒。'],
         ];
         $tools = '<div class="settings-tool-card"><div><strong>清理OPcache</strong><span>刷新已编译脚本缓存，适合代码更新后手动触发。</span></div>' . post_action_form(admin_url(['tab' => 'settings']), '清理', ['clear_opcache' => '1'], 'settings-tool-action') . '</div>';
         if ((string)($settings['debug_mode'] ?? '0') === '1') $tools .= '<div class="settings-tool-card"><div><strong>Debug日志</strong><span>' . h(DEBUG_LOG_FILE) . '</span></div><div class="settings-tool-actions">' . post_action_form(admin_url(['tab' => 'settings']), '清空', ['debug_log_action' => 'clear'], 'settings-tool-action', '确定清空Debug日志？') . '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'debug_log' => 'view'])) . '" target="_blank">查看</a></div></div>';
@@ -187,7 +205,82 @@ final class Admin
         $update_action = is_file(APP_DIR . '/optional/Setup.php') ? '<a class="settings-tool-action" href="' . h(route_url('update')) . '">升级</a>' : '<button class="settings-tool-action" type="button" disabled>升级</button>';
         $update_dot = preg_match('/^[a-f0-9]{64}$/', $notice_sha) === 1 ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
         $tools .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
+        $tools .= self::ai_log_card();
         return '<span hidden data-settings-update-check-url="' . h(route_url('update', ['notice_check' => 1])) . '"></span><div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $settings) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $tools . '</div></div>';
+    }
+
+    public static function ai_log_card(): string
+    {
+        $row = one("SELECT COUNT(*) AS total, SUM(CASE WHEN status<>'ok' THEN 1 ELSE 0 END) AS fails FROM app_ai_logs");
+        $total = (int)($row['total'] ?? 0);
+        $fails = (int)($row['fails'] ?? 0);
+        $desc = $total > 0 ? '累计 ' . $total . ' 次调用，失败 ' . $fails . ' 次。' : '内核 AI 服务暂无调用记录。';
+        $actions = post_action_form(admin_url(['tab' => 'settings']), '清空', ['ai_log_action' => 'clear'], 'settings-tool-action', '确定清空 AI 调用日志？');
+        if ($total > 0) $actions .= '<a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'ai_log' => 'view'])) . '">查看</a>';
+        return '<div class="settings-tool-card"><div><strong>AI 调用日志</strong><span>' . h($desc) . '</span></div><div class="settings-tool-actions">' . $actions . '</div></div>';
+    }
+
+    public static function ai_log_page(): void
+    {
+        need_admin();
+        $plugin = cut(trim((string)($_GET['ai_plugin'] ?? '')), 255);
+        $status = trim((string)($_GET['ai_status'] ?? ''));
+        if (!in_array($status, ['ok', 'error'], true)) $status = '';
+        $where = [];
+        $args = [];
+        if ($plugin !== '') {
+            $where[] = 'plugin_id=?';
+            $args[] = $plugin;
+        }
+        if ($status !== '') {
+            $where[] = 'status=?';
+            $args[] = $status;
+        }
+        $where_sql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $total = (int)val("SELECT COUNT(*) FROM app_ai_logs" . $where_sql, $args);
+        $per_page = 30;
+        $pages = max(1, (int)ceil($total / $per_page));
+        $page = min($pages, max(1, (int)($_GET['p'] ?? 1)));
+        $rows = q("SELECT * FROM app_ai_logs" . $where_sql . " ORDER BY id DESC LIMIT " . $per_page . " OFFSET " . (($page - 1) * $per_page), $args)->fetchAll();
+        $user_ids = array_values(array_filter(array_unique(array_map(static fn(array $r): int => (int)$r['user_id'], $rows))));
+        $names = [];
+        if ($user_ids) {
+            foreach (q("SELECT id,username FROM app_users WHERE id IN (" . sql_marks(count($user_ids)) . ")", $user_ids)->fetchAll() as $u) $names[(int)$u['id']] = (string)$u['username'];
+        }
+        $plugins = q("SELECT DISTINCT plugin_id FROM app_ai_logs ORDER BY plugin_id")->fetchAll(\PDO::FETCH_COLUMN);
+        $hidden = hidden_inputs(['a' => 'admin', 'tab' => 'settings', 'ai_log' => 'view']);
+        $plugin_sel = '<select name="ai_plugin"><option value="">全部插件</option>';
+        foreach ($plugins as $pid) $plugin_sel .= '<option value="' . h((string)$pid) . '"' . ($plugin === (string)$pid ? ' selected' : '') . '>' . h((string)$pid !== '' ? (string)$pid : '内核') . '</option>';
+        $plugin_sel .= '</select>';
+        $status_sel = '<select name="ai_status"><option value="">全部状态</option><option value="ok"' . ($status === 'ok' ? ' selected' : '') . '>成功</option><option value="error"' . ($status === 'error' ? ' selected' : '') . '>失败</option></select>';
+        $filters = '<form class="ai-log-filters" method="get" action="' . h(index_url()) . '">' . $hidden . $plugin_sel . $status_sel . '<button type="submit" class="ai-log-filter-apply">确定</button>' . ($plugin !== '' || $status !== '' ? '<a class="ai-log-filter-clear" href="' . h(admin_url(['tab' => 'settings', 'ai_log' => 'view'])) . '">重置</a>' : '') . '</form>';
+        $clear = post_action_form(admin_url(['tab' => 'settings']), '清空日志', ['ai_log_action' => 'clear', 'ai_log_return' => 'view'], 'settings-tool-action', '确定清空全部 AI 调用日志？');
+        $summary = '共 ' . $total . ' 条记录' . ($plugin !== '' ? ' · 插件 ' . h($plugin !== '' ? $plugin : '内核') : '') . ($status === 'error' ? ' · 仅失败' : ($status === 'ok' ? ' · 仅成功' : ''));
+        $body_rows = '';
+        foreach ($rows as $r) {
+            $ok = (string)$r['status'] === 'ok';
+            $detail = $ok ? trim((string)$r['response_excerpt']) : trim((string)$r['error']);
+            $tokens = ((int)$r['prompt_tokens'] > 0 || (int)$r['completion_tokens'] > 0) ? (int)$r['prompt_tokens'] . ' + ' . (int)$r['completion_tokens'] : '-';
+            $user = $names[(int)$r['user_id']] ?? ((int)$r['user_id'] > 0 ? 'UID ' . (int)$r['user_id'] : '系统');
+            $body_rows .= '<div class="ai-log-row' . ($ok ? ' is-ok' : ' is-error') . '">'
+                . '<div class="ai-log-meta">'
+                . '<span class="ai-log-time" data-label="时间">' . h(date('m-d H:i', (int)$r['created_at'])) . '</span>'
+                . '<span class="ai-log-plugin" data-label="插件">' . h((string)$r['plugin_id'] !== '' ? (string)$r['plugin_id'] : '内核') . '</span>'
+                . '<span class="ai-log-user" data-label="用户">' . h($user) . '</span>'
+                . '<span class="ai-log-model" data-label="模型">' . h((string)$r['model']) . '</span>'
+                . '<span class="ai-log-tokens" data-label="Token">' . h($tokens) . '</span>'
+                . '<span class="ai-log-duration" data-label="耗时">' . (int)$r['duration_ms'] . 'ms</span>'
+                . '<span class="ai-log-status" data-label="状态">' . ($ok ? '成功' : '失败') . '</span>'
+                . '</div>'
+                . '<div class="ai-log-detail">' . h(mb_substr($detail, 0, 400, 'UTF-8')) . '</div>'
+                . '</div>';
+        }
+        $list = '<div class="ai-log-list">'
+            . ($body_rows !== '' ? $body_rows : '<div class="ai-log-empty">没有匹配的日志记录。</div>')
+            . '</div>';
+        $pagination = paginate($total, $page, $per_page, admin_url(array_filter(['tab' => 'settings', 'ai_log' => 'view', 'ai_plugin' => $plugin !== '' ? $plugin : null, 'ai_status' => $status !== '' ? $status : null])));
+        $html = '<div class="ai-log"><div class="ai-log-head"><div><strong>AI 调用日志</strong><span>' . $summary . '</span></div>' . $clear . '</div>' . $filters . $list . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '') . '</div>';
+        page('AI 调用日志', shell_html($html, sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => 'settings'])));
     }
 
     public static function groups_html(): string
@@ -222,6 +315,10 @@ final class Admin
         }
         if ($tab === 'plugins' && is_post_request()) Plugin::admin_plugins_handle_post();
         if ($tab === 'plugins' && (string)($_GET['plugin_action'] ?? '') === 'enable_uploaded') Plugin::plugin_enable_uploaded_page();
+        if ($tab === 'settings' && (string)($_GET['ai_log'] ?? '') === 'view') {
+            self::ai_log_page();
+            return;
+        }
         if ($tab === 'settings' && is_post_request()) self::settings_handle_post();
         $html = match ($tab) {
             'settings' => self::settings_html(),

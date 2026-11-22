@@ -453,7 +453,19 @@ function hello_collect(array $plugin, array $task): string
 | 论坛数据 | `forum_by_id()` `forums_cache()` `select_forum()` `refresh_topic_stats()` `pinned_topic_ids()` `create_notification()` `notification_box()` `notifications_total()` `notifications_list()` `notifications_unread_total()` `mark_notifications_read()` |
 | 列表渲染 | `topic_list_row($row, $sort)` `topic_list_select_columns()` `rows_by_ids()` `attach_topic_list_users()`（列表行会自动整页预载，见「列表行批量预载」） `topic_list_preload($rows)`（仅行不经 `attach_topic_list_users()` 等特殊场景需手动调用） |
 | 全文检索 | `topic_fts_sync()` `reply_fts_sync()` `topic_fts_delete()` `reply_fts_delete()` `content_search_condition()` `search_index_available()` `search_index_rebuild()` `search_like_pattern()` |
+| AI 服务 | `ai_ready()` `ai_chat($messages, $options)` `ai_chat_text($system, $user, $options)`（内核统一代理，实现类 `\app\optional\Ai`，自动记录调用日志） |
 | 插件 | `plugins()` `plugin_load()` `plugin_config()` `plugin_save_config()` `plugin_id_valid()` `plugin_registry_row()` `plugin_enabled()` `plugin_uses_entry()` `plugin_entry_enabled()` `plugin_call()` `plugin_asset_require()` |
+
+## 内核 AI 服务
+
+内核在后台「设置」提供统一的 AI 大模型配置（OpenAI 兼容接口：接口地址、API Key、模型、温度、最大输出、超时）。插件不得各自内置 API Key 配置与请求实现，需要 AI 能力时统一调用内核全局函数（实现类为 `app/optional/Ai.php`，插件一律走全局别名）：
+
+- `ai_ready(): bool`——内核 AI 是否已配置；未配置时插件应隐藏 AI 入口或降级。
+- `ai_chat(array $messages, array $options = []): array`——`$messages` 为 `['role' => 'system'|'user'|'assistant', 'content' => ...]` 数组；`$options` 可覆盖 `model`、`temperature`、`max_tokens`、`timeout`，`json => true` 开启 JSON 输出模式。返回 `['ok', 'content', 'error', 'model', 'duration_ms', 'log_id', 'usage' => ['prompt_tokens', 'completion_tokens']]`，失败时 `ok=false` 且 `error` 为可直接展示的中文原因。
+- `ai_chat_text(string $system, string $user, array $options = []): array`——单轮请求的便捷封装。
+- 调用方插件 ID 由内核通过调用栈自动识别并写入 `app_ai_logs`，无需插件传递。
+- 每次调用（含失败）自动写入后台「设置」页的 AI 调用日志（模型、Token 用量、耗时、错误、响应摘录），插件不必自建日志或调试开关；开启 Debug 模式时内核会额外写 Debug 日志。
+- 插件对返回内容的后续加工（剥离代码围栏、解析 JSON、截断长度）由插件自行负责；内核返回原始 `content`。
 
 ## Hooks 与展示位置
 

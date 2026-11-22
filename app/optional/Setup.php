@@ -147,6 +147,7 @@ final class Setup
             'app_plugins' => "CREATE TABLE app_plugins(id $key PRIMARY KEY,name $short NOT NULL,version $short NOT NULL DEFAULT '',file $short NOT NULL,code_hash $short NOT NULL,code_size $uint NOT NULL DEFAULT 0,code_mtime $uint NOT NULL DEFAULT 0,manifest_json $long NOT NULL,config_json $long NOT NULL,entries_json $long NOT NULL,enabled $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',disabled_reason $long NOT NULL,installed_at $uint NOT NULL,updated_at $uint NOT NULL)",
             'app_cron_tasks' => "CREATE TABLE app_cron_tasks(plugin_id $key NOT NULL,task_name $key NOT NULL,callback $short NOT NULL,interval_seconds $uint NOT NULL,enabled $uint NOT NULL DEFAULT 1,available_at $uint NOT NULL DEFAULT 0,lease_token $short NOT NULL DEFAULT '',lease_until $uint NOT NULL DEFAULT 0,last_started_at $uint NOT NULL DEFAULT 0,last_finished_at $uint NOT NULL DEFAULT 0,last_success_at $uint NOT NULL DEFAULT 0,status $short NOT NULL DEFAULT '',attempts $uint NOT NULL DEFAULT 0,failure_count $uint NOT NULL DEFAULT 0,retry_limit $uint NOT NULL DEFAULT 3,pause_seconds $uint NOT NULL DEFAULT 1800,pause_until $uint NOT NULL DEFAULT 0,last_error $long NOT NULL,PRIMARY KEY(plugin_id,task_name))",
             'app_settings' => "CREATE TABLE app_settings(name $key PRIMARY KEY,value $long NOT NULL)",
+            'app_ai_logs' => 'CREATE TABLE app_ai_logs(' . Ai::log_table_definition() . ')',
         ];
         if ($driver === 'mysql') {
             foreach ($tables as &$sql) $sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -163,6 +164,8 @@ final class Setup
             'idx_attachments_user' => 'app_attachments(user_id,created_at DESC,id DESC)',
             'idx_notifications_recipient_unread' => 'app_notifications(recipient_id,read_at)',
             'idx_notifications_recipient_time' => 'app_notifications(recipient_id,created_at DESC,id DESC)',
+            'idx_ai_logs_created' => 'app_ai_logs(created_at DESC,id DESC)',
+            'idx_ai_logs_plugin' => 'app_ai_logs(plugin_id,created_at DESC,id DESC)',
             'idx_notifications_sender_time' => 'app_notifications(sender_id,created_at DESC,id DESC)',
             'idx_cron_logs_plugin_time' => 'app_cron_logs(plugin_id,started_at DESC,id DESC)',
             'idx_cron_logs_time' => 'app_cron_logs(started_at DESC,id DESC)',
