@@ -13,12 +13,6 @@ final class Ai
         return setting('ai_api_url', '') !== '' && setting('ai_api_key', '') !== '' && setting('ai_model', '') !== '';
     }
 
-    public static function log_table_definition(): string
-    {
-        $t = app_db_types();
-        return "id {$t['id']},plugin_id {$t['string']} NOT NULL DEFAULT '',user_id {$t['uint']} NOT NULL DEFAULT 0,model {$t['string']} NOT NULL DEFAULT '',prompt_chars {$t['uint']} NOT NULL DEFAULT 0,completion_chars {$t['uint']} NOT NULL DEFAULT 0,prompt_tokens {$t['uint']} NOT NULL DEFAULT 0,completion_tokens {$t['uint']} NOT NULL DEFAULT 0,duration_ms {$t['uint']} NOT NULL DEFAULT 0,status {$t['string']} NOT NULL DEFAULT '',error {$t['text']} NOT NULL DEFAULT '',response_excerpt {$t['text']} NOT NULL DEFAULT '',created_at {$t['uint']} NOT NULL DEFAULT 0";
-    }
-
     public static function log_write(array $entry): int
     {
         try {
