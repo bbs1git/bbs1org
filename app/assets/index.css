@@ -3056,6 +3056,35 @@ table.list {
     box-shadow: none
 }
 
+.admin-search-field .admin-search-scope {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 104px;
+    height: 100%;
+    padding: 0 22px 0 10px;
+    border: 0;
+    border-right: 1px solid var(--line-soft);
+    border-radius: 0;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center;
+    box-shadow: none;
+    appearance: none;
+    -webkit-appearance: none;
+    color: var(--text);
+    font-size: var(--font-size-sm);
+    text-overflow: ellipsis;
+    cursor: pointer
+}
+
+.admin-search-field .admin-search-scope:focus {
+    border: 0;
+    border-right: 1px solid var(--line-soft);
+    box-shadow: none
+}
+
+.admin-search-field:has(.admin-search-scope) {
+    width: 320px
+}
+
 .admin-search-submit {
     height: 100%;
     min-height: 0;
@@ -4580,6 +4609,21 @@ table.list.admin-bulk-list {
 
     .admin-search-field {
         width: min(220px,100%)
+    }
+
+    .admin-search-field:has(.admin-search-scope) {
+        width: min(320px,100%)
+    }
+
+    .plugin-market-search {
+        flex: 1 1 100%
+    }
+
+    .plugin-market-search .admin-search-field,
+    .plugin-market-search .admin-search-field:has(.admin-search-scope) {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0
     }
 
     .plugin-local-list-panel .plugin-local-search {

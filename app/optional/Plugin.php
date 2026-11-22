@@ -817,15 +817,13 @@ final class Plugin
     {
         $view_param = self::plugin_market_view_param($market_view);
         $hidden = hidden_inputs(['a' => 'admin', 'tab' => 'plugins', 'view' => 'market', 'market_view' => (string)$view_param]);
-        $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param]);
-        $clear = $query !== '' ? '<a class="admin-search-clear" href="' . h($url) . '">清空</a>' : '';
         $scope_options = ['title' => '标题', 'id' => 'ID', 'creator' => '作者', 'description' => '介绍'];
-        $scope_sel = '<select name="market_scope" class="admin-search-select"><option value=""' . ($scope === '' ? ' selected' : '') . '>全部</option>';
+        $scope_sel = '<select name="market_scope" class="admin-search-scope" aria-label="搜索范围"><option value=""' . ($scope === '' ? ' selected' : '') . '>全部</option>';
         foreach ($scope_options as $key => $label) {
             $scope_sel .= '<option value="' . h($key) . '"' . ($scope === $key ? ' selected' : '') . '>' . h($label) . '</option>';
         }
         $scope_sel .= '</select>';
-        return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $hidden . $scope_sel . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索插件"' . length_attributes('q') . '><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
+        return '<form class="admin-table-search plugin-market-search" method="get" action="' . h(index_url()) . '">' . $hidden . '<div class="admin-search-field">' . $scope_sel . '<input name="q" value="' . h($query) . '" placeholder="搜索插件"' . length_attributes('q') . '><button class="admin-search-submit" type="submit">搜索</button></div><button type="submit" name="refresh" value="1" class="admin-search-clear">刷新</button></form>';
     }
 
     public static function plugin_market_matches(array $item, string $query, string $scope = ''): bool
@@ -898,8 +896,8 @@ final class Plugin
         $items = array_slice($items, ($page - 1) * PLUGIN_MARKET_PAGE_SIZE, PLUGIN_MARKET_PAGE_SIZE, true);
         $view_param = self::plugin_market_view_param($market_view);
         $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param]);
-        $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>免费插件可直接在线安装；付费插件购买后，在插件页面获取一次性授权码即可在线安装或更新。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
-        $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query, $market_view, $scope) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param, 'q' => $query !== '' ? $query : null, 'market_scope' => $scope !== '' ? $scope : null, 'refresh' => '1'])) . '">刷新</a></div>';
+        $head = '<div class="admin-plugin-summary"><strong>插件市场</strong>' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<span>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。</span>' : '') . '</div>';
+        $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query, $market_view, $scope) . '</div>';
         $market_tabs = tab_bar_html([
             'certified' => ['label' => '站长认证', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
             'required' => ['label' => '必装', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => 'required'])],
