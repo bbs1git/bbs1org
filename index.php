@@ -2781,7 +2781,8 @@ function login_page(): void
     ]);
     $form_extra = (string)hook('login.form_extra', '', []);
     $auth_extra = (string)hook('login.after_form', '', []);
-    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel" data-slot="login.after_form"><h2>登录</h2><form method="post" data-slot="login.form_extra">' . form_token() . input('用户名', 'username', '', 'text', true) . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form>' . $auth_extra . '</div>', $sidebar));
+    $login_username = '<label class="grid"><span>用户名</span><input name="username" type="text" required></label>';
+    page('登录', shell_html(auth_tabs_html('login') . '<div class="form-panel auth-panel" data-slot="login.after_form"><h2>登录</h2><form method="post" data-slot="login.form_extra">' . form_token() . $login_username . input('密码', 'password', '', 'password', true) . $form_extra . '<button>登录</button></form>' . $auth_extra . '</div>', $sidebar));
 }
 function register_page(): void
 {
