@@ -192,7 +192,7 @@ final class Admin
             'ai_api_url' => ['label' => 'AI 接口地址', 'help' => 'OpenAI 兼容接口基础地址，如 https://api.deepseek.com/v1。配置后内核统一向插件提供 AI 能力（ai_chat）。'],
             'ai_api_key' => ['label' => 'AI API Key', 'type' => 'password', 'help' => '地址、Key、模型三项都填写后内核 AI 服务可用。'],
             'ai_model' => ['label' => 'AI 模型', 'help' => '如 gpt-4o-mini、deepseek-chat、qwen-plus。'],
-            'ai_temperature' => ['label' => 'AI 温度', 'type' => 'number', 'min' => 0, 'max' => 2, 'required' => false, 'help' => '默认 0.7。控制回答的随机性：越低越稳定精准，越高越发散有创意。'],
+            'ai_temperature' => ['label' => 'AI 温度', 'type' => 'number', 'min' => 0, 'max' => 2, 'step' => 'any', 'required' => false, 'help' => '默认 0.7。控制回答的随机性：越低越稳定精准，越高越发散有创意。'],
             'ai_max_tokens' => ['label' => 'AI 单次最大输出', 'type' => 'number', 'min' => 1, 'max' => 200000, 'required' => false, 'help' => '默认 16384，只限制上限不增加费用；超过所用模型上限时部分接口会报错，可按模型调整。'],
             'ai_timeout_seconds' => ['label' => 'AI 请求超时（秒）', 'type' => 'number', 'min' => 1, 'max' => 300, 'required' => false, 'help' => '默认 30 秒。'],
         ];
@@ -206,6 +206,7 @@ final class Admin
         $update_dot = preg_match('/^[a-f0-9]{64}$/', $notice_sha) === 1 ? '<i class="settings-update-dot" title="发现新版本" aria-label="发现新版本"></i>' : '';
         $tools .= '<div class="settings-tool-card"><div><strong class="settings-tool-title" data-update-tool-title>系统升级' . $update_dot . '</strong><span>' . h($update_meta) . '</span></div>' . $update_action . '</div>';
         $tools .= self::ai_log_card();
+        $tools .= self::ai_debug_card();
         return '<span hidden data-settings-update-check-url="' . h(route_url('update', ['notice_check' => 1])) . '"></span><div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $settings) . '<div class="row settings-actions"><button type="submit">保存</button></div></form><div class="settings-tool-grid">' . $tools . '</div></div>';
     }
 
@@ -283,6 +284,72 @@ final class Admin
         page('AI 调用日志', shell_html($html, sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => 'settings'])));
     }
 
+    public static function ai_debug_card(): string
+    {
+        $desc = Ai::ready()
+            ? '模型 ' . (string)setting('ai_model', '') . ' · 温度 ' . (float)setting('ai_temperature', '0.7') . ' · 最大输出 ' . (int)setting('ai_max_tokens', '16384') . '。发送一条测试消息，验证接口与参数。'
+            : 'AI 服务未配置，填写接口地址、Key 和模型后即可测试。';
+        return '<div class="settings-tool-card"><div><strong>AI 调用调试</strong><span>' . h($desc) . '</span></div><a class="settings-tool-action" href="' . h(admin_url(['tab' => 'settings', 'ai_debug' => 'view'])) . '">调试</a></div>';
+    }
+
+    public static function ai_debug_page(): void
+    {
+        need_admin();
+        $default_prompt = '你好，请用一句话介绍你自己。';
+        $values = ['ai_debug_prompt' => $default_prompt, 'ai_debug_system' => '', 'ai_debug_temperature' => '', 'ai_debug_max_tokens' => '', 'ai_debug_json' => '0'];
+        $result = null;
+        if (is_post_request()) {
+            require_post();
+            $values['ai_debug_prompt'] = trim(post('ai_debug_prompt', DB_TEXT_MAX_LENGTH));
+            if ($values['ai_debug_prompt'] === '') $values['ai_debug_prompt'] = $default_prompt;
+            $values['ai_debug_system'] = trim(post('ai_debug_system', DB_TEXT_MAX_LENGTH));
+            $values['ai_debug_temperature'] = trim((string)($_POST['ai_debug_temperature'] ?? ''));
+            $values['ai_debug_max_tokens'] = trim((string)($_POST['ai_debug_max_tokens'] ?? ''));
+            $values['ai_debug_json'] = isset($_POST['ai_debug_json']) ? '1' : '0';
+            $options = [];
+            if ($values['ai_debug_temperature'] !== '') $options['temperature'] = min(2, max(0, (float)$values['ai_debug_temperature']));
+            if ($values['ai_debug_max_tokens'] !== '') $options['max_tokens'] = min(200000, max(1, (int)$values['ai_debug_max_tokens']));
+            if ($values['ai_debug_json'] === '1') $options['json'] = true;
+            try {
+                $result = Ai::chat_text($values['ai_debug_system'], $values['ai_debug_prompt'], $options);
+            } catch (\Throwable $e) {
+                $result = ['ok' => false, 'content' => '', 'error' => $e->getMessage(), 'model' => (string)setting('ai_model', ''), 'duration_ms' => 0, 'log_id' => 0, 'usage' => ['prompt_tokens' => 0, 'completion_tokens' => 0]];
+            }
+        }
+        $result_html = '';
+        if (is_array($result)) {
+            $ok = !empty($result['ok']);
+            $usage = (array)($result['usage'] ?? []);
+            $result_html = '<div class="ai-debug-result' . ($ok ? ' is-ok' : ' is-error') . '"><div class="ai-log-meta">'
+                . '<span class="ai-log-status" data-label="结果">' . ($ok ? '成功' : '失败') . '</span>'
+                . '<span class="ai-log-model" data-label="模型">' . h((string)($result['model'] ?? '')) . '</span>'
+                . '<span class="ai-log-duration" data-label="耗时">' . (int)($result['duration_ms'] ?? 0) . 'ms</span>'
+                . '<span class="ai-log-tokens" data-label="Token">' . (int)($usage['prompt_tokens'] ?? 0) . ' + ' . (int)($usage['completion_tokens'] ?? 0) . '</span>'
+                . ((int)($result['log_id'] ?? 0) > 0 ? '<a class="ai-debug-log-link" href="' . h(admin_url(['tab' => 'settings', 'ai_log' => 'view'])) . '">已写入调用日志</a>' : '')
+                . '</div>'
+                . ($ok
+                    ? '<pre class="ai-debug-output">' . h((string)$result['content']) . '</pre>'
+                    : '<div class="ai-debug-error">' . h((string)($result['error'] ?? '未知错误')) . '</div>')
+                . '</div>';
+        }
+        $settings = settings_cache();
+        $fields = [
+            'ai_debug_prompt' => ['label' => '提示词', 'type' => 'textarea', 'required' => true, 'help' => '作为用户消息发送给 AI。'],
+            'ai_debug_system' => ['label' => '系统提示词', 'type' => 'textarea', 'required' => false, 'help' => '可选，留空则只发送用户消息。'],
+            'ai_debug_temperature' => ['label' => '温度', 'type' => 'number', 'min' => 0, 'max' => 2, 'step' => 'any', 'required' => false, 'help' => '留空使用后台设置的值（' . (float)($settings['ai_temperature'] ?? '0.7') . '）。'],
+            'ai_debug_max_tokens' => ['label' => '最大输出', 'type' => 'number', 'min' => 1, 'max' => 200000, 'required' => false, 'help' => '留空使用后台设置的值（' . (int)($settings['ai_max_tokens'] ?? '16384') . '）。'],
+            'ai_debug_json' => ['label' => 'JSON 模式', 'type' => 'checkbox', 'help' => '要求接口返回 JSON 对象。'],
+        ];
+        $summary = Ai::ready()
+            ? '当前模型 ' . (string)($settings['ai_model'] ?? '') . '，接口 ' . (string)($settings['ai_api_url'] ?? '') . '。每次测试都会真实调用一次并写入调用日志。'
+            : 'AI 服务未配置，请先在后台设置中填写接口地址、Key 和模型。';
+        $html = '<div class="ai-debug"><div class="ai-log-head"><div><strong>AI 调用调试</strong><span>' . h($summary) . '</span></div></div>'
+            . ($result_html !== '' ? $result_html : '')
+            . '<div class="form-panel settings-form"><form method="post">' . form_token() . render_form_fields($fields, $values) . '<div class="row settings-actions"><button type="submit">发送测试</button><a class="btn alt" href="' . h(admin_url(['tab' => 'settings'])) . '">返回设置</a></div></form></div>'
+            . '</div>';
+        page('AI 调用调试', shell_html($html, sidebar_stack_html([sidebar_user_card_html()], ['is_admin' => true, 'admin_tab' => 'settings'])));
+    }
+
     public static function groups_html(): string
     {
         $html = '<table class="list admin-bulk-list"><tr><th>名称</th><th>用户和内容管理</th><th>后台管理</th><th><a class="admin-head-add" href="' . h(admin_url(['do' => 'edit', 'type' => 'group', 'id' => 0])) . '">添加</a></th></tr>';
@@ -317,6 +384,10 @@ final class Admin
         if ($tab === 'plugins' && (string)($_GET['plugin_action'] ?? '') === 'enable_uploaded') Plugin::plugin_enable_uploaded_page();
         if ($tab === 'settings' && (string)($_GET['ai_log'] ?? '') === 'view') {
             self::ai_log_page();
+            return;
+        }
+        if ($tab === 'settings' && (string)($_GET['ai_debug'] ?? '') === 'view') {
+            self::ai_debug_page();
             return;
         }
         if ($tab === 'settings' && is_post_request()) self::settings_handle_post();

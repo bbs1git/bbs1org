@@ -2255,9 +2255,9 @@ function checkbox(string $label, string $name, bool $checked = false, string $he
 {
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input type="checkbox" name="' . h($name) . '" value="1"' . ($checked ? ' checked' : '') . '></label>';
 }
-function number_input(string $label, string $name, mixed $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = ''): string
+function number_input(string $label, string $name, mixed $value = '', int|float|null $min = null, int|float|null $max = null, bool $required = true, string $help = '', string $class = '', string $step = ''): string
 {
-    $limits = ($min !== null ? ' min="' . h($min) . '"' : '') . ($max !== null ? ' max="' . h($max) . '"' : '');
+    $limits = ($min !== null ? ' min="' . h($min) . '"' : '') . ($max !== null ? ' max="' . h($max) . '"' : '') . ($step !== '' ? ' step="' . h($step) . '"' : '');
     return '<label class="grid' . ($class !== '' ? ' ' . h($class) : '') . '">' . form_field_caption($label, $help) . '<input name="' . h($name) . '" type="number" value="' . h($value) . '"' . $limits . ($required ? ' required' : '') . '></label>';
 }
 function select_input(string $label, string $name, mixed $value, array $options, string $help = '', string $class = ''): string
@@ -2281,7 +2281,7 @@ function render_form_fields(array $fields, array $values = []): string
         $class = (string)($field['class'] ?? '');
         if ($help !== '' && !str_contains(' ' . $class . ' ', ' settings-help-field ')) $class = trim($class . ' settings-help-field');
         if ($type === 'checkbox') $html .= checkbox($label, (string)$name, (bool)(int)$value, $help, $class);
-        elseif ($type === 'number') $html .= number_input($label, (string)$name, $value, $field['min'] ?? null, $field['max'] ?? null, (bool)($field['required'] ?? true), $help, $class);
+        elseif ($type === 'number') $html .= number_input($label, (string)$name, $value, $field['min'] ?? null, $field['max'] ?? null, (bool)($field['required'] ?? true), $help, $class, (string)($field['step'] ?? ''));
         elseif ($type === 'select') $html .= select_input($label, (string)$name, $value, (array)($field['options'] ?? []), $help, $class);
         elseif ($type === 'textarea') $html .= textarea($label, (string)$name, $value, !empty($field['required']), $help, $class);
         else $html .= input($label, (string)$name, $value, $type, !empty($field['required']), $help, $class);

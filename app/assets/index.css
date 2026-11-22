@@ -2952,6 +2952,66 @@ input[type=checkbox][checked]:not(:checked) {
     font-size: var(--font-size-sm)
 }
 
+.ai-debug {
+    display: flex;
+    flex-direction: column;
+    gap: 12px
+}
+
+.ai-debug-result {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel)
+}
+
+.ai-debug-result.is-error {
+    border-color: var(--danger);
+    background: var(--danger-soft)
+}
+
+.ai-debug .settings-actions .btn.alt {
+    padding-top: 6px;
+    padding-bottom: 6px
+}
+
+.ai-debug-log-link {
+    color: var(--brand);
+    font-size: var(--font-size-xs);
+    text-decoration: none
+}
+
+.ai-debug-log-link:hover {
+    text-decoration: underline
+}
+
+.ai-debug-output {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 360px;
+    overflow: auto
+}
+
+.ai-debug-error {
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--danger);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    overflow-wrap: anywhere
+}
+
 @media (max-width:720px) {
     .ai-log-meta {
         gap: 4px 12px
