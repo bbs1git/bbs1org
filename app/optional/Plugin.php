@@ -813,19 +813,32 @@ final class Plugin
         return $remote !== '' && $local !== '' && version_compare($remote, $local, '>');
     }
 
-    public static function plugin_market_search_form(string $query, string $market_view): string
+    public static function plugin_market_search_form(string $query, string $market_view, string $scope = ''): string
     {
         $view_param = self::plugin_market_view_param($market_view);
         $hidden = hidden_inputs(['a' => 'admin', 'tab' => 'plugins', 'view' => 'market', 'market_view' => (string)$view_param]);
         $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param]);
         $clear = $query !== '' ? '<a class="admin-search-clear" href="' . h($url) . '">清空</a>' : '';
-        return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $hidden . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索标题 / 插件ID / 制作者"' . length_attributes('q') . '><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
+        $scope_options = ['title' => '标题', 'id' => 'ID', 'creator' => '作者', 'description' => '介绍'];
+        $scope_sel = '<select name="market_scope" class="admin-search-select"><option value=""' . ($scope === '' ? ' selected' : '') . '>全部</option>';
+        foreach ($scope_options as $key => $label) {
+            $scope_sel .= '<option value="' . h($key) . '"' . ($scope === $key ? ' selected' : '') . '>' . h($label) . '</option>';
+        }
+        $scope_sel .= '</select>';
+        return '<form class="admin-table-search" method="get" action="' . h(index_url()) . '">' . $hidden . $scope_sel . '<div class="admin-search-field"><input name="q" value="' . h($query) . '" placeholder="搜索插件"' . length_attributes('q') . '><button class="admin-search-submit" type="submit">搜索</button></div>' . $clear . '</form>';
     }
 
-    public static function plugin_market_matches(array $item, string $query): bool
+    public static function plugin_market_matches(array $item, string $query, string $scope = ''): bool
     {
         if ($query === '') return true;
-        foreach (['title', 'name', 'id', 'creator', 'description'] as $key) if (stripos((string)($item[$key] ?? ''), $query) !== false) return true;
+        $keys = match ($scope) {
+            'title' => ['name', 'title'],
+            'id' => ['id'],
+            'creator' => ['creator'],
+            'description' => ['description'],
+            default => ['title', 'name', 'id', 'creator', 'description'],
+        };
+        foreach ($keys as $key) if (stripos((string)($item[$key] ?? ''), $query) !== false) return true;
         return false;
     }
 
@@ -836,6 +849,7 @@ final class Plugin
         $feed_view = $market_view === 'beta' ? 'beta' : 'certified';
         $force = (string)($_GET['refresh'] ?? '') === '1';
         $query = trim((string)($_GET['q'] ?? ''));
+        $scope = trim((string)($_GET['market_scope'] ?? ''));
         $market = self::plugin_market_fetch(false, $force, '', 0, $feed_view);
         $items = is_array($market['plugins'] ?? null) ? $market['plugins'] : [];
         if ($query !== '') {
@@ -856,12 +870,12 @@ final class Plugin
             $id = (string)($item['id'] ?? '');
             if (isset($local[$id]) && self::plugin_market_update_available($local[$id], $item)) $updates[$id] = true;
         }
-        $items = array_filter($items, static function ($item) use ($query, $market_view, $feed_view): bool {
+        $items = array_filter($items, static function ($item) use ($query, $scope, $market_view, $feed_view): bool {
             if (!is_array($item)) return false;
             $id = (string)($item['id'] ?? '');
             if (!self::plugin_id_valid($id)) return false;
             if ($market_view === 'required' && empty($item['required'])) return false;
-            return ($query !== '' || (string)($item['market_status'] ?? 'certified') === $feed_view) && self::plugin_market_matches($item, $query);
+            return ($query !== '' || (string)($item['market_status'] ?? 'certified') === $feed_view) && self::plugin_market_matches($item, $query, $scope);
         });
         uasort($items, static function (array $a, array $b) use ($updates, $local): int {
             $a_id = (string)($a['id'] ?? '');
@@ -885,7 +899,7 @@ final class Plugin
         $view_param = self::plugin_market_view_param($market_view);
         $url = admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param]);
         $head = '<div class="admin-plugin-summary"><strong>插件市场</strong><span>免费插件可直接在线安装；付费插件购买后，在插件页面获取一次性授权码即可在线安装或更新。' . ((int)($market['fetched_at'] ?? 0) > 0 ? '<br>列表更新于 ' . date('Y-m-d H:i', (int)$market['fetched_at']) . '。' : '') . '</span></div>';
-        $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query, $market_view) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param, 'q' => $query !== '' ? $query : null, 'refresh' => '1'])) . '">刷新</a></div>';
+        $actions = '<div class="plugin-head-actions">' . self::plugin_market_search_form($query, $market_view, $scope) . '<a class="admin-search-clear" href="' . h(admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param, 'q' => $query !== '' ? $query : null, 'market_scope' => $scope !== '' ? $scope : null, 'refresh' => '1'])) . '">刷新</a></div>';
         $market_tabs = tab_bar_html([
             'certified' => ['label' => '站长认证', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market'])],
             'required' => ['label' => '必装', 'href' => admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => 'required'])],
@@ -899,7 +913,7 @@ final class Plugin
         }
         if (!$items) $html .= '<li class="empty-state">' . h($query !== '' ? '没有匹配的插件。' : ($market_view === 'beta' ? '暂无待审核或忽略的插件。' : ($market_view === 'required' ? '暂无必装插件。' : '暂无已审核通过的插件。'))) . '</li>';
         $html .= '</ul></div>';
-        $pagination = paginate($total, $page, PLUGIN_MARKET_PAGE_SIZE, admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param, 'q' => $query !== '' ? $query : null]));
+        $pagination = paginate($total, $page, PLUGIN_MARKET_PAGE_SIZE, admin_url(['tab' => 'plugins', 'view' => 'market', 'market_view' => $view_param, 'q' => $query !== '' ? $query : null, 'market_scope' => $scope !== '' ? $scope : null]));
         return $html . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     }
 
