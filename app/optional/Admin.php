@@ -229,13 +229,16 @@ final class Admin
         if (!in_array($status, ['ok', 'error'], true)) $status = '';
         $where = [];
         $args = [];
-        if ($plugin !== '') {
+        if ($plugin === '__core__') {
+            $where[] = "plugin_id=''";
+        } elseif ($plugin !== '') {
             $where[] = 'plugin_id=?';
             $args[] = $plugin;
         }
-        if ($status !== '') {
-            $where[] = 'status=?';
-            $args[] = $status;
+        if ($status === 'ok') {
+            $where[] = "status='ok'";
+        } elseif ($status === 'error') {
+            $where[] = "status<>'ok'";
         }
         $where_sql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         $total = (int)val("SELECT COUNT(*) FROM app_ai_logs" . $where_sql, $args);
@@ -251,18 +254,26 @@ final class Admin
         $plugins = q("SELECT DISTINCT plugin_id FROM app_ai_logs ORDER BY plugin_id")->fetchAll(\PDO::FETCH_COLUMN);
         $hidden = hidden_inputs(['a' => 'admin', 'tab' => 'settings', 'ai_log' => 'view']);
         $plugin_sel = '<select name="ai_plugin"><option value="">全部插件</option>';
-        foreach ($plugins as $pid) $plugin_sel .= '<option value="' . h((string)$pid) . '"' . ($plugin === (string)$pid ? ' selected' : '') . '>' . h((string)$pid !== '' ? (string)$pid : '内核') . '</option>';
+        foreach ($plugins as $pid) {
+            $pid = (string)$pid;
+            $value = $pid === '' ? '__core__' : $pid;
+            $plugin_sel .= '<option value="' . h($value) . '"' . ($plugin === $value ? ' selected' : '') . '>' . h($pid !== '' ? $pid : '内核') . '</option>';
+        }
         $plugin_sel .= '</select>';
         $status_sel = '<select name="ai_status"><option value="">全部状态</option><option value="ok"' . ($status === 'ok' ? ' selected' : '') . '>成功</option><option value="error"' . ($status === 'error' ? ' selected' : '') . '>失败</option></select>';
         $filters = '<form class="ai-log-filters" method="get" action="' . h(index_url()) . '">' . $hidden . $plugin_sel . $status_sel . '<button type="submit" class="ai-log-filter-apply">确定</button>' . ($plugin !== '' || $status !== '' ? '<a class="ai-log-filter-clear" href="' . h(admin_url(['tab' => 'settings', 'ai_log' => 'view'])) . '">重置</a>' : '') . '</form>';
         $clear = post_action_form(admin_url(['tab' => 'settings']), '清空日志', ['ai_log_action' => 'clear', 'ai_log_return' => 'view'], 'settings-tool-action', '确定清空全部 AI 调用日志？');
-        $summary = '共 ' . $total . ' 条记录' . ($plugin !== '' ? ' · 插件 ' . h($plugin !== '' ? $plugin : '内核') : '') . ($status === 'error' ? ' · 仅失败' : ($status === 'ok' ? ' · 仅成功' : ''));
+        $summary = '共 ' . $total . ' 条记录' . ($plugin !== '' ? ' · 插件 ' . h($plugin === '__core__' ? '内核' : $plugin) : '') . ($status === 'error' ? ' · 仅失败' : ($status === 'ok' ? ' · 仅成功' : ''));
         $body_rows = '';
         foreach ($rows as $r) {
             $ok = (string)$r['status'] === 'ok';
             $detail = $ok ? trim((string)$r['response_excerpt']) : trim((string)$r['error']);
             $tokens = ((int)$r['prompt_tokens'] > 0 || (int)$r['completion_tokens'] > 0) ? (int)$r['prompt_tokens'] . ' + ' . (int)$r['completion_tokens'] : '-';
             $user = $names[(int)$r['user_id']] ?? ((int)$r['user_id'] > 0 ? 'UID ' . (int)$r['user_id'] : '系统');
+            $collapsible = mb_strlen($detail, 'UTF-8') > 140 || substr_count($detail, "\n") > 2;
+            $detail_html = $collapsible
+                ? '<details class="ai-log-detail"><summary><span class="ai-log-detail-preview">' . h($detail) . '</span><span class="ai-log-detail-toggle"></span></summary></details>'
+                : '<div class="ai-log-detail">' . h($detail) . '</div>';
             $body_rows .= '<div class="ai-log-row' . ($ok ? ' is-ok' : ' is-error') . '">'
                 . '<div class="ai-log-meta">'
                 . '<span class="ai-log-time" data-label="时间">' . h(date('m-d H:i', (int)$r['created_at'])) . '</span>'
@@ -273,7 +284,7 @@ final class Admin
                 . '<span class="ai-log-duration" data-label="耗时">' . (int)$r['duration_ms'] . 'ms</span>'
                 . '<span class="ai-log-status" data-label="状态">' . ($ok ? '成功' : '失败') . '</span>'
                 . '</div>'
-                . '<div class="ai-log-detail">' . h(mb_substr($detail, 0, 400, 'UTF-8')) . '</div>'
+                . $detail_html
                 . '</div>';
         }
         $list = '<div class="ai-log-list">'
