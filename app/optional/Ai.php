@@ -51,7 +51,17 @@ final class Ai
         $plugin = self::caller_plugin();
         $model = trim((string)($options['model'] ?? setting('ai_model', '')));
         $prompt_chars = 0;
-        foreach ($messages as $m) $prompt_chars += (is_array($m) ? mb_strlen((string)($m['content'] ?? ''), 'UTF-8') : 0);
+        foreach ($messages as $m) {
+            if (!is_array($m)) continue;
+            $content = $m['content'] ?? '';
+            if (is_array($content)) {
+                foreach ($content as $part) {
+                    if (is_array($part) && (string)($part['type'] ?? '') === 'text') $prompt_chars += mb_strlen((string)($part['text'] ?? ''), 'UTF-8');
+                }
+            } else {
+                $prompt_chars += mb_strlen((string)$content, 'UTF-8');
+            }
+        }
         $fail = static function (string $error, string $status = 'error', array $extra = []) use ($plugin, $model, $prompt_chars, $started): array {
             $duration_ms = (int)round((microtime(true) - $started) * 1000);
             $log_id = self::log_write(['plugin_id' => $plugin, 'user_id' => uid(), 'model' => $model, 'prompt_chars' => $prompt_chars, 'duration_ms' => $duration_ms, 'status' => $status, 'error' => $error] + $extra);
@@ -66,7 +76,9 @@ final class Ai
         $payload = [
             'model' => $model,
             'messages' => array_values(array_map(static function ($m): array {
-                return ['role' => (string)($m['role'] ?? 'user'), 'content' => (string)($m['content'] ?? '')];
+                $content = is_array($m) ? ($m['content'] ?? '') : '';
+                if (!is_array($content)) $content = (string)$content;
+                return ['role' => (string)(is_array($m) ? ($m['role'] ?? 'user') : 'user'), 'content' => $content];
             }, $messages)),
             'temperature' => isset($options['temperature']) ? max(0, min(2, (float)$options['temperature'])) : max(0, min(2, (float)setting('ai_temperature', '0.7'))),
             'max_tokens' => isset($options['max_tokens']) ? max(1, min(200000, (int)$options['max_tokens'])) : max(1, min(200000, (int)setting('ai_max_tokens', '16384'))),
