@@ -577,7 +577,7 @@ function debug_log_write(string $message, ?Throwable $e = null): void
     Setup::debug_log_write($message, $e);
 }
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
-    if (error_reporting() === 0) return false;
+    if (!(error_reporting() & $severity)) return false;
     debug_log_write('PHP error [' . $severity . '] ' . $message . "\n" . $file . ':' . $line);
     return false;
 });
@@ -3145,8 +3145,8 @@ function topic_page(): void
         go(route_url('topic', ['id' => (int)$reply['topic_id'], 'replyid' => id('replyid')]));
     }
     $t = row('app_topics', 'id', id()) ?: err('主题不存在或已被删除', 404);
-    $forum = forum_by_id((int)$t['forum_id']);
-    if ($forum && !forum_group_allowed($forum, 'allow_view_groups')) err('无权限进行此操作');
+    $forum = forum_by_id((int)$t['forum_id']) ?: ['id' => 0, 'name' => '未知版块'];
+    if (!forum_group_allowed($forum, 'allow_view_groups')) err('无权限进行此操作');
     if (mark_viewed((int)$t['id'])) {
         q("UPDATE app_topics SET view_count=view_count+1 WHERE id=?", [(int)$t['id']]);
         $t['view_count'] = (int)$t['view_count'] + 1;

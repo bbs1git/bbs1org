@@ -102,7 +102,6 @@ final class Ai
         $usage = is_array($data['usage'] ?? null) ? $data['usage'] : [];
         $log = ['status' => 'ok', 'response_excerpt' => cut($content, 2000), 'prompt_tokens' => (int)($usage['prompt_tokens'] ?? 0), 'completion_tokens' => (int)($usage['completion_tokens'] ?? 0), 'completion_chars' => mb_strlen($content, 'UTF-8'), 'duration_ms' => $duration_ms];
         $log_id = self::log_write(['plugin_id' => $plugin, 'user_id' => uid(), 'model' => $model, 'prompt_chars' => $prompt_chars] + $log);
-        if (debug_mode_enabled()) debug_log_write("ai_chat[{$plugin}]: ok model={$model} tokens={$log['prompt_tokens']}+{$log['completion_tokens']} {$duration_ms}ms");
         if ($content === '') return $fail('AI 返回空内容', 'empty_response', ['duration_ms' => $duration_ms, 'log_id' => $log_id]);
         return ['ok' => true, 'content' => $content, 'error' => '', 'model' => $model, 'duration_ms' => $duration_ms, 'log_id' => $log_id, 'usage' => ['prompt_tokens' => $log['prompt_tokens'], 'completion_tokens' => $log['completion_tokens']]];
     }
