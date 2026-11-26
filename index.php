@@ -2201,6 +2201,10 @@ function page_template(array $data): string
     $html = hook('page.template.before', null, $data);
     if (!is_string($html)) $html = page_head_html($data['page_title'], $data['meta'], $data['head_extra']) . page_nav_html($data['site_name']) . $data['header_html'] . '<main class="wrap" data-slot="page.before_render">' . $data['body'] . '</main>' . page_footer_html($data['title'], $data['flash']);
     $html = (string)hook('page.template', $html, $data);
+    $page_type = (string)($data['page_type'] ?? 'other');
+    if ($page_type !== '' && !str_contains($html, 'data-page-type=')) {
+        $html = preg_replace('/<body\b/', '<body data-page-type="' . h($page_type) . '"', $html, 1) ?? $html;
+    }
     return str_replace(['<!--plugin-assets:css-->', '<!--plugin-assets:js-->'], [Plugin::plugin_assets_html('css'), Plugin::plugin_assets_html('js')], $html);
 }
 function page(string $title, string $body, array $seo = []): void
