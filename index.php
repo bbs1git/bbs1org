@@ -3111,7 +3111,7 @@ function topic_page_template(array $view): string
     extract($view, EXTR_SKIP);
     $before = hook('topic.template.before', null, $view);
     if (is_string($before)) return (string)hook('topic.template', $before, $view);
-    $topic_ops = uid() ? quote_reply_action($t) : '';
+    $topic_ops = quote_reply_action($t);
     $topic_ops = (string)hook('topic.actions', $topic_ops, ['topic' => $t]);
     $breadcrumb = '<div class="breadcrumb"><a href="' . h(route_url('home')) . '">首页</a><span>/</span><a href="' . h(route_url('forum', ['id' => (int)$forum['id']])) . '">' . h($forum['name']) . '</a></div>';
     $topic_url = route_url('topic', ['id' => (int)$t['id']]);
@@ -3120,7 +3120,7 @@ function topic_page_template(array $view): string
     foreach ($replies as $i => $r) {
         $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
         if (trim((string)$r['body']) === '') continue;
-        $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
+        $reply_ops = quote_reply_action($r, $reply_floor);
         $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor, 'page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
     }
     if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">暂无回复</li>';
